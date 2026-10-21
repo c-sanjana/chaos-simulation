@@ -52,15 +52,15 @@ Single source of truth for this project. If this file and the conversation disag
 
 - Q1. Where to host, and does the repo need to be public for that host (for example GitHub Pages on a free plan)? To decide once the stack is chosen.
 
-## 3a. Risks (under discussion; agreed items marked)
+## 3a. Risks (all agreed)
 
 | # | Risk | Mitigation | Status |
 |---|------|------------|--------|
 | 1 | Running out of time | Scope in tiers: must-haves first, then expand as time allows. Build a working core early | Agreed |
 | 2 | Simulated behaviour doesn't match real systems | Presets ship sensible settings that are fully editable; nothing is auto-picked or auto-tuned. Modelling correctness is enforced by tests at three levels: comparison with queueing theory, invariants, and known failure patterns | Agreed |
-| 3 | Overclaiming accuracy | Model the production mechanisms that drive these failures; state what is not modelled in the README, not in the UI | Framing open |
-| 4 | Sweeps too slow | Back-of-envelope estimate done; confirm with a benchmark in milestone 1. Run the simulation in Web Workers | Open (worker choice) |
-| 5 | Fix suggestions look scripted | Every suggested fix is a setting change that actually gets re-run. Rank fixes by relevance to what the run showed | Ranking method open |
+| 3 | Overclaiming accuracy | Framed as a tool for **building intuition, not predicting production behaviour**. Model the production mechanisms that drive these failures. The README, not the UI, lists what is not modelled | Agreed |
+| 4 | Sweeps too slow | Run the simulation in **Web Workers**, in parallel. The back-of-envelope estimate gives a 1D sweep in about 2–3 s and a 60-cell 2D map in about 5–10 s; confirm with a benchmark in milestone 1. Results fill in as they arrive | Agreed |
+| 5 | Fix suggestions look scripted | Every suggested fix is a setting change that actually gets re-run. Advice that can't be applied is left out. Candidates are **ranked by measured effect**: each one is run against the same seed | Agreed |
 | 6 | Too much on screen | Show one question at a time, in order. Advanced settings, extra charts and long text are collapsed or toggleable | Agreed |
 | 7 | Trace-back balloons | V1: a short, readable timeline of detected events. Iterate from there | Agreed |
 | 8 | Hosted URL fails | The user will test the hosted URL repeatedly; low concern | Agreed (low) |
@@ -85,6 +85,10 @@ _To be agreed: scope (in and out), architecture, technical choices, risks, miles
 | 2026-10-21 | Working agreement: options and tradeoffs first, you decide, no code before the plan is agreed | Set in the kickoff message |
 | 2026-10-21 | Time budget 2.5–3 h | Leaves room for depth while staying well inside the 8 h limit |
 | 2026-10-21 | Deliver as a hosted URL plus the repo and README | Keeps reviewer effort as low as possible (R3) |
+| 2026-10-21 | Framing: builds intuition, does not predict production | Avoids overclaiming; the README lists what is not modelled |
+| 2026-10-21 | Simulation runs in Web Workers | Keeps the page responsive, sweeps can be cancelled and can run in parallel |
+| 2026-10-21 | Rank fixes by measured effect | Fixes are verified, not generic |
+| 2026-10-21 | Every random value is derived from a stable key (request, attempt, tier) | Before and after see identical traffic and identical random values |
 
 ## 8. Time log
 
