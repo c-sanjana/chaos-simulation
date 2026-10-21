@@ -52,6 +52,20 @@ Single source of truth for this project. If this file and the conversation disag
 
 - Q1. Where to host, and does the repo need to be public for that host (for example GitHub Pages on a free plan)? To decide once the stack is chosen.
 
+## 3a. Risks (under discussion; agreed items marked)
+
+| # | Risk | Mitigation | Status |
+|---|------|------------|--------|
+| 1 | Running out of time | Scope in tiers: must-haves first, then expand as time allows. Build a working core early | Agreed |
+| 2 | Simulated behaviour doesn't match real systems | Presets ship sensible settings that are fully editable; nothing is auto-picked or auto-tuned. Modelling correctness is enforced by tests at three levels: comparison with queueing theory, invariants, and known failure patterns | Agreed |
+| 3 | Overclaiming accuracy | Model the production mechanisms that drive these failures; state what is not modelled in the README, not in the UI | Framing open |
+| 4 | Sweeps too slow | Back-of-envelope estimate done; confirm with a benchmark in milestone 1. Run the simulation in Web Workers | Open (worker choice) |
+| 5 | Fix suggestions look scripted | Every suggested fix is a setting change that actually gets re-run. Rank fixes by relevance to what the run showed | Ranking method open |
+| 6 | Too much on screen | Show one question at a time, in order. Advanced settings, extra charts and long text are collapsed or toggleable | Agreed |
+| 7 | Trace-back balloons | V1: a short, readable timeline of detected events. Iterate from there | Agreed |
+| 8 | Hosted URL fails | The user will test the hosted URL repeatedly; low concern | Agreed (low) |
+| 9 | Before/after runs not comparable | Seeded random draws tied to each request, so the original and the fix see identical traffic and identical random values. Covered by a test | Agreed; details go in the architecture section |
+
 ## 4. Idea
 
 _Waiting for your idea._
