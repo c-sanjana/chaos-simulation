@@ -2,7 +2,7 @@
 
 Single source of truth for this project. If this file and the conversation disagree, this file wins until we agree to change it.
 
-**Status:** Requirements, risks and V1 scope agreed (one open item: the map for the slow vs. dead database scenario, Q2). Next: architecture and milestones. No code yet.
+**Status:** Requirements, risks and V1 scope agreed. Architecture proposed; waiting for decisions. No code yet.
 
 ---
 
@@ -93,7 +93,7 @@ Built in this order. Whatever is unfinished at the time limit is cut from the bo
 
 | # | Item | Detail |
 |---|------|--------|
-| S1 | Slow vs. dead database | Map axes: **traffic × outage length**. One map (see Q2) |
+| S1 | Slow vs. dead database | Map axes: **traffic × outage length**. One map with a **Slow / Dead toggle** that redraws it on the same axes |
 | — | Map-cell drill-down | Click any cell to re-run its settings and open the full run view. The result is identical, since runs are deterministic |
 | — | Multi-seed confidence | Each fix verdict runs on 5 random seeds and is reported as "recovers in N of 5 seeds". This is confidence *within the model*. Each fix also has a one-line caveat behind a toggle |
 | S2 | Cache failure and stampede | Map axes: **traffic × outage length** |
@@ -153,8 +153,8 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 ## 8. Open questions
 
 - **Q1.** Where to host, and whether the repo must be public for it. Decide with the stack.
-- **Q2.** S1 map: one map for "slow" with a slow/dead toggle that redraws it on the same axes, or a map of "slow" only, with the slow vs. dead contrast shown in the run view?
-- **Q3.** Build parallel calls (needed for C1) into the engine during M1, so the engine doesn't change later? Or add it when C1 starts? To discuss with the architecture.
+- ~~Q2~~ Decided: one map with a Slow / Dead toggle.
+- ~~Q3~~ Decided: parallel calls are built only when a topology needs them (C1).
 
 ## 9. Plan: architecture, technical choices and milestones
 
@@ -178,6 +178,8 @@ _Next to agree._
 | 2026-10-22 | Run view shows throughput, latency, errors, workers occupied and CPU busy | Workers occupied vs. CPU busy shows threads exhausted while CPU looks idle |
 | 2026-10-22 | Build order: retry storm (M1–M8) → S1 with drill-down and confidence → S2 → C1 | Cut from the bottom if out of time |
 | 2026-10-22 | Deeper trace-back and the drag-and-drop builder are revisited after V1 | Avoid UI clutter; see V1 first |
+| 2026-10-22 | S1 uses one map with a Slow / Dead toggle | One map keeps it simple; the toggle shows slow has the bigger stuck region |
+| 2026-10-22 | Parallel calls built only when a topology needs them | Don't build ahead of need; C1 will be the engine change that adds them |
 
 ## 11. Time log
 
