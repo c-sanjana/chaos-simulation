@@ -184,6 +184,10 @@ High-level architecture agreed: static site; UI on the main thread; a pool of We
 | 2026-10-23 | One queue per instance, with a load balancer choosing the instance | Enables instance-level faults and load-balancer behaviour |
 | 2026-10-23 | Open-loop traffic | Real traffic doesn't slow down when the system does; this is required for stuck states to emerge |
 | 2026-10-23 | Compute the run, then replay it in the UI | Deterministic and simple; no benefit to real-time simulation |
+| 2026-10-23 | UI: three tabbed steps (option B) with a prominent scenario picker and an editable failure above them | User preference; choosing the failure is the first action |
+| 2026-10-23 | Every "watch a run" replays inline in the current step, using one reusable run player | No navigating between steps to see a run |
+| 2026-10-23 | Topology shows arrows labelled with requests/s (thickness = load), with instances drawn inside each tier | Makes the flow, and where retries pile up, followable |
+| 2026-10-23 | Throughput and load are separate charts: "Throughput" (sent vs succeeded, end to end) and "Load & retries" (first attempts vs retries vs capacity, per tier) | Different scopes and scales; mixing them hid the success line |
 
 ## 11. Time log
 
