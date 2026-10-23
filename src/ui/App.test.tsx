@@ -114,15 +114,12 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('switches scenarios and renders step 3 through the injected renderer', async () => {
+  it('opens step 3 and switches scenarios', async () => {
     const pool = new FakePool();
-    const renderFixes = vi.fn(() => <p>fixes go here</p>);
-    const { rerender } = render(<App pool={pool} />);
+    render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
-    expect(screen.getByText('Fix suggestions are not available.')).toBeTruthy();
-    rerender(<App pool={pool} renderFixes={renderFixes} />);
-    expect(screen.getByText('fixes go here')).toBeTruthy();
-    expect(renderFixes).toHaveBeenCalledWith(expect.objectContaining({ pool, labels: expect.objectContaining({ db: 'DB' }) }));
+    expect(screen.getByText('Waiting for the original run…')).toBeTruthy();
+    await screen.findByRole('heading', { name: 'Does a fix help?' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /Retry storm/ }));
     await act(async () => {});
   });

@@ -1,5 +1,6 @@
 import { Attempt } from './attempt';
 import type { CallPolicy } from './config';
+import type { RetryBudget } from './retryBudget';
 import { hashPath, Stream, uniform } from './rng';
 import type { Simulation } from './simulation';
 
@@ -24,15 +25,27 @@ export function backoffDelayMs(policy: CallPolicy, failedAttemptNo: number, u: n
   return policy.jitter ? u * ceiling : ceiling;
 }
 
+/** Caller-side context for `callWithRetries`; every field is optional. */
+export interface CallOptions {
+  /** Counts timeouts and retries sent (the calling tier's metrics). */
+  stats?: CallStats;
+  /** The caller's shared retry budget for this policy. */
+  budget?: RetryBudget | null;
+  /** Called on each new attempt before it is sent (e.g. to attach a cache key). */
+  prepare?: (attempt: Attempt) => void;
+}
+
 /**
  * Calls `target` following `policy`: each try gets its own timeout; on failure or timeout the caller
- * backs off and retries until it runs out of retries. `done` is called exactly once.
+ * backs off and retries until it runs out of retries (or its retry budget refuses one). `done` is
+ * called exactly once.
  *
  * A timed-out try is marked abandoned but keeps running at the target (the target cannot tell its
  * caller left). Its late response is ignored.
  *
  * ASSUMPTION: retries are always scheduled as a new event (even with zero backoff), never made
  * synchronously inside a response, which keeps tiers free of re-entrant calls.
+ * ASSUMPTION: the budget is asked when a try fails (before backing off), as Finagle does.
  */
 export function callWithRetries(
   sim: Simulation,
@@ -40,15 +53,14 @@ export function callWithRetries(
   target: CallTarget,
   requestId: number,
   parentPath: number,
-  stats: CallStats | null,
+  options: CallOptions,
   done: (ok: boolean, attempt: Attempt) => void,
-  /** Called on each new attempt before it is sent (e.g. to attach a cache key). */
-  prepare?: (attempt: Attempt) => void,
 ): void {
+  const { stats, budget, prepare } = options;
   let attemptNo = 0;
 
   const failed = (path: number, attempt: Attempt) => {
-    if (attemptNo > policy.retries) {
+    if (attemptNo > policy.retries || (budget && !budget.tryWithdraw())) {
       done(false, attempt);
       return;
     }
@@ -59,6 +71,7 @@ export function callWithRetries(
   function tryOnce() {
     attemptNo++;
     if (attemptNo > 1) stats?.retry(sim.now);
+    else budget?.deposit();
     const path = hashPath(parentPath, attemptNo);
     const deadline = policy.timeoutMs === null ? Infinity : sim.now + policy.timeoutMs;
     let settled = false;

@@ -27,6 +27,11 @@ export interface CallPolicy {
    * ASSUMPTION: full jitter (as popularised by the AWS Architecture Blog) is the jitter variant modelled.
    */
   jitter: boolean;
+  /**
+   * Retry budget: retries may be at most about this fraction of first attempts (e.g. 0.1 = 10%),
+   * shared by every instance of the caller. Omit for no budget. See RetryBudget.
+   */
+  retryBudget?: number;
 }
 
 export interface TierConfig {
@@ -47,6 +52,12 @@ export interface TierConfig {
    * downstream and, if that succeeds, writes the key to the cache.
    */
   cacheAside?: CallPolicy;
+  /**
+   * With `cacheAside`: a miss for a key that another attempt of this tier is already reading from
+   * downstream waits for that read instead of issuing its own ("single flight"), then finishes
+   * with the same outcome. The key is written back once.
+   */
+  coalesceMisses?: boolean;
   /** Makes this tier a cache: it answers lookups from an LRU + TTL store instead of calling anything. */
   cache?: CacheConfig;
   /** Skip queued requests whose caller has already given up (deadline passed) instead of serving them. */

@@ -248,7 +248,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | P3 ✅ | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
 | P4 ✅ | Run player and page | Visual check against the mockups; page stays responsive |
 | P5 ✅ | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
-| P6 | Fixes | Identical arrivals before and after a fix; ranking order; visual check |
+| P6 ✅ | Fixes | Identical arrivals before and after a fix; ranking order; visual check |
 | P7 | README and final deploy | Full walkthrough on the hosted URL in a clean browser |
 | S1, S2, C1 | Per the build order | Known-pattern tests for each |
 

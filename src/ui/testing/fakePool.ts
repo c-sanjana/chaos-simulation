@@ -18,7 +18,16 @@ export class FakePool implements SimPool {
   batch(): SimBatch {
     let cancelled = false;
     const later = <T>(f: () => T) =>
-      new Promise<T>((resolve, reject) => setTimeout(() => (cancelled ? reject(new CancelledError('cancelled')) : resolve(f())), 0));
+      new Promise<T>((resolve, reject) =>
+        setTimeout(() => {
+          if (cancelled) return reject(new CancelledError('cancelled'));
+          try {
+            resolve(f());
+          } catch (e) {
+            reject(e);
+          }
+        }, 0),
+      );
     return {
       analyze: (config, labels) => {
         this.analyzed.push(config);

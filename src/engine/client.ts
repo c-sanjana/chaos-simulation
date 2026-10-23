@@ -2,6 +2,7 @@ import { callWithRetries, type CallTarget } from './caller';
 import type { ClientConfig } from './config';
 import { exponential } from './distributions';
 import type { ClientMetrics } from './metrics';
+import { budgetFor, type RetryBudget } from './retryBudget';
 import { Stream, uniform } from './rng';
 import type { Simulation } from './simulation';
 
@@ -11,13 +12,18 @@ import type { Simulation } from './simulation';
  * run with the same seed and rate sees exactly the same traffic.
  */
 export class Client {
+  /** One retry budget for all of the client's calls, if its policy has one. */
+  private readonly budget: RetryBudget | null;
+
   constructor(
     private readonly sim: Simulation,
     private readonly config: ClientConfig,
     private readonly entry: CallTarget,
     private readonly metrics: ClientMetrics,
     private readonly durationMs: number,
-  ) {}
+  ) {
+    this.budget = budgetFor(config.call);
+  }
 
   start(): void {
     this.scheduleArrival(0, 0);
@@ -35,7 +41,7 @@ export class Client {
 
   private send(requestId: number): void {
     this.metrics.requestSent(requestId, this.sim.now);
-    callWithRetries(this.sim, this.config.call, this.entry, requestId, 0, null, (ok) =>
+    callWithRetries(this.sim, this.config.call, this.entry, requestId, 0, { budget: this.budget }, (ok) =>
       this.metrics.requestDone(requestId, this.sim.now, ok),
     );
   }

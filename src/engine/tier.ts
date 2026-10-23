@@ -7,6 +7,7 @@ import { Instance } from './instance';
 import { RoundRobin, type LoadBalancer } from './loadBalancer';
 import type { TierMetrics } from './metrics';
 import type { TierSeries } from './result';
+import { budgetFor, type RetryBudget } from './retryBudget';
 import { Stream, uniform } from './rng';
 import type { Simulation } from './simulation';
 
@@ -16,7 +17,8 @@ import type { Simulation } from './simulation';
  * Handling an attempt: compute on a core for a sampled service time, then
  * - a cache tier answers hit/miss from its store;
  * - a tier with `cacheAside` looks the request's key up in its cache tier and, on a miss, calls
- *   downstream and writes the key back if that succeeded;
+ *   downstream and writes the key back if that succeeded (with `coalesceMisses`, concurrent misses
+ *   for the same key share one downstream read);
  * - otherwise, a tier with a downstream calls it (holding the worker throughout);
  * then it responds.
  *
@@ -33,6 +35,16 @@ export class Tier implements CallTarget {
   /** Active fault effects, per instance. */
   private readonly slowFactor: number[];
   private readonly dead: boolean[];
+  /** Retry budgets for the calls this tier makes, shared by all its instances (null = no budget). */
+  private readonly downstreamBudget: RetryBudget | null;
+  private readonly cacheBudget: RetryBudget | null;
+  /**
+   * With `coalesceMisses`: keys currently being read from downstream → callbacks waiting for that
+   * read (the first one is the attempt that issued it).
+   * ASSUMPTION: misses are coalesced across all instances of the tier (one shared in-flight map),
+   * and a waiter simply inherits the reading attempt's outcome and timing.
+   */
+  private readonly readsInFlight = new Map<number, Array<(ok: boolean) => void>>();
 
   constructor(
     private readonly sim: Simulation,
@@ -47,6 +59,8 @@ export class Tier implements CallTarget {
     );
     this.slowFactor = new Array<number>(config.instances).fill(1);
     this.dead = new Array<boolean>(config.instances).fill(false);
+    this.downstreamBudget = budgetFor(config.downstream);
+    this.cacheBudget = budgetFor(config.cacheAside);
     if (config.cache) {
       this.store = new CacheStore(config.cache.capacity, config.cache.ttlMs);
       this.keys = new ZipfKeys(config.cache.keys, config.cache.skew);
@@ -161,7 +175,7 @@ export class Tier implements CallTarget {
     } else if (this.cacheTier !== null) {
       this.lookUpThenCall(attempt, instance, this.cacheTier);
     } else if (this.downstream !== null) {
-      this.callDownstream(attempt, instance, null);
+      this.callDownstream(attempt, (ok) => this.finish(attempt, instance, ok ? 'ok' : 'failed'));
     } else {
       this.finish(attempt, instance, 'ok');
     }
@@ -177,22 +191,46 @@ export class Tier implements CallTarget {
       cacheTier,
       attempt.requestId,
       attempt.pathHash,
-      this.metrics,
+      { stats: this.metrics, budget: this.cacheBudget, prepare: (lookup) => (lookup.key = key) },
       (ok, lookup) => {
         if (ok && lookup.hit) this.finish(attempt, instance, 'ok');
-        else this.callDownstream(attempt, instance, key);
+        else this.readMissedKey(attempt, key, (readOk) => this.finish(attempt, instance, readOk ? 'ok' : 'failed'));
       },
-      (lookup) => (lookup.key = key),
     );
   }
 
-  /** `downstream` is connected exactly when the config has a downstream policy (see runSimulation). */
-  private callDownstream(attempt: Attempt, instance: Instance, cacheKey: number | null): void {
-    attempt.state = 'waiting';
-    callWithRetries(this.sim, this.config.downstream!, this.downstream!, attempt.requestId, attempt.pathHash, this.metrics, (ok) => {
-      if (ok && cacheKey !== null) this.cacheTier!.writeKey(cacheKey);
-      this.finish(attempt, instance, ok ? 'ok' : 'failed');
+  /**
+   * Reads a missed key from downstream and, if that succeeds, writes it to the cache. With
+   * `coalesceMisses`, a miss for a key already being read joins that read instead.
+   */
+  private readMissedKey(attempt: Attempt, key: number, done: (ok: boolean) => void): void {
+    const coalesce = this.config.coalesceMisses === true;
+    const waiting = coalesce ? this.readsInFlight.get(key) : undefined;
+    if (waiting) {
+      waiting.push(done);
+      return;
+    }
+    const waiters = [done];
+    if (coalesce) this.readsInFlight.set(key, waiters);
+    this.callDownstream(attempt, (ok) => {
+      this.readsInFlight.delete(key);
+      if (ok) this.cacheTier!.writeKey(key);
+      for (const w of waiters) w(ok);
     });
+  }
+
+  /** `downstream` is connected exactly when the config has a downstream policy (see runSimulation). */
+  private callDownstream(attempt: Attempt, done: (ok: boolean) => void): void {
+    attempt.state = 'waiting';
+    callWithRetries(
+      this.sim,
+      this.config.downstream!,
+      this.downstream!,
+      attempt.requestId,
+      attempt.pathHash,
+      { stats: this.metrics, budget: this.downstreamBudget },
+      done,
+    );
   }
 
   private finish(attempt: Attempt, instance: Instance, state: FinalState): void {

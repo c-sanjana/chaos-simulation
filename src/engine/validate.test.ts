@@ -31,6 +31,9 @@ describe('validateConfig', () => {
     ['bad lognormal median', (c) => (c.tiers[0].service = { kind: 'lognormal', medianMs: 0, p99Ms: 5 }), /medianMs/],
     ['p99 below median', (c) => (c.tiers[0].service = { kind: 'lognormal', medianMs: 5, p99Ms: 4 }), /p99Ms/],
     ['bad downstream', (c) => (c.tiers[0].downstream = call('missing')), /unknown tier/],
+    ['zero retry budget', (c) => (c.client.call.retryBudget = 0), /retryBudget/],
+    ['non-finite retry budget', (c) => (c.client.call.retryBudget = Infinity), /retryBudget/],
+    ['coalesceMisses without cacheAside', (c) => (c.tiers[0].coalesceMisses = true), /coalesceMisses needs cacheAside/],
   ];
 
   it.each(cases)('rejects %s', (_, mutate, message) => {
@@ -52,6 +55,10 @@ describe('validateConfig', () => {
 
     it('accepts a valid cache-aside setup with faults', () => {
       expect(() => validateConfig(withCache())).not.toThrow();
+      const c = withCache();
+      c.tiers[0].coalesceMisses = true;
+      c.tiers[0].downstream!.retryBudget = 0.1;
+      expect(() => validateConfig(c)).not.toThrow();
     });
 
     const cacheCases: Array<[string, (c: RunConfig) => void, RegExp]> = [

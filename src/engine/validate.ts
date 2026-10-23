@@ -29,6 +29,7 @@ export function validateConfig(config: RunConfig): void {
     if (call.timeoutMs !== null) positive(call.timeoutMs, `${owner} timeoutMs`);
     if (!(Number.isInteger(call.retries) && call.retries >= 0)) fail(`${owner} retries must be a non-negative integer`);
     if (!(call.backoffBaseMs >= 0)) fail(`${owner} backoffBaseMs must be >= 0`);
+    if (call.retryBudget !== undefined) positive(call.retryBudget, `${owner} retryBudget`);
   };
   const checkService = (s: ServiceTime, owner: string) => {
     if (s.kind === 'exponential') positive(s.meanMs, `${owner} service meanMs`);
@@ -62,6 +63,8 @@ export function validateConfig(config: RunConfig): void {
       checkCall(tier.cacheAside, `${tier.id} cacheAside`);
       if (!byId.get(tier.cacheAside.target)!.cache) fail(`${tier.id} cacheAside target "${tier.cacheAside.target}" is not a cache tier`);
       if (!tier.downstream) fail(`${tier.id} uses cacheAside but has no downstream to read from on a miss`);
+    } else if (tier.coalesceMisses) {
+      fail(`${tier.id} coalesceMisses needs cacheAside`);
     } else if (tier.downstream && byId.get(tier.downstream.target)!.cache) {
       fail(`${tier.id} calls cache tier "${tier.downstream.target}" as a downstream; use cacheAside`);
     }

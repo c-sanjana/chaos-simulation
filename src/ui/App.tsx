@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildRunConfig } from '../data/buildConfig';
 import { scenarios } from '../data/scenarios';
 import { createDefaultPool, type SimPool } from '../worker/pool';
@@ -7,6 +7,7 @@ import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
 import { presetDraft, type Draft } from './draft';
 import { FailureEditor } from './FailureEditor';
+import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
 import { TippingStep } from './TippingStep';
@@ -18,15 +19,13 @@ const DEFAULT_SCENARIO = 'retry-storm';
 export interface AppProps {
   /** Injected in tests; the app creates a Web Worker pool by default. */
   pool?: SimPool;
-  /** Renders step 3 (fix suggestions); injected so the shell can be tested on its own. */
-  renderFixes?: (args: { pool: SimPool; draft: Draft; labels: Record<string, string> }) => ReactNode;
 }
 
 /**
  * The page: pick a failure, then three steps (what happened → tipping point → does a fix help).
  * `applied` is what is simulated; `draft` holds edits until the viewer runs them.
  */
-export function App({ pool: injected, renderFixes }: AppProps) {
+export function App({ pool: injected }: AppProps) {
   const pool = useMemo(() => injected ?? createDefaultPool(), [injected]);
   useEffect(() => () => {
     if (!injected) pool.dispose();
@@ -99,7 +98,9 @@ export function App({ pool: injected, renderFixes }: AppProps) {
         </>
       )}
       {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} />}
-      {step === 2 && (renderFixes ? renderFixes({ pool, draft: applied, labels }) : <p className="csl-status">Fix suggestions are not available.</p>)}
+      {step === 2 && (
+        <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} />
+      )}
 
       <Drawer
         open={settingsOpen}
