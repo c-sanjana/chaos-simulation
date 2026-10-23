@@ -37,11 +37,14 @@
   --csl-instance-hot: #f5a26e;
   --csl-instance-calm: #c9e3d6;
 
-  --csl-map-fast: #e4eefc;
-  --csl-map-slow: #bbd4f7;
-  --csl-map-barely: #8cb5ee;
-  --csl-map-stuck: #f5a26e;
-  --csl-map-pending: #f1f3f5;
+  /* Darker than the first mockups so recovered (blue) and stuck (orange) differ clearly in hue
+     and lightness, including for colour-blind viewers. */
+  --csl-map-fast: #a9c9f5;
+  --csl-map-slow: #5b95e6;
+  --csl-map-barely: #2f6fd0;
+  --csl-map-stuck: #e8590c;
+  --csl-map-pending: #e6e9ed;
+  --csl-map-cell: 30px;
 
   --csl-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --csl-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -456,8 +459,7 @@ body {
   overflow-x: auto;
 }
 .csl-map {
-  min-width: 480px;
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   gap: 3px;
 }
@@ -480,12 +482,13 @@ body {
   text-align: center;
 }
 .csl-map__cell {
-  height: 40px;
+  width: var(--csl-map-cell);
+  height: var(--csl-map-cell);
   border-radius: 4px;
   border: none;
-  font-family: var(--csl-font-mono);
   font-size: 11px;
-  color: var(--csl-ink);
+  color: #fff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
   padding: 0;
   display: flex;
   align-items: center;
@@ -501,7 +504,7 @@ button.csl-map__cell {
   color: var(--csl-muted);
 }
 .csl-map__cell[aria-pressed='true'] {
-  box-shadow: inset 0 0 0 2px var(--csl-ink);
+  box-shadow: 0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink);
 }
 .csl-map__captions {
   display: flex;
@@ -509,13 +512,13 @@ button.csl-map__cell {
   gap: 12px;
   font-size: 12px;
   color: var(--csl-muted);
-  padding-left: 52px;
+  padding-left: 40px;
 }
 .csl-map-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 14px;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--csl-ink-2);
   align-items: center;
   list-style: none;
@@ -875,6 +878,7 @@ button.csl-map__cell {
 .csl-field__unit {
   font-size: 12px;
   color: var(--csl-muted);
+  white-space: nowrap;
 }
 .csl-checkbox {
   display: flex;
@@ -1053,7 +1057,7 @@ button.csl-map__cell {
   padding-top: 12px;
 }
 .csl-failure .csl-field {
-  width: 150px;
+  width: 190px;
 }
 .csl-failure__run {
   margin-left: auto;
@@ -1061,4 +1065,39 @@ button.csl-map__cell {
 .csl-error {
   color: var(--csl-bad-text);
   font-size: 14px;
+}
+
+/* Live timeline */
+.csl-timeline__item--latest {
+  background: #fff6f0;
+  border-radius: 4px;
+}
+.csl-timeline__ahead {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--csl-muted);
+}
+
+/* Settings from the topology */
+.csl-node__edit {
+  font-size: 12px;
+  color: var(--csl-muted);
+  margin-left: auto;
+}
+.csl-topology-key__actions {
+  margin-left: auto;
+}
+.csl-btn--small {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.csl-scope-select select {
+  font: inherit;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--csl-ink);
+  cursor: pointer;
+  padding: 2px 0 2px 4px;
 }

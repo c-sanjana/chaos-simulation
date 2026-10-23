@@ -7,6 +7,9 @@ import type { Tier } from './tier';
  * A worker is held from the moment an attempt starts until the tier responds, including while it
  * waits on a downstream call. Computing additionally needs a core; if all cores are busy the worker
  * waits for one (FIFO). With cores >= workers, cores never constrain anything.
+ *
+ * With `dropExpired`, the caller's deadline is checked twice: when a queued attempt gets a worker
+ * (here, in `freeWorker`) and when it gets a core (in `Tier.process`).
  */
 export class Instance {
   busyWorkers = 0;
@@ -16,7 +19,7 @@ export class Instance {
   peakQueue = 0;
   private readonly queue: Attempt[] = [];
   private queueHead = 0;
-  private readonly coreWaiters: Array<() => void> = [];
+  private readonly coreWaiters: Array<() => boolean> = [];
   private coreWaitersHead = 0;
 
   constructor(
@@ -61,27 +64,34 @@ export class Instance {
     this.compact();
   }
 
-  /** Runs `compute` once a core is free. */
-  withCore(compute: () => void): void {
+  /**
+   * Runs `compute` once a core is free (FIFO), holding that core. `compute` returns true if it
+   * keeps the core (it then calls `releaseCore` when done), or false if it declined it without
+   * doing any work (e.g. its caller's deadline passed while it waited), in which case the core is
+   * taken back at once.
+   */
+  withCore(compute: () => boolean): void {
     if (this.busyCores < this.cores) {
       this.busyCores++;
       this.peakBusyCores = Math.max(this.peakBusyCores, this.busyCores);
       this.tier.metrics.busyCores.add(this.tier.now, 1);
-      compute();
+      if (!compute()) this.releaseCore();
     } else {
       this.coreWaiters.push(compute);
     }
   }
 
-  /** Hands the core straight to the next waiting worker, if any. */
+  /**
+   * Hands the core straight to the next waiting worker that takes it, or frees it if none does.
+   * A loop, not recursion, so a long run of waiters declining in a row cannot overflow the stack.
+   */
   releaseCore(): void {
-    if (this.coreWaitersHead < this.coreWaiters.length) {
+    while (this.coreWaitersHead < this.coreWaiters.length) {
       const next = this.coreWaiters[this.coreWaitersHead++];
-      next();
-    } else {
-      this.busyCores--;
-      this.tier.metrics.busyCores.add(this.tier.now, -1);
+      if (next()) return;
     }
+    this.busyCores--;
+    this.tier.metrics.busyCores.add(this.tier.now, -1);
   }
 
   private start(attempt: Attempt): void {

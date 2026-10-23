@@ -2,9 +2,10 @@
  * One call to one tier: created by a caller (the client or an upstream tier) for every try.
  *
  * Lifecycle: queued → running → waiting (on a downstream call) → ok | failed,
- * or, without ever running: rejected (queue full) | dropped (expired while queued).
- * Independently of that, the caller may give up (`abandoned`); the tier keeps working on the
- * attempt regardless, and that work is "wasted" (see TierMetrics).
+ * or, without ever computing: rejected (queue full) | dropped (with `dropExpired`: the caller's
+ * deadline passed while it waited for a worker, or for a core).
+ * Independently of that, the caller may give up (`abandoned`); unless the tier drops it as above,
+ * the tier keeps working on the attempt regardless, and that work is "wasted" (see TierMetrics).
  */
 export type AttemptState = 'queued' | 'running' | 'waiting' | FinalState;
 export type FinalState = 'ok' | 'failed' | 'rejected' | 'dropped';

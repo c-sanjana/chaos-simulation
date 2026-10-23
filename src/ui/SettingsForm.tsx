@@ -2,13 +2,19 @@ import type { CallPolicy, TierConfig } from '../engine/config';
 import { CheckboxField, NumberField } from './components/Fields';
 import { updateScenario, updateTier, type Draft } from './draft';
 
-/** Every setting of the topology and scenario, grouped by tier. Edits the draft only. */
-export function SettingsForm({ draft, onChange }: { draft: Draft; onChange: (d: Draft) => void }) {
+/**
+ * Settings of the topology and scenario, grouped by tier. Edits the draft only.
+ * `only` limits it to one tier (or 'client' for traffic and the run); null shows everything.
+ */
+export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; onChange: (d: Draft) => void; only?: string | null }) {
   const s = draft.scenario;
   const tier = (id: string, change: (t: TierConfig) => TierConfig) => onChange(updateTier(draft, id, change));
   const call = (t: TierConfig, key: 'downstream' | 'cacheAside', change: Partial<CallPolicy>) => tier(t.id, (x) => ({ ...x, [key]: { ...x[key]!, ...change } }));
+  const tiers = only === null ? draft.topology.tiers : draft.topology.tiers.filter((t) => t.id === only);
   return (
     <>
+      {(only === null || only === 'client') && (
+        <>
       <h3 className="csl-section-title">Traffic and run</h3>
       <div className="csl-field-grid">
         <NumberField label="User traffic" unit="req/s" value={s.rps} min={1} onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
@@ -21,7 +27,9 @@ export function SettingsForm({ draft, onChange }: { draft: Draft; onChange: (d: 
           onChange={(v) => onChange({ ...draft, topology: { ...draft.topology, clientCall: { ...draft.topology.clientCall, timeoutMs: v } } })}
         />
       </div>
-      {draft.topology.tiers.map((t) => (
+        </>
+      )}
+      {tiers.map((t) => (
         <fieldset key={t.id} className="csl-panel" style={{ margin: '12px 0 0' }}>
           <legend className="csl-section-title" style={{ padding: '0 4px' }}>
             {draft.topology.layout[t.id]?.label ?? t.id}

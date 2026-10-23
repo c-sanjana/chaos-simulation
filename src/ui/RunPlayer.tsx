@@ -19,8 +19,10 @@ export interface RunPlayerProps {
   result: AnalyzeResult;
   /** Compare mode: the same failure with a fix applied (its own config and result). */
   after?: { config: RunConfig; result: AnalyzeResult };
-  /** Start playing on mount (used for the first run the reviewer sees). */
+  /** Start playing whenever a new run arrives (default). */
   autoPlay?: boolean;
+  /** Opens settings: a tier id from clicking its box in the diagram, or null for every setting. */
+  onEdit?: (tierId: string | null) => void;
 }
 
 /**
@@ -28,19 +30,21 @@ export interface RunPlayerProps {
  * "why" timeline. In compare mode the charts overlay before and after, and the topology and
  * timeline switch between the two runs.
  */
-export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = false }: RunPlayerProps) {
+export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
   const [tab, setTab] = useState<MetricTab>('throughput');
   const [scope, setScope] = useState<string | null>(null);
   const [showAfter, setShowAfter] = useState(true);
 
+  // Every new run replays from the start (and plays by itself unless told not to), so the live
+  // timeline always tells that run's story from the beginning.
   useEffect(() => {
+    playback.seek(0);
     if (!autoPlay) return;
     playback.setSpeed(4);
     playback.play();
-    // Only on mount: later changes are the viewer's to make.
-  }, []);
+  }, [result, after?.result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chart data is rebuilt only when what it shows changes, so the playhead can move every frame cheaply.
   const chart = useMemo(() => chartView(tab, config, result.run, labels, scope, after?.result.run), [tab, config, result, labels, scope, after]);
@@ -77,9 +81,17 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
       <TopologyDiagram
         nodes={nodes}
         edges={edges}
-        selectedId={scope ?? 'client'}
-        onSelect={(id) => setScope(id === 'client' ? null : id)}
-        note={`Snapshot at t = ${Math.floor(playback.tMs / 1000)} s${after ? (showAfter ? ', after the fix' : ', before the fix') : ''}. Click a tier to scope the charts to it.`}
+        selectedId={null}
+        onSelect={(id) => onEdit?.(id)}
+        editable={onEdit !== undefined}
+        note={`Snapshot at t = ${Math.floor(playback.tMs / 1000)} s${after ? (showAfter ? ', after the fix' : ', before the fix') : ''}.${onEdit ? ' Click a box to edit that tier.' : ''}`}
+        actions={
+          onEdit && (
+            <button type="button" className="csl-btn csl-btn--small" onClick={() => onEdit(null)}>
+              ⚙ Edit all settings
+            </button>
+          )
+        }
       />
 
       <PlaybackBar
@@ -96,13 +108,21 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
 
       <div className="csl-player__body">
         <div className="csl-player__charts">
-          <MetricTabs tabs={METRIC_TABS} selected={tab} onSelect={(id) => setTab(id as MetricTab)} scopeLabel={chart.scopeLabel} />
+          <MetricTabs
+            tabs={METRIC_TABS}
+            selected={tab}
+            onSelect={(id) => setTab(id as MetricTab)}
+            scopeLabel={chart.scopeLabel}
+            scopes={[{ id: 'client', label: 'End to end' }, ...shown.config.tiers.map((t) => ({ id: t.id, label: labels[t.id] ?? t.id }))]}
+            scope={scope ?? 'client'}
+            onScope={(id) => setScope(id === 'client' ? null : id)}
+          />
           <ChartLegend series={chart.spec.series} />
           <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} />
         </div>
         <div className="csl-player__timeline">
-          <h3>Why: timeline{after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}</h3>
-          <Timeline entries={timelineView(shown.result.analysis)} />
+          <h3>Why: live timeline{after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}</h3>
+          <Timeline entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} />
         </div>
       </div>
     </section>

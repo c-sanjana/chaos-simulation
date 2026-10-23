@@ -24,10 +24,11 @@ export interface FixStepProps {
   /** The original run (step 1); fixes are suggested from its signals. */
   original: AnalyzeResult | null;
   labels: Record<string, string>;
+  onEdit?: (tierId: string | null) => void;
 }
 
 /** Step 3: fixes ranked by measured effect; apply one to compare runs and maps before and after. */
-export function FixStep({ pool, topology, scenario, config, original, labels }: FixStepProps) {
+export function FixStep({ pool, topology, scenario, config, original, labels, onEdit }: FixStepProps) {
   const ranking = useFixRanking(pool, config, original?.analysis ?? null, labels);
   const [appliedId, setAppliedId] = useState<string | null>(null);
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
@@ -80,6 +81,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels }: 
           config={config}
           result={original}
           after={{ config: applied.candidate.config, result: fixed.value }}
+          onEdit={onEdit}
         />
       )}
       {applied && fixed.status === 'running' && <p className="csl-status">Simulating the fix…</p>}

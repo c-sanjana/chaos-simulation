@@ -29,9 +29,9 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
     fireEvent.change(screen.getByLabelText(/^API → DB retries/), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText(/^Slowdown/), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText(/^DB slowdown/), { target: { value: '4' } });
     fireEvent.change(screen.getByLabelText(/^Lasting/), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText(/^Starting at/), { target: { value: '20' } });
+    fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '20' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed.length).toBeGreaterThan(2), SLOW);
     const last = pool.analyzed.at(-1)!;
@@ -67,10 +67,28 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByText('1,234 requests failed because of the incident', undefined, SLOW);
   });
 
+  it('opens one tier\'s settings from its box in the topology', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /^Edit API settings/ }));
+    const dialog = screen.getByRole('dialog', { name: 'API settings' });
+    expect(within(dialog).queryByRole('group', { name: 'DB' })).toBeNull();
+    expect(within(dialog).getByRole('group', { name: 'API' })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Edit all settings' }));
+    expect(screen.getByRole('dialog', { name: 'All settings' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Edit Client settings/ }));
+    const traffic = screen.getByRole('dialog', { name: 'Traffic settings' });
+    expect(within(traffic).getByLabelText(/^User traffic/)).toBeTruthy();
+    expect(within(traffic).queryByRole('group', { name: 'API' })).toBeNull();
+  });
+
   it('edits settings in the drawer, re-runs, and can reset to the preset', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     const dialog = screen.getByRole('dialog');
     const api = within(dialog).getByRole('group', { name: 'API' });
     fireEvent.change(within(api).getByLabelText(/^Instances/), { target: { value: '8' } });
@@ -107,10 +125,11 @@ describe('App', { timeout: 60_000 }, () => {
     expect(c.durationMs).toBe(90_000);
     expect(c.client.call.timeoutMs).toBe(2500);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('button', { name: /Edit all settings/ }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset to preset' }));
     expect((within(screen.getByRole('dialog')).getByLabelText(/^User traffic/) as HTMLInputElement).value).toBe('200');
-    fireEvent.click(screen.getByRole('button', { name: 'Close settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 

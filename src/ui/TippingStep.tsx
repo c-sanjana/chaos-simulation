@@ -10,7 +10,7 @@ import { useAnalysis, useSweep } from './useSimulation';
 import { formatAxisValue, mapView, shortVerdict } from './viewModels';
 
 /** Step 2: the tipping-point map, with any cell replayable inline. */
-export function TippingStep({ pool, topology, scenario, labels }: { pool: SimPool; topology: TopologyPreset; scenario: ScenarioPreset; labels: Record<string, string> }) {
+export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool: SimPool; topology: TopologyPreset; scenario: ScenarioPreset; labels: Record<string, string>; onEdit?: (tierId: string | null) => void }) {
   const spec = useMemo(() => buildSweep(topology, scenario), [topology, scenario]);
   const sweep = useSweep(pool, spec);
   const current = currentCell(scenario);
@@ -67,7 +67,7 @@ export function TippingStep({ pool, topology, scenario, labels }: { pool: SimPoo
         </div>
       </section>
       {watching && replay.status === 'done' && (
-        <RunPlayer title={`Replaying ${cellTitle}`} subtitle="Re-run of this cell's settings: identical to the map's run" topology={topology} config={cellConfig} result={replay.value} />
+        <RunPlayer title={`Replaying ${cellTitle}`} subtitle="Re-run of this cell's settings: identical to the map's run" topology={topology} config={cellConfig} result={replay.value} onEdit={onEdit} />
       )}
       {watching && replay.status === 'running' && <p className="csl-status">Simulating {cellTitle}…</p>}
       {replay.status === 'error' && <p className="csl-error">{replay.message}</p>}

@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react';
 import type { MapCellView, MapView } from './types';
 
-/** Recovery-time bands for cell colour, in seconds (from the approved mockup). */
-export const FAST_BELOW_S = 8;
-export const SLOW_BELOW_S = 18;
+/** Recovery-time bands for cell colour, in seconds (shown in MapLegend). */
+export const FAST_BELOW_S = 4;
+export const SLOW_BELOW_S = 9;
 
 // ASSUMPTION: a recovered cell without a recovery time never deviated from the control run.
 function recoverySeconds(cell: MapCellView): number {
@@ -19,9 +19,9 @@ export function cellColor(cell: MapCellView): string {
   return 'var(--csl-map-barely)';
 }
 
+/** Cells carry no text (the legend explains the colours); only the current settings get a marker. */
 export function cellText(cell: MapCellView): string {
-  const text = cell.status === 'pending' ? '…' : cell.status === 'stuck' ? 'stuck' : `${recoverySeconds(cell)}s`;
-  return cell.isCurrent ? `◆ ${text}` : text;
+  return cell.isCurrent ? '◆' : '';
 }
 
 /**
@@ -45,13 +45,13 @@ export interface TippingMapProps {
   onSelect?: (cell: MapCellView) => void;
 }
 
-const LABEL_COL_PX = 52;
+const LABEL_COL_PX = 40;
 
 /** Grid of simulation outcomes: traffic across, the scenario's second variable up. */
 export function TippingMap({ map, selected = null, onSelect }: TippingMapProps) {
   const fmtY = map.formatY ?? String;
   const nx = map.xValues.length;
-  const rowStyle: CSSProperties = { gridTemplateColumns: `${LABEL_COL_PX}px repeat(${nx}, minmax(0, 1fr))` };
+  const rowStyle: CSSProperties = { gridTemplateColumns: `${LABEL_COL_PX}px repeat(${nx}, var(--csl-map-cell))` };
 
   return (
     <div className="csl-map-scroll">
@@ -67,11 +67,11 @@ export function TippingMap({ map, selected = null, onSelect }: TippingMapProps) 
               const style = { background: cellColor(cell) };
               const label = cellAriaLabel(cell, map);
               return onSelect ? (
-                <button key={x} type="button" className={cls} style={style} aria-label={label} aria-pressed={isSelected} onClick={() => onSelect(cell)}>
+                <button key={x} type="button" className={cls} style={style} aria-label={label} title={label} aria-pressed={isSelected} onClick={() => onSelect(cell)}>
                   {cellText(cell)}
                 </button>
               ) : (
-                <span key={x} className={cls} style={style} role="img" aria-label={label}>
+                <span key={x} className={cls} style={style} role="img" aria-label={label} title={label}>
                   {cellText(cell)}
                 </span>
               );
@@ -96,23 +96,30 @@ export function TippingMap({ map, selected = null, onSelect }: TippingMapProps) 
 }
 
 const LEGEND: Array<[string, string]> = [
-  ['var(--csl-map-fast)', 'Recovers fast'],
-  ['var(--csl-map-slow)', 'Recovers slowly'],
-  ['var(--csl-map-barely)', 'Barely recovers'],
+  ['var(--csl-map-fast)', `Recovers in under ${FAST_BELOW_S} s`],
+  ['var(--csl-map-slow)', `${FAST_BELOW_S}–${SLOW_BELOW_S} s`],
+  ['var(--csl-map-barely)', `${SLOW_BELOW_S} s or more`],
   ['var(--csl-map-stuck)', 'Stuck'],
+  ['var(--csl-map-pending)', 'Not run yet'],
 ];
 
-/** Colour key for TippingMap. */
-export function MapLegend() {
+/** Colour key for TippingMap (cells have no text, so this carries the meaning). */
+export function MapLegend({ showSelected = true }: { showSelected?: boolean }) {
   return (
     <ul className="csl-map-legend" aria-label="Map legend">
-      {LEGEND.map(([bg, label], i) => (
+      {LEGEND.map(([bg, label]) => (
         <li key={label} className="csl-topology-key__item">
-          <span className="csl-map-legend__swatch" style={{ background: bg, border: i === 0 ? '1px solid #D0DCEB' : undefined }} />
+          <span className="csl-map-legend__swatch" style={{ background: bg }} />
           {label}
         </li>
       ))}
-      <li>◆ = current settings</li>
+      <li>◆ current settings</li>
+      {showSelected && (
+        <li className="csl-topology-key__item">
+          <span className="csl-map-legend__swatch" style={{ boxShadow: '0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink)', width: 10, height: 10, margin: '0 2px' }} />
+          replaying
+        </li>
+      )}
     </ul>
   );
 }

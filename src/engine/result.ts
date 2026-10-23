@@ -11,7 +11,7 @@ export interface TierSeries {
   /** Attempts arriving at this tier, split by whether the caller was retrying. */
   arrivalsFirst: number[];
   arrivalsRetry: number[];
-  /** Responses sent: success, failure after processing, rejected (queue full), dropped (expired in queue). */
+  /** Responses sent: success, failure after processing, rejected (queue full), dropped (expired before computing, see `dropExpired`). */
   ok: number[];
   failed: number[];
   rejected: number[];

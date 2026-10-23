@@ -60,7 +60,10 @@ export interface TierConfig {
   coalesceMisses?: boolean;
   /** Makes this tier a cache: it answers lookups from an LRU + TTL store instead of calling anything. */
   cache?: CacheConfig;
-  /** Skip queued requests whose caller has already given up (deadline passed) instead of serving them. */
+  /**
+   * Skip requests whose caller has already given up (deadline passed) instead of serving them,
+   * checked when a queued request gets a worker and again when it gets a CPU core.
+   */
   dropExpired: boolean;
 }
 

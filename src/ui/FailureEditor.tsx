@@ -13,11 +13,13 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
         <strong>{label}</strong> {f.kind === 'slow' ? 'slows down' : 'goes down'}
         {f.flushAtEnd ? ' and restarts empty' : ''}.
       </p>
-      {f.kind === 'slow' && <NumberField label="Slowdown" unit="×" value={f.factor ?? 1} min={1} step={1} onChange={(v) => onChange(updateFault(draft, { factor: v }))} />}
-      <NumberField label="Lasting" unit="s" value={(f.endMs - f.startMs) / 1000} min={1} step={1} onChange={(v) => onChange(updateFault(draft, { endMs: f.startMs + v * 1000 }))} />
+      {f.kind === 'slow' && (
+        <NumberField label={`${label} slowdown`} unit="× slower" value={f.factor ?? 1} min={1} step={1} onChange={(v) => onChange(updateFault(draft, { factor: v }))} />
+      )}
+      <NumberField label="Lasting" unit="seconds" value={(f.endMs - f.startMs) / 1000} min={1} step={1} onChange={(v) => onChange(updateFault(draft, { endMs: f.startMs + v * 1000 }))} />
       <NumberField
-        label="Starting at"
-        unit="s"
+        label="Starts at"
+        unit="s in"
         value={f.startMs / 1000}
         min={0}
         step={1}

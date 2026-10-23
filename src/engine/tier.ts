@@ -14,7 +14,8 @@ import type { Simulation } from './simulation';
 /**
  * A tier (gateway, API, cache, database…): a set of identical instances behind a load balancer.
  *
- * Handling an attempt: compute on a core for a sampled service time, then
+ * Handling an attempt: compute on a core for a sampled service time (with `dropExpired`, an attempt
+ * whose caller's deadline passed before it got a core is dropped instead), then
  * - a cache tier answers hit/miss from its store;
  * - a tier with `cacheAside` looks the request's key up in its cache tier and, on a miss, calls
  *   downstream and writes the key back if that succeeded (with `coalesceMisses`, concurrent misses
@@ -94,6 +95,15 @@ export class Tier implements CallTarget {
   /** Called by an instance when a worker picks up the attempt. */
   process(attempt: Attempt, instance: Instance): void {
     instance.withCore(() => {
+      // ASSUMPTION: with `dropExpired` the handler is deadline-aware: it checks the caller's deadline
+      // when it starts, as real servers typically do (e.g. gRPC deadline propagation). With more
+      // workers than cores, "starts" means "gets a CPU core", so an attempt that expired while
+      // waiting for a core is dropped here without computing: no work done, nothing wasted.
+      // (Queued attempts are also checked when they get a worker; see Instance.freeWorker.)
+      if (this.dropExpired && attempt.deadlineMs <= this.sim.now) {
+        this.finish(attempt, instance, 'dropped');
+        return false; // the core goes straight back to the instance
+      }
       const u = uniform(this.sim.seed, Stream.Service, attempt.requestId, attempt.pathHash, this.index);
       // ASSUMPTION: a slowdown applies to computes that start while it is active.
       const ms = sampleServiceTime(this.config.service, u) * this.slowFactor[instance.index];
@@ -103,10 +113,11 @@ export class Tier implements CallTarget {
         instance.releaseCore();
         this.afterCompute(attempt, instance);
       });
+      return true;
     });
   }
 
-  /** Responds for an attempt that never got a worker (rejected, dropped, or refused by a dead tier). */
+  /** Responds for an attempt that never got a worker (rejected, dropped from the queue, or refused by a dead tier). */
   respondUnstarted(attempt: Attempt, state: 'rejected' | 'dropped' | 'failed'): void {
     this.metrics.response(this.sim.now, attempt, state);
     attempt.respond(state);

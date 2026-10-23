@@ -35,7 +35,10 @@ export function App({ pool: injected }: AppProps) {
   const [applied, setApplied] = useState<Draft>(() => presetDraft(DEFAULT_SCENARIO));
   const [draft, setDraft] = useState<Draft>(applied);
   const [step, setStep] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Settings drawer: closed, one tier ('client' = traffic), or every setting (null). */
+  const [settings, setSettings] = useState<{ open: boolean; only: string | null }>({ open: false, only: null });
+  const openSettings = (only: string | null) => setSettings({ open: true, only });
+  const closeSettings = () => setSettings((s) => ({ ...s, open: false }));
 
   const labels = useMemo(() => labelsOf(applied.topology), [applied.topology]);
   const config = useMemo(() => buildRunConfig(applied.topology, applied.scenario), [applied]);
@@ -58,9 +61,6 @@ export function App({ pool: injected }: AppProps) {
           <h1 className="csl-header__title">Chaos Simulation Lab</h1>
           <p className="csl-header__tagline">See where a system stops recovering on its own, and whether a fix moves that point.</p>
         </div>
-        <button type="button" className="csl-btn" onClick={() => setSettingsOpen(true)}>
-          Settings
-        </button>
       </header>
 
       <section className="csl-card" aria-label="Scenario">
@@ -90,35 +90,41 @@ export function App({ pool: injected }: AppProps) {
               topology={applied.topology}
               config={config}
               result={main.value}
-              autoPlay
+              onEdit={openSettings}
             />
           )}
           {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
           {main.status === 'error' && <p className="csl-error">{main.message}</p>}
         </>
       )}
-      {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} />}
+      {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} onEdit={openSettings} />}
       {step === 2 && (
-        <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} />
+        <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} onEdit={openSettings} />
       )}
 
       <Drawer
-        open={settingsOpen}
-        title="Settings"
-        subtitle={`Preset: ${applied.scenario.title} · every value is editable`}
-        onClose={() => setSettingsOpen(false)}
+        open={settings.open}
+        title={settings.only === null ? 'All settings' : settings.only === 'client' ? 'Traffic settings' : `${labels[settings.only] ?? settings.only} settings`}
+        subtitle={`Preset: ${applied.scenario.title}. Changes apply to every step when you re-run.`}
+        onClose={closeSettings}
         footer={
           <>
-            <button type="button" className="csl-btn" onClick={() => setDraft(presetDraft(scenarioId))}>
-              Reset to preset
-            </button>
-            <button type="button" className="csl-btn csl-btn--primary" onClick={() => (run(), setSettingsOpen(false))}>
+            {settings.only !== null ? (
+              <button type="button" className="csl-btn csl-btn--link" onClick={() => openSettings(null)}>
+                Edit all settings
+              </button>
+            ) : (
+              <button type="button" className="csl-btn" onClick={() => setDraft(presetDraft(scenarioId))}>
+                Reset to preset
+              </button>
+            )}
+            <button type="button" className="csl-btn csl-btn--primary" onClick={() => (run(), closeSettings())}>
               Re-run simulation
             </button>
           </>
         }
       >
-        <SettingsForm draft={draft} onChange={setDraft} />
+        <SettingsForm draft={draft} onChange={setDraft} only={settings.only} />
       </Drawer>
     </main>
   );

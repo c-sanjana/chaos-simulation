@@ -167,15 +167,20 @@ about 4 s on a laptop.
 - users abandoning or refreshing
 - database writes and replicas
 
-**Note on "drop expired requests".** A tier checks the caller's deadline when a queued request
-gets a worker. The DB has 64 connections but only 4 cores, so an admitted request can still wait
-for a core and expire there. That is why this fix doesn't help in the default scenario. Whether to
-re-check the deadline when compute actually starts is an open modelling question; see PLAN.md.
+**Note on "drop expired requests".** A tier with this setting checks the caller's deadline twice:
+when a queued request gets a worker, and again when it gets a CPU core, which is when a real
+handler starts running and typically checks its deadline. The second check matters because the DB
+has 64 connections but only 4 cores: most expired requests are found waiting for a core, not in
+the queue. A request dropped at either point is never computed, so it wastes nothing. With only
+the first check, this fix did not help in the default scenario (0 of 5 seeds); with both, it does
+(5 of 5). See the decision log (Q5) in PLAN.md.
 
 **Simplifications** are marked `ASSUMPTION:` in the code. The main ones:
 - all of an attempt's compute happens before its downstream call;
 - a slowdown applies to computes that start while it is active;
 - a dead tier refuses new work but finishes work in progress;
+- a tier that drops expired requests checks the deadline when a request starts computing, not
+  during the computation, so a request that expires mid-compute still finishes (and is wasted);
 - cache writes are instantaneous and free;
 - per-instance busyness in the diagram is drawn at the tier average.
 
@@ -195,18 +200,24 @@ time log. The main calls:
 - **Fixes must be runnable.** Advice that can't be expressed as a setting change is left out.
   Fixes that were tried and didn't help are still shown; they teach as much as the winners.
 
-  On the default retry storm:
-  - **Helped on 5 of 5 seeds:** bounding the DB queue, a retry budget, and, surprisingly, a 3×
-    longer API → DB timeout. With 3 s, the API never gives up during the 5 s slowdown, so it never
-    retries.
-  - **Helped on 1 of 5 seeds:** capping retries at 1. One retry at 200 req/s sits right on the
-    tipping point.
-  - **Did not help:**
+  The default retry storm (200 req/s, 3 API → DB retries) is stuck on all 5 seeds, with 12,687
+  failed requests at the default seed. What each fix does (recovery time after the failure ends
+  and failed requests are at the default seed):
+  - **Helped on 5 of 5 seeds:**
+    - bounding the DB queue: recovers in 2 s (242 failed);
+    - surprisingly, a 3× longer API → DB timeout: 3 s (147 failed). With 3 s, the API never gives
+      up during the 5 s slowdown, so it never retries;
+    - a retry budget: 3 s (306 failed);
+    - dropping expired requests at the DB: 7 s (440 failed; 5–7 s across seeds). Wasted DB work
+      falls from 90% to 18% of the run's DB compute; what remains is requests that started
+      computing before their caller's deadline and finished after it.
+  - **Helped on 1 of 5 seeds:** capping retries at 1: 13 s (841 failed). One
+    retry at 200 req/s sits right on the tipping point.
+  - **Did not help (0 of 5 seeds):**
     - jitter: it spreads retries out but doesn't reduce them, and this is a capacity problem, not
       a synchronisation one;
     - coalescing cache misses: it cuts DB reads by 43%, which isn't enough;
-    - more API instances: the API isn't the bottleneck;
-    - dropping expired requests: see the note under "What is modelled".
+    - more API instances: the API isn't the bottleneck.
 - **The map varies one call's retries.** With retries at every layer they multiply, (r+1)³, so
   every retry count tipped at the same traffic and the map was a single step. Varying API → DB
   retries gives a readable staircase.

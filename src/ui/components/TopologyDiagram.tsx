@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Health, TopologyEdgeView, TopologyNodeView } from './types';
 
 const ARROW_OK = 'var(--csl-arrow)';
@@ -22,19 +23,25 @@ export function nodeAriaLabel(node: TopologyNodeView): string {
   return `${node.label}${count}: ${node.lines[0]}, ${node.lines[1]}; ${healthWord(node.health)}`;
 }
 
-function Node({ node, selected, onSelect }: { node: TopologyNodeView; selected: boolean; onSelect: (id: string) => void }) {
+function Node({ node, selected, onSelect, editable }: { node: TopologyNodeView; selected: boolean; onSelect: (id: string) => void; editable: boolean }) {
   return (
     <button
       type="button"
       className={`csl-node${node.health === 'bad' ? ' csl-node--bad' : ''}`}
       style={{ gridColumn: node.col, gridRow: node.row }}
-      aria-pressed={selected}
-      aria-label={nodeAriaLabel(node)}
+      aria-pressed={editable ? undefined : selected}
+      aria-label={editable ? `Edit ${node.label} settings. ${nodeAriaLabel(node)}` : nodeAriaLabel(node)}
+      title={editable ? `Edit ${node.label} settings` : undefined}
       onClick={() => onSelect(node.id)}
     >
       <span className="csl-node__head">
         <span className="csl-node__label">{node.label}</span>
         {node.instanceCountLabel && <span className="csl-node__count">{node.instanceCountLabel}</span>}
+        {editable && (
+          <span className="csl-node__edit" aria-hidden="true">
+            ✎
+          </span>
+        )}
       </span>
       {node.instanceBusy.length > 0 && (
         <span className="csl-node__instances" data-testid={`instances-${node.id}`}>
@@ -108,18 +115,22 @@ export interface TopologyDiagramProps {
   edges: TopologyEdgeView[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  /** Extra sentence for the key line, e.g. "Snapshot at t = 60 s. Click a tier to scope the charts to it." */
+  /** Extra sentence for the key line, e.g. "Snapshot at t = 60 s. Click a box to edit that tier." */
   note?: string;
+  /** Clicking a box edits that tier (shows an edit mark and says so to screen readers). */
+  editable?: boolean;
+  /** Controls shown beside the key line, e.g. an "Edit all settings" button. */
+  actions?: ReactNode;
 }
 
 /** System diagram: tiers as selectable cards on a 7×3 grid, flows as arrows between them. */
-export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note }: TopologyDiagramProps) {
+export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, editable = false, actions }: TopologyDiagramProps) {
   return (
     <div>
       <div className="csl-topology-scroll">
         <div className="csl-topology-grid">
           {nodes.map((n) => (
-            <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} />
+            <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} />
           ))}
           {edges.map((e) => (
             <Edge key={e.id} edge={e} />
@@ -136,6 +147,7 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note }: To
           all workers busy
         </span>
         {note && <span>{note}</span>}
+        {actions && <span className="csl-topology-key__actions">{actions}</span>}
       </div>
     </div>
   );

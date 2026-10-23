@@ -152,7 +152,7 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 
 ## 8. Open questions
 
-- **Q5 (raised at the P7 review).** "Drop expired requests" checks the deadline when a queued request gets a worker. With 64 DB connections on 4 cores, admitted requests then wait for a core and expire there, so the fix doesn't help in the default scenario. Option: also re-check the deadline when compute starts (a deadline-aware handler), or leave it and keep the README note.
+- ~~Q5~~ Decided 2026-10-23: option B, a deadline-aware handler (see the decision log). Was: "Drop expired requests" checks the deadline when a queued request gets a worker. With 64 DB connections on 4 cores, admitted requests then wait for a core and expire there, so the fix doesn't help in the default scenario. Option: also re-check the deadline when compute starts (a deadline-aware handler), or leave it and keep the README note.
 - **Q6.** The permanent URL (claimed site) can only be updated with the owner's here.now API key, which this environment doesn't have.
 - ~~Q4~~ Decided at the P3 review: map axis B.
 - **Q4 (raised at the P3 review).** On the retry-storm map, rows for 1–5 retries per layer look identical. This is real behaviour, not a bug: retries at three layers multiply ((r+1)³ calls to the DB, so even 1 retry is 8×), and a 5 s blip can only tip the system if it overloads the DB during the blip (above ~80 requests/s), whatever the retry count. Options to make the map more informative are listed in the review message.
@@ -197,6 +197,7 @@ TypeScript, Vite, React. Vitest for tests. uPlot for time-series charts. The map
 - **`Attempt`:** one call to one tier. It holds the request ID, the attempt path (which retry at each layer), the tier and the caller's deadline. Its states:
   - queued → running → waiting on downstream → done or failed
   - **abandoned:** the caller gave up. The tier keeps working on it unless "drop expired" is on, and time spent on abandoned attempts is recorded as **wasted work**.
+  - **dropped** (with "drop expired"): the caller's deadline had passed when the attempt got a worker, or when it got a CPU core (a deadline-aware handler checks when it starts computing). A dropped attempt is never computed, so it wastes nothing.
 - **`Instance`:** its own FIFO queue (bounded or unbounded), a pool of workers, and **CPU cores (option B)**. A worker must hold a core to compute and queues for one otherwise. A worker is held, without a core, while it waits on a downstream call. CPU busy = busy cores ÷ cores.
 - **`Tier`:** a set of instances plus its settings: service-time distribution (long-tailed), timeout, retries, backoff, jitter, optional retry budget, and drop-expired.
 - **`LoadBalancer`:** a routing policy on each connection between tiers that picks an instance; round-robin in V1. An explicit load-balancer tier with its own capacity is deferred.
@@ -303,7 +304,9 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | 2026-10-23 | Recovery uses option B with the control run as the reference (no tunable tolerance), replacing exact per-request matching (option C) | Measured: after recovery the cache holds slightly different keys until TTL churn evens them out, so a few requests harmlessly miss where the control hit; exact matching labelled clearly recovered runs as stuck (stray mismatches until second 116 of 120) |
 | 2026-10-23 | Map axis B: the retry-storm map varies API → DB retries only; other calls do not retry | Retries at every layer multiply ((r+1)³), so every retry count tipped at the same traffic; one varied call gives a staircase (1 retry tips at 220 rps, 2 at 140, 3+ at 120) |
 | 2026-10-23 | Continue past the 3-hour budget to finish P4–P7 | User decision at the P3 review |
+| 2026-10-23 | UX round 1: timeline plays along with the replay; clicking a topology box edits that tier, "Edit all settings" sits by the topology (header button removed); chart scope via a "Showing" dropdown; map cells darker, smaller, no text, with a full legend | User feedback after the P7 review |
 | 2026-10-23 | Histogram quantiles interpolate within a bin | Rounding to the bin centre put p99 up to ~11% off; now under 2% on known distributions |
+| 2026-10-23 | Q5 option B: "drop expired" also re-checks the caller's deadline when an attempt gets a CPU core (a deadline-aware handler), as well as when it gets a worker | Real handlers typically check the deadline when they start, and with more workers than cores "start" means "gets a core". Measured on the stuck retry storm: the fix went from helping on 0 of 5 seeds to 5 of 5 (recovers 7 s after the failure ends at seed 42, 440 failed vs. 12,687) |
 
 ## 11. Time log
 
@@ -311,6 +314,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 |---------|----------|---------------|
 | 1 | _please fill in_ | Kickoff, requirements, risks, V1 scope (planning) |
 | 2 | ~15 min | P0: skeleton, tests and coverage gate, here.now deploy script, hosted worker smoke test passed |
+| 8 | ~50 min | UX round 1: live timeline that plays along and restarts per run, slowdown units, settings opened from topology boxes plus "Edit all settings", scope dropdown, darker compact text-free map with legend; Q5 option B (sub-agent); side-by-side layout mockups (canvas) |
 | 7 | ~40 min | P6 + P7: fix mechanisms and catalogue (sub-agent), fix step with seed checks and before/after maps, README with measured accuracy table, browser walkthrough of all three steps |
 | 6 | ~45 min | P4 + P5: map axis B; view-model layer, RunPlayer, app shell (scenario picker, failure editor, step tabs, settings drawer), tipping-point step with inline replay; worker pool and sweep (sub-agent, 57 tests). Checked in Chromium at 1280 px and 375 px: first run immediate, 60-cell map in 3.8 s, no horizontal overflow |
 | 5 | ~30 min | P3: recovery assessment, timeline rules, diagnosis signals, analysis tests (18, 100% lines). Measured option C and switched to the fallback |

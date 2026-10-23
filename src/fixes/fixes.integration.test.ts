@@ -41,6 +41,22 @@ describe('fixes for the stuck retry storm (200 rps, 3 API → DB retries)', { ti
     }
   });
 
+  // The DB has 64 connections on 4 cores, so most expired requests are found waiting for a core,
+  // not in the queue. Dropping them there (the deadline is re-checked when compute starts, PLAN.md
+  // Q5) is what lets this fix work.
+  it('dropping expired requests makes it recover', () => {
+    const fix = byId['drop-expired'];
+    expect(fix.outcome.verdict).toBe('recovered');
+    expect(fix.helped).toBe(true);
+    expect(fix.outcome.failedRequests).toBeLessThan(original.failedRequests / 10);
+    expect(runSimulation(fix.candidate.config).tiers.db.totals.dropped).toBeGreaterThan(0);
+  });
+
+  it('exactly these fixes help at this seed', () => {
+    const helped = ranked.filter((r) => r.helped).map((r) => r.candidate.id);
+    expect(new Set(helped)).toEqual(new Set(['bound-queue', 'longer-timeout', 'retry-budget', 'drop-expired', 'cap-retries']));
+  });
+
   it('every fix saw identical traffic', () => {
     const arrivals = runSimulation(config).client.requests.arrivalMs;
     for (const c of candidates) expect(runSimulation(c.config).client.requests.arrivalMs).toEqual(arrivals);
@@ -54,11 +70,24 @@ describe('fixes for the stuck retry storm (200 rps, 3 API → DB retries)', { ti
     expect(times).toEqual([...times].sort((a, b) => a - b));
   });
 
-  it('the retry budget helps on every one of 5 seeds', () => {
-    const fix = byId['retry-budget'].candidate.config;
+  // Seeds 42–46. Capping retries is the only fix that depends on the seed (see above).
+  it('helps on the expected number of 5 seeds, for every fix', () => {
+    const expected: Record<string, number> = {
+      'bound-queue': 5,
+      'longer-timeout': 5,
+      'retry-budget': 5,
+      'drop-expired': 5,
+      'cap-retries': 1,
+      'jitter-backoff': 0,
+      'coalesce-misses': 0,
+      'add-instances': 0,
+    };
     const originals = seedVariants(config).map(measureOutcome);
-    const fixed = seedVariants(fix).map(measureOutcome);
-    console.log(`retry budget: originals ${originals.map((o) => o.verdict).join(', ')}; fixed ${fixed.map((o) => `${o.verdict} ${o.recoveryMs}`).join(', ')}`);
-    expect(seedAgreement(originals, fixed)).toEqual({ helped: 5, of: 5 });
+    expect(originals.every((o) => o.verdict === 'stuck')).toBe(true);
+    const agreement = Object.fromEntries(
+      ranked.map(({ candidate }) => [candidate.id, seedAgreement(originals, seedVariants(candidate.config).map(measureOutcome)).helped]),
+    );
+    console.log(`helped on (of 5 seeds): ${JSON.stringify(agreement)}`);
+    expect(agreement).toEqual(expected);
   });
 });

@@ -23,19 +23,18 @@ const map: MapView = {
 
 describe('cell helpers', () => {
   it('colours by status and recovery time band', () => {
-    expect(cellColor(cell({ recoverySeconds: 7.4 }))).toBe('var(--csl-map-fast)');
+    expect(cellColor(cell({ recoverySeconds: 3.4 }))).toBe('var(--csl-map-fast)');
+    expect(cellColor(cell({ recoverySeconds: 4 }))).toBe('var(--csl-map-slow)');
     expect(cellColor(cell({ recoverySeconds: 8 }))).toBe('var(--csl-map-slow)');
-    expect(cellColor(cell({ recoverySeconds: 17 }))).toBe('var(--csl-map-slow)');
-    expect(cellColor(cell({ recoverySeconds: 18 }))).toBe('var(--csl-map-barely)');
+    expect(cellColor(cell({ recoverySeconds: 9 }))).toBe('var(--csl-map-barely)');
     expect(cellColor(cell({ status: 'stuck' }))).toBe('var(--csl-map-stuck)');
     expect(cellColor(cell({ status: 'pending' }))).toBe('var(--csl-map-pending)');
   });
 
-  it('labels cells "12s", "stuck" or "…", marking the current settings', () => {
-    expect(cellText(cell({ recoverySeconds: 12.4 }))).toBe('12s');
-    expect(cellText(cell({}))).toBe('0s');
-    expect(cellText(cell({ status: 'stuck', isCurrent: true }))).toBe('◆ stuck');
-    expect(cellText(cell({ status: 'pending' }))).toBe('…');
+  it('shows no text in cells except a marker on the current settings', () => {
+    expect(cellText(cell({ recoverySeconds: 12.4 }))).toBe('');
+    expect(cellText(cell({ status: 'stuck', isCurrent: true }))).toBe('◆');
+    expect(cellText(cell({ status: 'pending' }))).toBe('');
   });
 
   it('builds a spoken label from both axes and the outcome', () => {
@@ -53,8 +52,9 @@ describe('TippingMap', () => {
   it('renders a button per cell, top row first, with row labels, x labels and captions', () => {
     render(<TippingMap map={map} selected={null} onSelect={() => {}} />);
     const buttons = screen.getAllByRole('button');
-    expect(buttons.map((b) => b.textContent)).toEqual(['5s', '12s', '◆ stuck', '20s', '…', '8s']);
+    expect(buttons.map((b) => b.textContent)).toEqual(['', '', '◆', '', '', '']);
     expect(buttons[0].getAttribute('aria-label')).toBe('100 requests per second, 3 retries: recovers in 5 s');
+    expect(buttons[0].getAttribute('title')).toBe('100 requests per second, 3 retries: recovers in 5 s'); // hover tooltip
     expect(buttons[4].className).toContain('csl-map__cell--pending');
     expect(buttons[2].style.background).toBe('var(--csl-map-stuck)');
     expect(screen.getByRole('group', { name: 'Tipping-point map' })).toBeTruthy();
@@ -79,7 +79,8 @@ describe('TippingMap', () => {
     render(<TippingMap map={partial} onSelect={() => {}} />);
     expect(screen.getByText('3×')).toBeTruthy();
     const missing = screen.getByRole('button', { name: /^100 requests per second, 0× retries/ });
-    expect(missing.textContent).toBe('…');
+    expect(missing.textContent).toBe('');
+    expect(missing.className).toContain('csl-map__cell--pending');
     expect(missing.getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -87,15 +88,20 @@ describe('TippingMap', () => {
     render(<TippingMap map={map} />);
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.getAllByRole('img')).toHaveLength(6);
-    expect(screen.getByRole('img', { name: '200 requests per second, 3 retries: stuck (current settings)' }).textContent).toBe('◆ stuck');
+    expect(screen.getByRole('img', { name: '200 requests per second, 3 retries: stuck (current settings)' }).textContent).toBe('◆');
   });
 });
 
 describe('MapLegend', () => {
-  it('lists the four outcome colours and the current-settings marker', () => {
+  it('explains every colour band, pending cells, the current marker and the replay ring', () => {
     render(<MapLegend />);
     const items = screen.getAllByRole('listitem');
-    expect(items.map((i) => i.textContent)).toEqual(['Recovers fast', 'Recovers slowly', 'Barely recovers', 'Stuck', '◆ = current settings']);
+    expect(items.map((i) => i.textContent)).toEqual(['Recovers in under 4 s', '4–9 s', '9 s or more', 'Stuck', 'Not run yet', '◆ current settings', 'replaying']);
     expect((items[3].querySelector('span') as HTMLElement).style.background).toBe('var(--csl-map-stuck)');
+  });
+
+  it('can leave out the replay ring for read-only maps', () => {
+    render(<MapLegend showSelected={false} />);
+    expect(screen.queryByText('replaying')).toBeNull();
   });
 });

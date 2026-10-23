@@ -124,6 +124,63 @@ describe('engine mechanics', () => {
     expectConservation(drop);
   });
 
+  describe('dropping requests that expired while waiting for a core (more workers than cores)', () => {
+    // 1000 workers on 1 core, so nothing ever queues for a worker: every wait is for the core. A 2 s
+    // slowdown backs requests up behind the core, and many outlive their caller's 100 ms timeout.
+    const run = (dropExpired: boolean) => {
+      const config = singleTier(50, { kind: 'fixed', ms: 10 }, 30_000, { workersPerInstance: 1000, coresPerInstance: 1, dropExpired }, { timeoutMs: 100 });
+      return runSimulation({ ...config, faults: [{ tier: 'svc', kind: 'slow', factor: 10, startMs: 5_000, endMs: 7_000 }] });
+    };
+    const keep = run(false);
+    const drop = run(true);
+    const okCount = (r: RunResult) => r.client.ok.reduce((a, b) => a + b, 0);
+
+    it('without it, expired requests are still computed, and that work is wasted', () => {
+      const t = keep.tiers.svc.totals;
+      expect(t.dropped).toBe(0);
+      expect(t.ok).toBe(t.arrivals); // every attempt was computed in the end…
+      expect(t.wastedMs).toBeGreaterThan(0); // …including ones nobody was waiting for any more
+      expectConservation(keep);
+    });
+
+    it('with it, they are dropped when they get the core, without computing', () => {
+      const t = drop.tiers.svc;
+      expect(t.totals.dropped).toBeGreaterThan(0);
+      expect(t.peaks.queuePerInstance).toBe(0); // so every drop happened at the core, not the queue
+      expect(t.totals.ok + t.totals.dropped).toBe(t.totals.arrivals);
+      // Each dropped attempt did no work: the CPU time saved is exactly their 10 ms each, and the
+      // core was held only while computing.
+      expect(t.totals.computeMs).toBeCloseTo(keep.tiers.svc.totals.computeMs - 10 * t.totals.dropped, 6);
+      expect(t.totals.busyCoresArea).toBeCloseTo(t.totals.computeMs, 6);
+      expect(t.totals.wastedMs).toBeLessThan(keep.tiers.svc.totals.wastedMs);
+      expect(okCount(drop)).toBeGreaterThan(okCount(keep));
+      expectConservation(drop);
+    });
+
+    it('keeps worker and core accounting consistent when attempts are dropped at both checks', () => {
+      // 4 workers on 1 core at 2× overload: attempts expire both in the queue and waiting for the core.
+      const r = runSimulation(singleTier(200, { kind: 'fixed', ms: 10 }, 30_000, { workersPerInstance: 4, coresPerInstance: 1, dropExpired: true }, { timeoutMs: 50 }));
+      const t = r.tiers.svc;
+      expect(t.totals.dropped).toBeGreaterThan(0);
+      expect(t.peaks.busyWorkersPerInstance).toBe(4);
+      expect(t.peaks.busyCoresPerInstance).toBe(1);
+      expect(Math.max(...t.busyCoresAvg)).toBeLessThanOrEqual(1 + 1e-9);
+      expect(t.totals.busyCoresArea).toBeLessThanOrEqual(t.totals.computeMs + 1e-6);
+      // Fixed 10 ms service: the computes started are the successes plus at most one still running.
+      const computes = t.totals.computeMs / 10;
+      expect(computes).toBeGreaterThanOrEqual(t.totals.ok);
+      expect(computes).toBeLessThanOrEqual(t.totals.ok + 1);
+      expectConservation(r);
+    });
+
+    it('hands the core on without recursion when thousands of waiters have expired in a row', () => {
+      // ~40,000 attempts wait behind one 2 s compute with a 10 ms timeout, then are all skipped at once.
+      const r = runSimulation(singleTier(20_000, { kind: 'fixed', ms: 2000 }, 3_000, { workersPerInstance: 100_000, coresPerInstance: 1, dropExpired: true }, { timeoutMs: 10 }));
+      expect(r.tiers.svc.totals.dropped).toBeGreaterThan(30_000);
+      expectConservation(r);
+    });
+  });
+
   it('rejects immediately when the queue is full', () => {
     const r = runSimulation(singleTier(200, { kind: 'fixed', ms: 10 }, 20_000, { queueLimit: 0 }));
     const t = r.tiers.svc.totals;
