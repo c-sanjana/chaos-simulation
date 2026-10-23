@@ -2,7 +2,7 @@
 
 Single source of truth for this project. If this file and the conversation disagree, this file wins until we agree to change it.
 
-**Status:** Requirements, risks, V1 scope, mockups and architecture agreed (hosting pending a final yes on Vercel). Milestones proposed; waiting for approval. No code yet.
+**Status:** Plan agreed. Implementation in progress (see 9.9).
 
 ---
 
@@ -152,7 +152,7 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 
 ## 8. Open questions
 
-- **Q1.** Hosting: Vercel recommended over here.now (see 9.8). Waiting for your yes.
+- ~~Q1~~ Decided: here.now with a free account (see 9.8).
 - ~~Q2~~ Decided: one map with a Slow / Dead toggle.
 - ~~Q3~~ Decided: parallel calls are built only when a topology needs them (C1).
 
@@ -232,14 +232,30 @@ Follows the mockups:
 
 ### 9.8 Hosting
 
-**Recommended: Vercel**, through its Git integration. Waiting for your yes.
-- Static build, with automatic deploys on every push. The repo can stay private.
-- Watch-out: preview deployments may require a Vercel login by default. Reviewers must get the production URL, checked in a clean browser.
-- here.now: anonymous sites expire after 24 hours; with a free account they are permanent. Serving `.js` files and module workers is undocumented there.
+**here.now, with a free account**, so sites are permanent; the 24-hour expiry applies only to anonymous sites. Deployed through its publish API. P0 checks that `.js` files and module workers are served correctly; the fallback is Vercel.
 
-### 9.9 Milestones
+### 9.9 Milestones (agreed)
 
-_Proposed; see the conversation. To be agreed._
+Review stops: after **P0**, **P3** and **P7**. Every other milestone still reports its check results.
+
+| # | Milestone | Check before moving on |
+|---|---|---|
+| P0 | Skeleton and deploy smoke test | Hosted page loads in a clean browser; the module worker responds |
+| P1 | Engine core | Matches queueing theory (M/M/1, M/M/c, Erlang C) within tolerance; Little's law holds; invariants hold; deterministic; arrivals identical across settings; events/s benchmark |
+| P2 | Cache, DB, failures, retry-storm preset | Retry storm stuck with 3 retries, recovers with 0; cache hit rate matches the analytic model of an LRU cache with Zipf-distributed keys |
+| P3 | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
+| P4 | Run player and page | Visual check against the mockups; page stays responsive |
+| P5 | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
+| P6 | Fixes | Identical arrivals before and after a fix; ranking order; visual check |
+| P7 | README and final deploy | Full walkthrough on the hosted URL in a clean browser |
+| S1, S2, C1 | Per the build order | Known-pattern tests for each |
+
+### 9.10 Quality bar
+
+- **Correctness and testing first.** Simple, readable code; nothing speculative.
+- **Document** the code where it isn't obvious, and every modelling **assumption** (marked `ASSUMPTION:` in comments, and collected in the README).
+- **Coverage over 90%** for engine, analysis, sweep and UI, enforced by Vitest thresholds.
+- **Accuracy tests:** engine and analysis results are checked against analytic models of real systems: M/M/1, M/M/c (Erlang C), M/G/1 (Pollaczek–Khinchine), Little's law, the LRU hit rate under Zipf-distributed keys (Che approximation), and the retry amplification bound.
 
 ## 10. Decision log
 
@@ -275,6 +291,9 @@ _Proposed; see the conversation. To be agreed._
 | 2026-10-23 | CPU option B: cores are a second limit on each instance | CPU% becomes a real measurement; adding threads stops looking like a free fix |
 | 2026-10-23 | Encapsulate simulated things and sweeps as objects; settings and results stay plain data | Good abstractions, easy to extend; data crosses the worker boundary |
 | 2026-10-23 | Cache-aside for V1 | Most common pattern; clearest stampede |
+| 2026-10-23 | Hosting on here.now with a free account | Permanent with an account; the user's choice |
+| 2026-10-23 | Milestones P0–P7 approved; review stops after P0, P3 and P7 | — |
+| 2026-10-23 | Quality bar: correctness first, simple code, documented assumptions, over 90% coverage, accuracy tests against analytic models | User requirement |
 
 ## 11. Time log
 
