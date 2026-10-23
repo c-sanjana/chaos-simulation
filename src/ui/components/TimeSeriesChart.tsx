@@ -2,9 +2,11 @@ import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { AREA_ALPHA, withAlpha } from './color';
+import { cssVar, useThemeValue } from '../themeMode';
 import type { ChartSpec } from './types';
 
-// Canvas colours. These mirror tokens in theme.css (canvas cannot read CSS variables cheaply).
+// Canvas can't use CSS variables, so colours are read from the theme tokens when the chart is
+// built or drawn; these light-theme values are the fallbacks (and what tests see).
 const INK = '#1B1F24';
 const AXIS_TEXT = '#555C66';
 const GRID = '#ECEEF1';
@@ -18,6 +20,8 @@ export const FALLBACK_WIDTH = 600;
 export interface Overlay {
   failureWindows: Array<[number, number]>;
   playheadS?: number;
+  /** Top of the y axis when the spec has no yMax (the full run's max, so it doesn't jump during a reveal). */
+  autoMax?: number;
 }
 
 /** Axis tick label: 1200 → "1.2k", 50 → "50"; '%' is attached directly, other units after a space. */
@@ -35,20 +39,38 @@ export function formatValue(v: number, unit: string): string {
 export function toUplotData(spec: ChartSpec): uPlot.AlignedData {
   let stack: number[] | null = null;
   // NaN means "no data this second" (e.g. no successful requests): uPlot draws a gap for null.
-  const gaps = (values: number[]) => values.map((v) => (Number.isNaN(v) ? null : v));
+  // Seconds after `revealS` are not drawn yet, so lines grow as the replay plays.
+  const hidden = (i: number) => spec.revealS !== undefined && spec.xsSeconds[i] > spec.revealS;
+  const gaps = (values: number[]) => values.map((v, i) => (Number.isNaN(v) || hidden(i) ? null : v));
   const ys = spec.series.map((s) => {
     if (!s.area) return gaps(s.values);
     const below = stack;
     stack = s.values.map((v, i) => v + (below ? below[i] : 0));
-    return stack;
+    return gaps(stack);
   });
   return [spec.xsSeconds, ...ys];
+}
+
+/** Largest value the chart will ever show (stacked areas included), so the y axis stays put while data is revealed. */
+export function fullMax(spec: ChartSpec): number {
+  let max = 0;
+  let stack: number[] | null = null;
+  for (const s of spec.series) {
+    let values = s.values;
+    if (s.area) {
+      const below: number[] | null = stack;
+      stack = values.map((v, i) => v + (below ? below[i] : 0));
+      values = stack;
+    }
+    for (const v of values) if (v > max) max = v;
+  }
+  return max;
 }
 
 export function drawFailureWindows(u: Pick<uPlot, 'ctx' | 'bbox' | 'valToPos'>, windows: Array<[number, number]>): void {
   const { ctx, bbox } = u;
   ctx.save();
-  ctx.fillStyle = FAILURE_TINT;
+  ctx.fillStyle = cssVar('--csl-failure-tint', FAILURE_TINT);
   for (const [from, to] of windows) {
     const x0 = Math.max(bbox.left, u.valToPos(from, 'x', true));
     const x1 = Math.min(bbox.left + bbox.width, u.valToPos(to, 'x', true));
@@ -64,7 +86,7 @@ export function drawPlayhead(u: Pick<uPlot, 'ctx' | 'bbox' | 'valToPos'>, playhe
   if (!Number.isFinite(x) || x < bbox.left || x > bbox.left + bbox.width) return;
   const px = window.devicePixelRatio || 1;
   ctx.save();
-  ctx.strokeStyle = INK;
+  ctx.strokeStyle = cssVar('--csl-ink', INK);
   ctx.lineWidth = px;
   ctx.setLineDash([2 * px, 3 * px]);
   ctx.beginPath();
@@ -106,10 +128,11 @@ export function toUplot(
     }
   });
 
+  const [axisText, grid] = [cssVar('--csl-muted', AXIS_TEXT), cssVar('--csl-grid', GRID)];
   const axis = (format: (v: number) => string): uPlot.Axis => ({
-    stroke: AXIS_TEXT,
+    stroke: axisText,
     font: FONT,
-    grid: { stroke: GRID, width: 1 },
+    grid: { stroke: grid, width: 1 },
     ticks: { show: false },
     values: (_u, splits) => splits.map(format),
   });
@@ -123,7 +146,12 @@ export function toUplot(
     cursor: { show: false, drag: { x: false, y: false } },
     scales: {
       x: { time: false },
-      y: { range: (_u, _min, max) => [0, spec.yMax ?? (max > 0 ? max * 1.1 : 1)] },
+      y: {
+        range: (_u, _min, max) => {
+          const top = getOverlay().autoMax ?? max;
+          return [0, spec.yMax ?? (top > 0 ? top * 1.1 : 1)];
+        },
+      },
     },
     axes: [axis((v) => `${v}s`), { ...axis((v) => formatValue(v, spec.unit)), size: 64 }],
     hooks: {
@@ -164,16 +192,19 @@ export function TimeSeriesChart(spec: ChartSpec) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<uPlot | null>(null);
   const overlayRef = useRef<Overlay>(spec);
-  const appliedRef = useRef({ data: [] as unknown[], overlay: '' });
-  overlayRef.current = { failureWindows: spec.failureWindows, playheadS: spec.playheadS };
+  const appliedRef = useRef({ data: [] as unknown[], overlay: '', reveal: -1 });
+  overlayRef.current = { failureWindows: spec.failureWindows, playheadS: spec.playheadS, autoMax: fullMax(spec) };
+  // Data is re-sent once per revealed second, not every animation frame.
+  const reveal = spec.revealS === undefined ? Infinity : Math.floor(spec.revealS);
   const key = structureKey(spec);
+  const theme = useThemeValue(); // axis and grid colours are baked into the options
 
   useEffect(() => {
     const el = containerRef.current!;
     const { options, data } = toUplot(spec, { width: widthOf(el), height: spec.height ?? CHART_HEIGHT }, () => overlayRef.current);
     const chart = new uPlot(options, data, el);
     chartRef.current = chart;
-    appliedRef.current = { data: dataRefs(spec), overlay: overlayKey(overlayRef.current) };
+    appliedRef.current = { data: dataRefs(spec), overlay: overlayKey(overlayRef.current), reveal };
 
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== 'undefined') {
@@ -185,20 +216,20 @@ export function TimeSeriesChart(spec: ChartSpec) {
       chart.destroy();
       chartRef.current = null;
     };
-    // Rebuild only when the structure changes; data and overlay updates are handled below.
+    // Rebuild only when the structure or theme changes; data and overlay updates are handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, theme]);
 
   useEffect(() => {
     const chart = chartRef.current!;
     const refs = dataRefs(spec);
     const overlay = overlayKey(overlayRef.current);
-    if (!sameRefs(refs, appliedRef.current.data)) {
+    if (!sameRefs(refs, appliedRef.current.data) || reveal !== appliedRef.current.reveal) {
       chart.setData(toUplotData(spec)); // also redraws the overlay
     } else if (overlay !== appliedRef.current.overlay) {
       chart.redraw(false);
     }
-    appliedRef.current = { data: refs, overlay };
+    appliedRef.current = { data: refs, overlay, reveal };
   });
 
   return <div ref={containerRef} className="csl-chart" role="img" aria-label={spec.ariaLabel} />;

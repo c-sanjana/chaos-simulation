@@ -28,6 +28,8 @@ export interface RunPlayerProps {
   compact?: boolean;
   /** Render the live timeline into this element (e.g. a column beside the player) instead of inside it. */
   timelineTarget?: HTMLElement | null;
+  /** Chart height in px (defaults: full layout 240, compact 175). */
+  chartHeight?: number;
 }
 
 const COMPACT_CHART_HEIGHT = 175;
@@ -37,9 +39,10 @@ const COMPACT_CHART_HEIGHT = 175;
  * "why" timeline. In compare mode the charts overlay before and after, and the topology and
  * timeline switch between the two runs.
  */
-export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit, compact = false, timelineTarget }: RunPlayerProps) {
+export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit, compact = false, timelineTarget, chartHeight }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
+  // ASSUMPTION: 16× is the default (a 120 s run replays in ~8 s); 1× and 4× are there to slow down.
   const [tab, setTab] = useState<MetricTab>('throughput');
   const [scope, setScope] = useState<string | null>(null);
   const [showAfter, setShowAfter] = useState(true);
@@ -48,9 +51,8 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
   // timeline always tells that run's story from the beginning.
   useEffect(() => {
     playback.seek(0);
-    if (!autoPlay) return;
-    playback.setSpeed(4);
-    playback.play();
+    playback.setSpeed(16);
+    if (autoPlay) playback.play();
   }, [result, after?.result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chart data is rebuilt only when what it shows changes, so the playhead can move every frame cheaply.
@@ -63,10 +65,12 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
     : verdict;
   const failureWindowsMs = (config.faults ?? []).map((f) => [f.startMs, f.endMs] as [number, number]);
   const timeline = (
-    <>
+    <section className="csl-timeline-window" data-tour="timeline" aria-label="Live timeline">
       <h3 className="csl-timeline-title">Why: live timeline{after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}</h3>
-      <Timeline entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} />
-    </>
+      <div className="csl-timeline-window__body">
+        <Timeline entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} />
+      </div>
+    </section>
   );
 
   return (
@@ -91,6 +95,7 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
         </div>
       </div>
 
+      <div data-tour="topology">
       <TopologyDiagram
         nodes={nodes}
         edges={edges}
@@ -107,7 +112,9 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
           )
         }
       />
+      </div>
 
+      <div data-tour="playback">
       <PlaybackBar
         tMs={playback.tMs}
         durationMs={result.run.durationMs}
@@ -119,9 +126,10 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
         onSeek={playback.seek}
         onSpeed={playback.setSpeed}
       />
+      </div>
 
       <div className="csl-player__body">
-        <div className="csl-player__charts">
+        <div className="csl-player__charts" data-tour="charts">
           <MetricTabs
             tabs={METRIC_TABS}
             selected={tab}
@@ -132,7 +140,7 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
             onScope={(id) => setScope(id === 'client' ? null : id)}
           />
           <ChartLegend series={chart.spec.series} />
-          <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} height={compact ? COMPACT_CHART_HEIGHT : undefined} />
+          <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
         </div>
         {timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
       </div>

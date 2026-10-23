@@ -1,0 +1,245 @@
+/*
+ * Topology diagram: request flow, retries and failures (see TopologyDiagram.tsx).
+ * Base layout (grid, boxes, arrows) lives in theme.css; this file adds the "what is happening"
+ * layer on top. Colour meanings: neutral = normal traffic, orange = retries / stressed,
+ * red = failing. Every colour is a token, defined for the light and dark themes.
+ * Animations only touch transform and opacity, and stop under prefers-reduced-motion.
+ */
+
+:root {
+  --csl-fail: #cf222e;
+  --csl-fail-solid: #cf222e;
+  --csl-on-fail: #ffffff;
+  --csl-fail-text: #a40e26;
+  --csl-fail-wash: #ffe3e1;
+  --csl-fail-ring: rgba(207, 34, 46, 0.4);
+  --csl-retry: var(--csl-bad);
+  --csl-retry-text: var(--csl-bad-text);
+  --csl-retry-stripe: rgba(255, 255, 255, 0.35);
+  --csl-flow-dash: rgba(255, 255, 255, 0.85);
+}
+
+:root[data-theme='dark'] {
+  --csl-fail: #f85149;
+  --csl-fail-solid: #b62324;
+  --csl-on-fail: #ffffff;
+  --csl-fail-text: #ff7b72;
+  --csl-fail-wash: #451b1f;
+  --csl-fail-ring: rgba(248, 81, 73, 0.45);
+  --csl-retry-stripe: rgba(0, 0, 0, 0.3);
+  --csl-flow-dash: rgba(15, 18, 22, 0.75);
+}
+
+/* Room for the error badges and pulsing rings, which sit just outside the boxes. */
+.csl-topology-scroll {
+  padding: 10px 4px 4px;
+}
+
+/* ---------- Boxes ---------- */
+.csl-node {
+  position: relative;
+  /* --csl-node-wash is set per box from its error share (0% while healthy). */
+  background: color-mix(in srgb, var(--csl-fail-wash) var(--csl-node-wash, 0%), var(--csl-card));
+}
+.csl-node--failing {
+  border-color: var(--csl-fail);
+  border-width: 2px;
+}
+.csl-node--failing::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 4px var(--csl-fail-ring);
+  pointer-events: none;
+  animation: csl-node-pulse 1.6s ease-in-out infinite;
+}
+@keyframes csl-node-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.csl-node__badge {
+  position: absolute;
+  top: -9px;
+  right: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--csl-fail-solid);
+  color: var(--csl-on-fail);
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 15px;
+  white-space: nowrap;
+}
+.csl-node--failing .csl-node__line {
+  color: var(--csl-fail-text);
+}
+
+/* ---------- Arrows ---------- */
+.csl-edge__label {
+  align-self: center;
+  padding: 1px 8px;
+  border: 1px solid var(--csl-border-strong);
+  border-radius: 999px;
+  background: var(--csl-card);
+  white-space: nowrap;
+}
+.csl-edge--vertical .csl-edge__label {
+  align-self: flex-start;
+}
+.csl-edge--retrying .csl-edge__label {
+  border-color: var(--csl-retry);
+  color: var(--csl-retry-text);
+}
+.csl-edge--failing .csl-edge__label {
+  border-color: var(--csl-fail);
+  color: var(--csl-fail-text);
+  font-weight: 600;
+}
+.csl-edge__detail {
+  white-space: nowrap;
+}
+.csl-edge__detail--retry {
+  color: var(--csl-retry-text);
+  font-weight: 500;
+}
+.csl-edge__shaft-row {
+  position: relative;
+}
+.csl-edge__shaft {
+  position: relative;
+  overflow: hidden;
+}
+/* Retry share: an orange striped band along the shaft (bottom edge, or right edge if vertical). */
+.csl-edge__retry {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, var(--csl-retry) 0 4px, var(--csl-retry-stripe) 4px 6px), var(--csl-retry);
+}
+.csl-edge--vertical .csl-edge__retry {
+  top: 0;
+  left: auto;
+}
+/* Request flow: dashes one pattern (20px) longer than the shaft, slid by one pattern per cycle.
+   The cycle time (animation-duration) is set per arrow from its requests/s. */
+.csl-edge__flow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -20px;
+  right: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 13px, var(--csl-flow-dash) 13px 20px);
+  animation: csl-flow-right 1s linear infinite;
+  will-change: transform;
+}
+@keyframes csl-flow-right {
+  to {
+    transform: translateX(20px);
+  }
+}
+/* Vertical (cache) arrows: requests go up. */
+.csl-edge--vertical .csl-edge__flow {
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: -20px;
+  background: repeating-linear-gradient(180deg, transparent 0 13px, var(--csl-flow-dash) 13px 20px);
+  animation-name: csl-flow-up;
+}
+@keyframes csl-flow-up {
+  to {
+    transform: translateY(-20px);
+  }
+}
+/* Failure share: a red "✕ N%" pill on the middle of the shaft ("fail" is for screen readers;
+   the compact layout shows only the ✕ so the shaft and its flow stay visible). */
+.csl-edge__fail {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--csl-fail-solid);
+  color: var(--csl-on-fail);
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.csl-edge__shaft-row .csl-edge__fail {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.csl-edge--vertical .csl-edge__fail {
+  align-self: flex-start;
+}
+
+/* ---------- Key ---------- */
+.csl-key-arrow {
+  display: inline-block;
+  width: 22px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--csl-arrow);
+}
+.csl-key-arrow--retry {
+  background: repeating-linear-gradient(135deg, var(--csl-retry) 0 4px, var(--csl-retry-stripe) 4px 6px), var(--csl-retry);
+}
+.csl-key-fail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--csl-fail-solid);
+  color: var(--csl-on-fail);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ---------- Compact ---------- */
+.csl-topology-grid--compact .csl-node__badge {
+  top: -8px;
+  right: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 14px;
+}
+.csl-topology-grid--compact .csl-edge__label {
+  padding: 0 5px;
+}
+.csl-edge__fail-word,
+.csl-topology-grid--compact .csl-edge__fail-pct {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.csl-topology-grid--compact .csl-edge__fail {
+  width: 14px;
+  padding: 0;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .csl-edge__flow,
+  .csl-node--failing::after {
+    animation: none;
+  }
+  .csl-node--failing::after {
+    opacity: 0.6;
+  }
+}

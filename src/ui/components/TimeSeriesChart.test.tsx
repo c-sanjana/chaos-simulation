@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import type uPlot from 'uplot';
 import type { ChartSpec } from './types';
 
@@ -23,7 +23,7 @@ class FakeUPlot {
 }
 vi.mock('uplot', () => ({ default: FakeUPlot }));
 
-const { TimeSeriesChart, toUplot, toUplotData, formatValue, drawFailureWindows, drawPlayhead, FALLBACK_WIDTH, CHART_HEIGHT } =
+const { TimeSeriesChart, toUplot, toUplotData, fullMax, formatValue, drawFailureWindows, drawPlayhead, FALLBACK_WIDTH, CHART_HEIGHT } =
   await import('./TimeSeriesChart');
 
 const xs = [0, 1, 2, 3];
@@ -285,5 +285,46 @@ describe('TimeSeriesChart', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('progressive reveal', () => {
+  it('hides seconds after revealS, so lines grow as the replay plays', () => {
+    expect(toUplotData(spec({ revealS: 1.5 }))).toEqual([xs, [10, 20, null, null], [50, 50, null, null]]);
+    expect(toUplotData(spec({ revealS: 3 }))).toEqual([xs, [10, 20, 30, 40], [50, 50, 50, 50]]);
+  });
+
+  it('keeps the y axis at the full run\'s max (stacked areas included) so it does not jump', () => {
+    expect(fullMax(spec())).toBe(50);
+    expect(fullMax(spec({ series: [{ label: 'a', values: [1, 2], color: '#000', area: true }, { label: 'b', values: [3, 4], color: '#111', area: true }] }))).toBe(6);
+    const { options } = toUplot(spec({ revealS: 0 }), undefined, () => ({ failureWindows: [], autoMax: 50 }));
+    const range = options.scales!.y.range as (u: unknown, min: number, max: number) => [number, number];
+    const [lo, hi] = range(null, 0, 10); // uses the overlay's full max (50), not the visible max (10)
+    expect(lo).toBe(0);
+    expect(hi).toBeCloseTo(55);
+  });
+
+  it('re-sends data once per revealed second, not every frame, at the requested height', () => {
+    const s = spec({ revealS: 0.2, height: 175 });
+    const { rerender } = render(<TimeSeriesChart {...s} />);
+    const chart = instances[0];
+    expect(chart.opts.height).toBe(175);
+    rerender(<TimeSeriesChart {...s} revealS={0.8} playheadS={0.8} />);
+    expect(chart.setDataCalls).toEqual([]);
+    rerender(<TimeSeriesChart {...s} revealS={1.1} playheadS={1.1} />);
+    expect(chart.setDataCalls).toEqual([[xs, [10, 20, null, null], [50, 50, null, null]]]);
+  });
+
+  it('rebuilds with the new theme\'s axis colours when the theme changes', async () => {
+    const { unmount } = render(<TimeSeriesChart {...spec()} />);
+    document.documentElement.style.setProperty('--csl-muted', '#9aa2ad');
+    await act(async () => {
+      document.documentElement.dataset.theme = 'dark';
+    });
+    expect(instances).toHaveLength(2);
+    expect(instances[1].opts.axes![0].stroke).toBe('#9aa2ad');
+    unmount();
+    document.documentElement.style.removeProperty('--csl-muted');
+    delete document.documentElement.dataset.theme;
   });
 });

@@ -12,7 +12,9 @@ traffic, whether it actually helps and whether it moves the tipping point.
 ## The first minute
 
 The page opens on a **retry storm**. A database slows down 8× for just 5 seconds, at a traffic
-level it normally handles easily.
+level it normally handles easily. On a first visit a 30-second guided tour points out each part
+of the page (skip it, or replay it any time with **?** at the top right; ☾ / ☀ beside it switches
+between light and dark mode).
 
 1. **What happened.** The system never recovers, even though the failure is over. The timeline
    explains why, with numbers from the run:

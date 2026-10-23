@@ -45,16 +45,21 @@ export interface TippingMapProps {
   onSelect?: (cell: MapCellView) => void;
 }
 
-const LABEL_COL_PX = 40;
+/** Width of the y tick-label column; small maps narrow it with --csl-map-label. */
+const LABEL_COL = 'var(--csl-map-label, 40px)';
 
 /** Grid of simulation outcomes: traffic across, the scenario's second variable up. */
 export function TippingMap({ map, selected = null, onSelect }: TippingMapProps) {
   const fmtY = map.formatY ?? String;
   const nx = map.xValues.length;
-  const rowStyle: CSSProperties = { gridTemplateColumns: `${LABEL_COL_PX}px repeat(${nx}, var(--csl-map-cell))` };
+  const rowStyle: CSSProperties = { gridTemplateColumns: `${LABEL_COL} repeat(${nx}, var(--csl-map-cell))` };
 
   return (
     <div className="csl-map-scroll">
+      <div className="csl-map-frame">
+      <span className="csl-map__yaxis" aria-hidden="true">
+        {map.yLabel} →
+      </span>
       <div className="csl-map" role="group" aria-label={map.title}>
         {map.yValues.map((y, r) => (
           <div key={y} className="csl-map__row" style={rowStyle}>
@@ -86,19 +91,19 @@ export function TippingMap({ map, selected = null, onSelect }: TippingMapProps) 
             </span>
           ))}
         </div>
-        <div className="csl-map__captions">
-          <span>↑ {map.yLabel}</span>
-          <span>{map.xLabel} →</span>
+        <div className="csl-map__xaxis" aria-hidden="true" style={{ paddingLeft: LABEL_COL }}>
+          {map.xLabel} →
         </div>
+      </div>
       </div>
     </div>
   );
 }
 
 const LEGEND: Array<[string, string]> = [
-  ['var(--csl-map-fast)', `Recovers in under ${FAST_BELOW_S} s`],
-  ['var(--csl-map-slow)', `${FAST_BELOW_S}–${SLOW_BELOW_S} s`],
-  ['var(--csl-map-barely)', `${SLOW_BELOW_S} s or more`],
+  ['var(--csl-map-fast)', `Recovers fast (< ${FAST_BELOW_S} s)`],
+  ['var(--csl-map-slow)', `Recovers in ${FAST_BELOW_S}–${SLOW_BELOW_S} s`],
+  ['var(--csl-map-barely)', `Recovers slowly (${SLOW_BELOW_S} s+)`],
   ['var(--csl-map-stuck)', 'Stuck'],
   ['var(--csl-map-pending)', 'Not run yet'],
 ];

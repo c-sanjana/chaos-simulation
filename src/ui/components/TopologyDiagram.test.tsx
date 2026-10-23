@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { TopologyDiagram, arrowThickness, instanceColor, nodeAriaLabel } from './TopologyDiagram';
+import { TopologyDiagram, arrowThickness, edgeKind, errorWash, flowDurationS, instanceColor, nodeAriaLabel } from './TopologyDiagram';
 import type { TopologyEdgeView, TopologyNodeView } from './types';
 
 const nodes: TopologyNodeView[] = [
@@ -36,6 +36,7 @@ describe('nodeAriaLabel', () => {
   it('summarises label, instance count, both lines and health', () => {
     expect(nodeAriaLabel(nodes[1])).toBe('API (4 instances): workers 100%, CPU 9%; unhealthy');
     expect(nodeAriaLabel(nodes[0])).toBe('Client: 200 rps sent, 93% errors; unhealthy');
+    expect(nodeAriaLabel({ ...nodes[0], errorShare: 0.93 })).toBe('Client: 200 rps sent, 93% errors; unhealthy; failing, 93% errors');
     expect(nodeAriaLabel(nodes[2])).toBe('Cache (1 instance): hit rate 70%, p99 2 ms; healthy');
   });
 });
@@ -83,9 +84,12 @@ describe('TopologyDiagram', () => {
     const bad = screen.getByTestId('edge-c-g');
     expect(bad.style.gridColumn).toBe('2');
     expect(bad.className).toContain('csl-edge--bad');
+    // Unhealthy without failure data: drawn as retrying (orange head), neutral track.
+    expect(bad.className).toContain('csl-edge--retrying');
+    expect(bad.querySelector('path')!.style.fill).toBe('var(--csl-retry)');
     const shaft = within(bad).getByTestId('edge-shaft');
     expect(shaft.style.height).toBe('4px');
-    expect(shaft.style.background).toBe('var(--csl-bad)');
+    expect(shaft.style.background).toBe('var(--csl-arrow)');
     const texts = Array.from(bad.children).map((c) => c.textContent);
     expect(texts[0]).toBe('200 rps');
     expect(texts[2]).toBe('93% fail');
@@ -110,8 +114,120 @@ describe('TopologyDiagram', () => {
     const { container, rerender } = render(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} />);
     expect(container.querySelector('.csl-topology-scroll > .csl-topology-grid')).not.toBeNull();
     expect(screen.getByText(/Arrow thickness = requests\/s/)).toBeTruthy();
+    expect(screen.getByText(/Orange band ↻ = retries/)).toBeTruthy();
+    expect(screen.getByText(/Red = failing/)).toBeTruthy();
     expect(screen.queryByText(/Snapshot at/)).toBeNull();
     rerender(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} note="Snapshot at t = 60 s." />);
     expect(screen.getByText('Snapshot at t = 60 s.')).toBeTruthy();
+  });
+
+  it('marks failing boxes with a class, a red wash, an error badge and words in the aria-label', () => {
+    const failing: TopologyNodeView = { ...nodes[1], errorShare: 0.93 };
+    const healthy: TopologyNodeView = { ...nodes[2], errorShare: 0.01 };
+    render(<TopologyDiagram nodes={[failing, healthy]} edges={[]} selectedId={null} onSelect={() => {}} editable />);
+    const api = screen.getByRole('button', { name: /^Edit API settings\. API \(4 instances\).*failing, 93% errors$/ });
+    expect(api.className).toContain('csl-node--failing');
+    expect(api.style.getPropertyValue('--csl-node-wash')).toBe('96%');
+    expect(api.querySelector('.csl-node__badge')!.textContent).toBe('✕ 93% errors');
+    expect(within(api).getByText('✎')).toBeTruthy();
+
+    const cache = screen.getByRole('button', { name: /^Edit Cache settings/ });
+    expect(cache.className).not.toContain('csl-node--failing');
+    expect(cache.style.getPropertyValue('--csl-node-wash')).toBe('0%');
+    expect(cache.querySelector('.csl-node__badge')).toBeNull();
+    expect(cache.getAttribute('aria-label')).not.toContain('failing');
+  });
+
+  it('distinguishes retries (orange band, ↻) from failures (red track, ✕ pill)', () => {
+    const retrying: TopologyEdgeView = { ...edges[2], id: 'retries', detail: 'incl. 300 retries', rps: 600, health: 'bad', retryShare: 0.5, errorShare: 0.01 };
+    const failing: TopologyEdgeView = { ...edges[2], id: 'fail', detail: 'incl. 900 retries', rps: 1200, health: 'bad', retryShare: 0.75, errorShare: 0.931 };
+    const calm: TopologyEdgeView = { ...edges[2], id: 'calm', retryShare: 0, errorShare: 0 };
+    render(<TopologyDiagram nodes={[]} edges={[retrying, failing, calm]} selectedId={null} onSelect={() => {}} />);
+
+    const r = screen.getByTestId('edge-retries');
+    expect(r.className).toContain('csl-edge--retrying');
+    expect(within(r).getByTestId('edge-shaft').style.background).toBe('var(--csl-arrow)');
+    expect(within(r).getByTestId('edge-retry').style.height).toBe('50%');
+    expect(r.querySelector('.csl-edge__detail--retry')!.textContent).toBe('↻ incl. 300 retries');
+    expect(r.querySelector('.csl-edge__fail')).toBeNull();
+
+    const f = screen.getByTestId('edge-fail');
+    expect(f.className).toContain('csl-edge--failing');
+    expect(f.className).not.toContain('csl-edge--retrying');
+    expect(within(f).getByTestId('edge-shaft').style.background).toBe('var(--csl-fail)');
+    expect(f.querySelector('path')!.style.fill).toBe('var(--csl-fail)');
+    expect(within(f).getByTestId('edge-retry').style.height).toBe('75%');
+    expect(f.querySelector('.csl-edge__fail')!.textContent).toBe('✕ 93% fail');
+
+    const c = screen.getByTestId('edge-calm');
+    expect(c.className).toContain('csl-edge--ok');
+    expect(within(c).queryByTestId('edge-retry')).toBeNull();
+    expect(c.querySelector('.csl-edge__detail--retry')).toBeNull();
+    expect(c.querySelector('path')!.style.fill).toBe('var(--csl-arrow)');
+  });
+
+  it('shows a failing cache arrow with the fail pill beside its text', () => {
+    const cacheDown: TopologyEdgeView = { ...edges[1], errorShare: 1, retryShare: 0, cache: true };
+    render(<TopologyDiagram nodes={[]} edges={[cacheDown]} selectedId={null} onSelect={() => {}} />);
+    const v = screen.getByTestId('edge-a-c');
+    expect(v.className).toContain('csl-edge--failing');
+    expect(within(v).getByTestId('edge-shaft').style.background).toBe('var(--csl-fail)');
+    expect(v.querySelector('.csl-edge__vtext .csl-edge__fail')!.textContent).toBe('✕ 100% fail');
+  });
+
+  it('moves flow dashes faster for more requests/s, and not at all with no requests', () => {
+    const slow: TopologyEdgeView = { ...edges[2], id: 'slow', rps: 10 };
+    const fast: TopologyEdgeView = { ...edges[2], id: 'fast', rps: 1000 };
+    const idle: TopologyEdgeView = { ...edges[2], id: 'idle', rps: 0 };
+    const cache: TopologyEdgeView = { ...edges[1] };
+    render(<TopologyDiagram nodes={[]} edges={[slow, fast, idle, cache]} selectedId={null} onSelect={() => {}} />);
+    const duration = (id: string) => within(screen.getByTestId(`edge-${id}`)).getByTestId('edge-flow').style.animationDuration;
+    expect(duration('slow')).toBe('1.9s');
+    expect(duration('fast')).toBe('0.5s');
+    expect(duration('a-c')).toBe('0.7s');
+    const still = screen.getByTestId('edge-idle');
+    expect(within(still).queryByTestId('edge-flow')).toBeNull();
+    expect(still.className).toContain('csl-edge--still');
+    expect(screen.getByTestId('edge-fast').className).not.toContain('csl-edge--still');
+  });
+
+  it('keeps working in the compact layout', () => {
+    const failing: TopologyNodeView = { ...nodes[1], errorShare: 0.5 };
+    const { container } = render(<TopologyDiagram nodes={[failing]} edges={edges} selectedId={null} onSelect={() => {}} compact />);
+    expect(container.querySelector('.csl-topology-grid--compact')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /^API/ }).className).toContain('csl-node--failing');
+    expect(screen.getAllByTestId('edge-flow')).toHaveLength(3);
+  });
+});
+
+describe('flowDurationS', () => {
+  it('shortens with more requests/s, clamped to 0.4..2.4 s, and is null with no requests', () => {
+    expect(flowDurationS(0)).toBeNull();
+    expect(flowDurationS(-5)).toBeNull();
+    expect(flowDurationS(Number.NaN)).toBeNull();
+    expect(flowDurationS(0.5)).toBe(2.4);
+    expect(flowDurationS(100)).toBe(1.2);
+    expect(flowDurationS(200)).toBe(1);
+    expect(flowDurationS(1_000_000)).toBe(0.4);
+    expect(flowDurationS(50)!).toBeGreaterThan(flowDurationS(500)!);
+  });
+});
+
+describe('errorWash', () => {
+  it('is zero while healthy and rises with the error share once failing', () => {
+    expect(errorWash(undefined)).toBe(0);
+    expect(errorWash(0.05)).toBe(0);
+    expect(errorWash(0.06)).toBe(44);
+    expect(errorWash(1)).toBe(100);
+  });
+});
+
+describe('edgeKind', () => {
+  it('prefers failing over retrying, and treats small retry shares as normal', () => {
+    const base = edges[2];
+    expect(edgeKind({ ...base, retryShare: 0.04 })).toBe('ok');
+    expect(edgeKind({ ...base, retryShare: 0.2 })).toBe('retrying');
+    expect(edgeKind({ ...base, health: 'bad' })).toBe('retrying');
+    expect(edgeKind({ ...base, retryShare: 0.9, errorShare: 0.5 })).toBe('failing');
   });
 });

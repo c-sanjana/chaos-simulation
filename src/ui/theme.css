@@ -45,9 +45,65 @@
   --csl-map-stuck: #e8590c;
   --csl-map-pending: #e6e9ed;
   --csl-map-cell: 30px;
+  --csl-alert-bg: #fdeeee;
+  --csl-on-ink: #ffffff;
+  --csl-chip-good-bg: #e3f4ec;
+  --csl-chip-good-ink: #1c6b47;
+  --csl-chip-bad-bg: #fde7da;
+  --csl-chip-bad-ink: #9a3400;
+  --csl-scrim: rgba(27, 31, 36, 0.35);
+  --csl-grid: #eceef1;
 
   --csl-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --csl-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* Dark theme: set by the top-bar toggle (or the system setting) on <html data-theme>. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --csl-ground: #0f1216;
+  --csl-card: #171b21;
+  --csl-border: #2b3139;
+  --csl-border-strong: #3b424c;
+  --csl-divider: #232830;
+  --csl-row-divider: #1f242b;
+  --csl-ink: #e6e9ed;
+  --csl-ink-2: #c5cad1;
+  --csl-muted: #9aa2ad;
+  --csl-subtle-bg: #1f242b;
+  --csl-track: #2b3139;
+
+  --csl-primary: #4c8dff;
+  --csl-secondary: #a371f7;
+  --csl-reference: #7d8590;
+  --csl-before: #6e7681;
+  --csl-bad: #f0742c;
+  --csl-bad-text: #ff9b5c;
+  --csl-failure-tint: rgba(240, 116, 44, 0.2);
+  --csl-good: #3fb984;
+  --csl-info-dot: #6e7681;
+  --csl-focus: #4c8dff;
+  --csl-selected-ring: rgba(76, 141, 255, 0.45);
+  --csl-selected-bg: #19263a;
+
+  --csl-node-border: #3b424c;
+  --csl-arrow: #8b949e;
+  --csl-instance-hot: #f0883e;
+  --csl-instance-calm: #2f6150;
+
+  --csl-map-fast: #9cc0f2;
+  --csl-map-slow: #5b95e6;
+  --csl-map-barely: #2f6fd0;
+  --csl-map-stuck: #e8590c;
+  --csl-map-pending: #2b3139;
+  --csl-alert-bg: #3a1e1e;
+  --csl-on-ink: #0f1216;
+  --csl-chip-good-bg: #123528;
+  --csl-chip-good-ink: #6fd3a6;
+  --csl-chip-bad-bg: #3d2213;
+  --csl-chip-bad-ink: #ffa56e;
+  --csl-scrim: rgba(0, 0, 0, 0.55);
+  --csl-grid: #262b33;
 }
 
 body {
@@ -93,7 +149,7 @@ body {
 .csl-btn--primary {
   border-color: var(--csl-ink);
   background: var(--csl-ink);
-  color: #ffffff;
+  color: var(--csl-on-ink);
 }
 .csl-btn--link {
   border: none;
@@ -343,7 +399,7 @@ body {
 }
 .csl-speed[aria-pressed='true'] {
   background: var(--csl-ink);
-  color: #ffffff;
+  color: var(--csl-on-ink);
 }
 
 /* ---------- Chart, tabs, legend ---------- */
@@ -739,10 +795,10 @@ button.csl-map__cell {
 .csl-step[aria-current='step'] {
   border-color: var(--csl-ink);
   background: var(--csl-ink);
-  color: #ffffff;
+  color: var(--csl-on-ink);
 }
 .csl-step[aria-current='step'] .csl-step__num {
-  background: #ffffff;
+  background: var(--csl-on-ink);
   color: var(--csl-ink);
 }
 .csl-step[aria-current='step'] .csl-step__sub {
@@ -754,7 +810,7 @@ button.csl-map__cell {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(27, 31, 36, 0.35);
+  background: var(--csl-scrim);
   display: flex;
   justify-content: flex-end;
 }
@@ -958,12 +1014,12 @@ button.csl-map__cell {
   white-space: nowrap;
 }
 .csl-chip--good {
-  background: #e3f4ec;
-  color: #1c6b47;
+  background: var(--csl-chip-good-bg);
+  color: var(--csl-chip-good-ink);
 }
 .csl-chip--bad {
-  background: #fde7da;
-  color: #9a3400;
+  background: var(--csl-chip-bad-bg);
+  color: var(--csl-chip-bad-ink);
 }
 .csl-chip--neutral {
   background: var(--csl-subtle-bg);
@@ -1012,7 +1068,7 @@ button.csl-map__cell {
 }
 .csl-segmented button[aria-pressed='true'] {
   background: var(--csl-ink);
-  color: #fff;
+  color: var(--csl-on-ink);
 }
 .csl-status {
   font-size: 13px;
@@ -1067,10 +1123,47 @@ button.csl-map__cell {
   font-size: 14px;
 }
 
-/* Live timeline */
+/* Live timeline: newest first, failures highlighted, inside a fixed scrollable window. */
+.csl-timeline__item {
+  border-radius: 6px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.csl-timeline__item--alert {
+  background: var(--csl-alert-bg);
+  box-shadow: inset 3px 0 0 var(--csl-bad);
+}
 .csl-timeline__item--latest {
-  background: #fff6f0;
-  border-radius: 4px;
+  outline: 2px solid var(--csl-primary);
+  outline-offset: -2px;
+  animation: csl-timeline-in 0.35s ease-out;
+}
+@keyframes csl-timeline-in {
+  from { transform: translateY(-6px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .csl-timeline__item--latest { animation: none; }
+}
+.csl-timeline-window {
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+  height: 340px;
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  background: var(--csl-card);
+}
+.csl-timeline-window > .csl-timeline-title {
+  padding: 10px 12px 6px;
+  margin: 0;
+  border-bottom: 1px solid var(--csl-divider);
+}
+.csl-timeline-window__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px 8px;
 }
 .csl-timeline__ahead {
   margin: 4px 0 0;
@@ -1304,14 +1397,14 @@ button.csl-map__cell {
   font-size: 9.5px;
 }
 .csl-split__side .csl-map {
-  --csl-map-cell: 32px;
+  --csl-map-cell: 30px;
 }
 .csl-split__side .csl-map--medium .csl-map {
   --csl-map-cell: 19px;
 }
 
 .csl-split__side--wide {
-  flex-basis: 560px;
+  flex-basis: 600px;
   max-width: 620px;
 }
 .csl-split__side .csl-map--medium .csl-map {
@@ -1343,4 +1436,227 @@ button.csl-map__cell {
 }
 .csl-card--compact .csl-card__title {
   font-size: 15px;
+}
+
+/* Map axes: the y-axis name runs along the rows; the x-axis name is centred under the columns. */
+.csl-map-frame {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.csl-map__yaxis {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--csl-ink-2);
+  padding-bottom: 34px; /* centre on the rows, not the x labels below them */
+}
+.csl-map__xaxis {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--csl-ink-2);
+  margin-top: 2px;
+}
+.csl-map--medium .csl-map__yaxis,
+.csl-map--medium .csl-map__xaxis {
+  font-size: 10.5px;
+}
+
+/* ---------- Fix tabs ---------- */
+.csl-fixtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Four tabs per row, so eight fixes take two rows; the full name is in the panel below. */
+.csl-fixtabs__list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.csl-fixtab {
+  font: inherit;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid var(--csl-border-strong);
+  border-radius: 999px;
+  background: var(--csl-card);
+  color: var(--csl-ink);
+  cursor: pointer;
+}
+.csl-fixtab__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.csl-fixtab__mark {
+  color: var(--csl-good);
+  font-weight: 700;
+}
+.csl-fixtab__badge {
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+  color: var(--csl-muted);
+}
+.csl-fixtab--no {
+  color: var(--csl-muted);
+  border-style: dashed;
+}
+.csl-fixtab--no .csl-fixtab__mark {
+  color: var(--csl-muted);
+}
+.csl-fixtab[aria-selected='true'] {
+  border-color: var(--csl-ink);
+  box-shadow: 0 0 0 1px var(--csl-ink);
+}
+.csl-fixtab--applied {
+  background: var(--csl-selected-bg);
+}
+.csl-fixtabs__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--csl-ground);
+  font-size: 13px;
+}
+.csl-fixtabs__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.csl-fixtabs__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.csl-fixtabs__why,
+.csl-fixtabs__caveat {
+  color: var(--csl-muted);
+  font-size: 12.5px;
+}
+.csl-fixtabs__result .csl-mono {
+  font-size: 12px;
+  color: var(--csl-muted);
+}
+
+/* ---------- Stretch layout: a side column matching the main column's height ---------- */
+.csl-split--stretch {
+  align-items: stretch;
+}
+.csl-split__col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.csl-split__side--narrow {
+  flex: 0 1 380px;
+  max-width: 420px;
+}
+/* The timeline slot takes the rest of the side column's height; its window scrolls inside. */
+.csl-split__slot {
+  flex: 1 1 0;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+}
+.csl-split__slot > .csl-timeline-window {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+@media (max-width: 1100px) {
+  .csl-split--stretch {
+    flex-wrap: wrap;
+  }
+  .csl-split__side--narrow {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .csl-split__slot {
+    flex: none;
+    height: 340px;
+  }
+}
+@media (min-width: 1101px) {
+  .csl-split--stretch {
+    flex-wrap: nowrap;
+  }
+}
+
+/* Step 3: before and after maps side by side, small enough to leave room for the fixes. */
+.csl-fix-maps {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.csl-split__side .csl-fix-maps .csl-map {
+  --csl-map-cell: 15px;
+  --csl-map-label: 20px;
+}
+/* Every other traffic label, so the numbers don't run together at this size. */
+.csl-fix-maps .csl-map__xlabel:nth-child(odd) {
+  visibility: hidden;
+}
+.csl-fix-maps .csl-map__yaxis {
+  padding-bottom: 28px;
+}
+.csl-fix-maps__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.csl-fix-maps__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--csl-border);
+}
+/* Step 3's side column also holds the fixes, so its timeline may be a little shorter. */
+.csl-split__side--wide .csl-split__slot {
+  min-height: 196px;
+}
+
+/* Top-bar actions (theme toggle, tour), pinned to the right. */
+.csl-topbar__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.csl-icon-button {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--csl-border);
+  border-radius: 50%;
+  background: var(--csl-card);
+  color: var(--csl-ink);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.csl-icon-button:hover {
+  border-color: var(--csl-primary);
+  color: var(--csl-primary);
 }

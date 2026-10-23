@@ -29,7 +29,7 @@ export function ChartLegend({ series, extra, failureWindow = true }: ChartLegend
       ))}
       {failureWindow && (
         <li className="csl-legend__item">
-          <span className="csl-legend__swatch" style={{ width: 14, height: 12, background: 'rgba(232,89,12,0.18)' }} />
+          <span className="csl-legend__swatch" style={{ width: 14, height: 12, background: 'var(--csl-failure-tint)' }} />
           Failure window
         </li>
       )}

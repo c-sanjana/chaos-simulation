@@ -85,13 +85,13 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(screen.getByText(/after the fix\./)).toBeTruthy();
   });
 
-  it('plays at 4× by default, and restarts from the beginning when a new run arrives', async () => {
+  it('plays at 16× by default, and restarts from the beginning when a new run arrives', async () => {
     vi.stubGlobal('requestAnimationFrame', () => 1);
     vi.stubGlobal('cancelAnimationFrame', () => {});
     const { rerender } = render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} />);
     await act(async () => {});
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Speed 4×' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Speed 16×' }).getAttribute('aria-pressed')).toBe('true');
     seek(90_000);
     rerender(<RunPlayer title="t" subtitle="s" topology={webChain} config={recovered.config} result={result(recovered)} />);
     await act(async () => {});

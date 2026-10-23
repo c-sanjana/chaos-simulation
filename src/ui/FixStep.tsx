@@ -7,9 +7,8 @@ import type { FixOutcome, RankedFix } from '../fixes/rank';
 import { buildSweep, tippingPoints, type SweepResult } from '../sweep/sweep';
 import type { AnalyzeResult } from '../worker/jobs';
 import type { SimPool } from '../worker/pool';
-import { FixList } from './components/FixList';
+import { FixTabs, type FixTab } from './components/FixTabs';
 import { TippingMap } from './components/TippingMap';
-import type { FixView } from './components/types';
 import { currentCell } from './draft';
 import { RunPlayer } from './RunPlayer';
 import { useFixRanking } from './useFixRanking';
@@ -32,6 +31,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const ranking = useFixRanking(pool, config, original?.analysis ?? null, labels);
   const [appliedId, setAppliedId] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [timelineEl, setTimelineEl] = useState<HTMLElement | null>(null);
   const apply = (id: string | null) => (setTouched(true), setAppliedId(id));
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
   const fixed = useAnalysis(pool, applied ? applied.candidate.config : null, labels);
@@ -48,66 +49,62 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const after = useSweep(pool, afterSpec);
 
   const helped = ranking.ranked.filter((f) => f.helped);
-  const didNotHelp = ranking.ranked.filter((f) => !f.helped);
   const allTested = ranking.candidates.length > 0 && ranking.tested === ranking.candidates.length;
   // Once every fix is tested, show the best one side by side straight away (until the viewer picks).
   const best = allTested && helped.length > 0 ? helped[0].candidate.id : null;
   useEffect(() => {
-    if (!touched && best !== null) setAppliedId(best);
+    if (!touched && best !== null) {
+      setAppliedId(best);
+      setSelectedId(best);
+    }
   }, [best, touched]);
 
   if (!original) return <p className="csl-status">Waiting for the original run…</p>;
-  const fixes = helped.map((f) => fixView(f, ranking.original!, ranking.seeds[f.candidate.id]));
+  const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.seeds[f.candidate.id]));
 
   return (
-    <div className="csl-split">
-      <section className="csl-card csl-card--compact csl-split__side csl-split__side--wide" aria-label="Fixes">
-        <div className="csl-card__head">
-          <h2 className="csl-card__title">Does a fix help?</h2>
-          <span className="csl-status" aria-live="polite">
-            {ranking.error ? <span className="csl-error">{ranking.error}</span> : allTested ? `${ranking.candidates.length} fixes tested` : `Testing fixes: ${ranking.tested} of ${ranking.candidates.length}`}
-          </span>
-        </div>
-        <p className="csl-card__sub" style={{ margin: 0 }}>
-          Each fix is one setting change, re-run against the same traffic and failure, ranked by what actually happened.
-        </p>
-        <div className="csl-panel" aria-label="Did the tipping point move?">
-          <h3 className="csl-section-title" style={{ margin: 0 }}>
-            Did the tipping point move?
-          </h3>
-          {applied && <span style={{ fontSize: 13, marginTop: -4 }}>With: {applied.candidate.title}</span>}
-          {applied && before.result && after.result ? (
-            <>
-              <div className="csl-row csl-map--medium" style={{ gap: 14 }}>
-                {[
-                  { title: 'Before', sweep: before.result },
-                  { title: 'After', sweep: after.result },
-                ].map((m) => (
-                  <div key={m.title}>
-                    <span className="csl-status">{m.title}</span>
-                    <TippingMap map={mapView(m.title, scenario.map.x, scenario.map.y, (x, y) => m.sweep.get(x, y), currentCell(scenario))} />
-                  </div>
-                ))}
-              </div>
-              <span className="csl-status">
-                {before.done + after.done} of {before.total + after.total} runs done
+    <div className="csl-split csl-split--stretch">
+      <div className="csl-split__col csl-split__side csl-split__side--wide">
+        <section className="csl-card csl-card--compact" aria-label="Fixes">
+          <div className="csl-fix-maps__panel" aria-label="Did the tipping point move?" data-tour="fix-maps">
+            <div className="csl-fix-maps__head">
+              <h2 className="csl-section-title" style={{ margin: 0 }}>
+                Did the tipping point move?
+              </h2>
+              <span className="csl-status" aria-live="polite">
+                {ranking.error ? <span className="csl-error">{ranking.error}</span> : allTested ? `${ranking.candidates.length} fixes tested` : `Testing fixes: ${ranking.tested} of ${ranking.candidates.length}`}
               </span>
-              {before.done === before.total && after.done === after.total && <p style={{ margin: 0, fontSize: 13 }}>{moveSummary(scenario, before.result, after.result)}</p>}
-            </>
-          ) : (
-            <span className="csl-status">{allTested ? 'Apply a fix below to see whether it moves the tipping point.' : 'Testing fixes; the best one is applied automatically.'}</span>
-          )}
-        </div>
-        {allTested && (
-          <FixList
-            fixes={fixes}
-            appliedId={appliedId}
-            onApply={apply}
-            failed={didNotHelp.map((f) => ({ title: f.candidate.title, result: `${capitalise(shortVerdict(f.outcome))}: ${f.candidate.why}` }))}
-          />
-        )}
-      </section>
-      <div className="csl-split__main">
+            </div>
+            {applied && before.result && after.result ? (
+              <>
+                <div className="csl-fix-maps csl-map--medium">
+                  {[
+                    { title: 'Before', sweep: before.result },
+                    { title: `After: ${shortName(applied.candidate.id)}`, sweep: after.result },
+                  ].map((m) => (
+                    <div key={m.title}>
+                      <span className="csl-status">{m.title}</span>
+                      <TippingMap map={mapView(m.title, scenario.map.x, scenario.map.y, (x, y) => m.sweep.get(x, y), currentCell(scenario))} />
+                    </div>
+                  ))}
+                </div>
+                <span style={{ fontSize: 13 }}>
+                  {before.done === before.total && after.done === after.total ? moveSummary(scenario, before.result, after.result) : `${before.done + after.done} of ${before.total + after.total} runs done`}
+                </span>
+              </>
+            ) : (
+              <span className="csl-status">
+                {!allTested ? 'Testing fixes; the best one is applied automatically.' : helped.length === 0 ? 'None of the fixes tried made this run recover.' : 'Apply a fix to see whether it moves the tipping point.'}
+              </span>
+            )}
+          </div>
+          <div data-tour="fix-tabs">
+            {allTested && <FixTabs tabs={tabs} selectedId={selectedId ?? appliedId} onSelect={setSelectedId} appliedId={appliedId} onApply={apply} />}
+          </div>
+        </section>
+        <div className="csl-split__slot" ref={setTimelineEl} />
+      </div>
+      <div className="csl-split__main" data-tour="replay">
         {applied && fixed.status === 'done' && (
           <RunPlayer
             title={`Before vs after: ${applied.candidate.title}`}
@@ -118,6 +115,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             after={{ config: applied.candidate.config, result: fixed.value }}
             onEdit={onEdit}
             compact
+            timelineTarget={timelineEl}
           />
         )}
         {applied && fixed.status === 'running' && (
@@ -127,7 +125,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         )}
         {!applied && (
           <section className="csl-card csl-card--compact">
-            <p className="csl-status">{allTested ? 'Apply a fix to compare it with the original run here, side by side.' : 'Testing fixes…'}</p>
+            <p className="csl-status">{allTested ? 'Pick a fix and press Apply & compare to see it side by side with the original run.' : 'Testing fixes…'}</p>
           </section>
         )}
       </div>
@@ -135,17 +133,39 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   );
 }
 
-function fixView(f: RankedFix, original: FixOutcome, seeds: { helped: number; of: number } | undefined): FixView {
+/** Short tab names for the catalogue's fixes (four tabs share a row; the full title is in the panel). */
+const SHORT_NAMES: Record<string, string> = {
+  'retry-budget': 'Retry budget',
+  'cap-retries': 'Cap retries',
+  'jitter-backoff': 'Jitter',
+  'bound-queue': 'Bound queue',
+  'drop-expired': 'Drop expired',
+  'coalesce-misses': 'Coalesce',
+  'longer-timeout': 'Timeout',
+  'add-instances': 'Scale out',
+};
+
+function shortName(id: string): string {
+  return SHORT_NAMES[id] ?? id;
+}
+
+function fixTab(f: RankedFix, original: FixOutcome, seeds: { helped: number; of: number } | undefined): FixTab {
+  const o = f.outcome;
   return {
     id: f.candidate.id,
+    short: shortName(f.candidate.id),
     title: f.candidate.title,
     why: f.candidate.why,
-    result: `${capitalise(shortVerdict(original))} → ${shortVerdict(f.outcome)}`,
-    seeds: seeds ? `helps in ${seeds.helped} of ${seeds.of} seeds` : 'checking other seeds…',
-    affected: `${f.outcome.failedRequests.toLocaleString()} failed requests (was ${original.failedRequests.toLocaleString()})`,
+    result: `${capitalise(shortVerdict(original))} → ${shortVerdict(o)}`,
+    // A fix that left the run stuck needs no badge: the tab's ✕ already says it did not help.
+    badge: o.verdict === 'recovered' ? `${Math.round((o.recoveryMs ?? 0) / 1000)}s` : f.helped ? o.verdict : '',
+    helped: f.helped,
+    seeds: f.helped ? (seeds ? `helps in ${seeds.helped} of ${seeds.of} seeds` : 'checking other seeds…') : '',
+    affected: `${o.failedRequests.toLocaleString()} failed requests (was ${original.failedRequests.toLocaleString()})`,
     caveat: f.candidate.caveat,
   };
 }
+
 
 /** One sentence on how the boundary moved for the current y value. */
 export function moveSummary(scenario: ScenarioPreset, before: SweepResult, after: SweepResult): string {

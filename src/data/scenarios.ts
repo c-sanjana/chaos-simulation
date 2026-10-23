@@ -18,7 +18,7 @@ export const retryStorm: ScenarioPreset = {
   retryCall: 'api',
   retries: 3,
   faults: [{ tier: 'db', kind: 'slow', factor: 8, startMs: 30_000, endMs: 35_000 }],
-  map: { x: TRAFFIC, y: { param: 'retries', label: 'API → DB retries', values: [5, 4, 3, 2, 1, 0] } },
+  map: { x: TRAFFIC, y: { param: 'retries', label: 'DB retries', values: [5, 4, 3, 2, 1, 0] } },
 };
 
 export const scenarios: Record<string, ScenarioPreset> = { [retryStorm.id]: retryStorm };

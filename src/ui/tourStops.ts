@@ -1,0 +1,63 @@
+import type { TourStop } from './components/Tour';
+
+/**
+ * The guided tour: the essentials of the three steps in about 30 seconds of reading.
+ * Each `target` matches a `data-tour` attribute in the page. The last stop (the "?" button) is
+ * visible on every screen, so it stays on the previous stop's screen rather than switching tabs.
+ */
+export const tourStops: TourStop[] = [
+  {
+    target: 'scenario',
+    screen: 0,
+    title: 'The failure',
+    body: 'What’s being simulated, like a database slowing down for 5 seconds. Change failure picks another.',
+  },
+  {
+    target: 'steps',
+    screen: 0,
+    title: 'Three steps',
+    body: 'What happened, where the tipping point is, and whether a fix helps.',
+  },
+  {
+    target: 'topology',
+    screen: 0,
+    title: 'Request flow',
+    body: 'Arrows show requests per second. Click a box to edit that tier.',
+  },
+  {
+    target: 'playback',
+    screen: 0,
+    title: 'Replay the run',
+    body: 'Play or scrub; the diagram and the metric charts update as it plays.',
+  },
+  {
+    target: 'timeline',
+    screen: 0,
+    title: 'Why it happened',
+    body: 'Explained with the run’s own numbers. Newest events on top; failures highlighted.',
+  },
+  {
+    target: 'map',
+    screen: 1,
+    title: 'Where’s the tipping point?',
+    body: 'Each cell is a full re-run at another traffic level and setting. Click one to replay it.',
+  },
+  {
+    target: 'fix-tabs',
+    screen: 2,
+    title: 'Try a fix',
+    body: 'Each tab is one setting change, re-run on the same traffic and ranked by what actually happened.',
+  },
+  {
+    target: 'fix-maps',
+    screen: 2,
+    title: 'Did the tipping point move?',
+    body: 'Compare the maps before and after the fix.',
+  },
+  {
+    target: 'help',
+    screen: 2,
+    title: 'Replay this tour',
+    body: 'Press ? to see this tour again.',
+  },
+];

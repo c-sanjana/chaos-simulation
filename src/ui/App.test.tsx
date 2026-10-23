@@ -6,6 +6,10 @@ vi.mock('uplot', () => import('./testing/fakeUplot'));
 
 const SLOW = { timeout: 30_000 };
 
+// The guided tour opens on a first visit; these tests start as returning visitors (the tour has its own tests).
+beforeEach(() => localStorage.setItem('csl-tour-seen-v1', 'completed'));
+afterEach(() => localStorage.clear());
+
 describe('App', { timeout: 60_000 }, () => {
   it('runs the default scenario and shows what happened', async () => {
     const pool = new FakePool();
@@ -31,7 +35,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.change(screen.getByLabelText(/^API → DB retries/), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText(/^DB retries/), { target: { value: '0' } });
     fireEvent.change(screen.getByLabelText(/^DB slowdown/), { target: { value: '4' } });
     fireEvent.change(screen.getByLabelText(/^Lasting/), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '20' } });
@@ -46,17 +50,18 @@ describe('App', { timeout: 60_000 }, () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
-    await screen.findByText('60 of 60 runs done', undefined, SLOW);
+    await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
     expect(screen.getByText(/the system tips at 120 requests\/s/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /80 requests per second, 1 API → DB retries: recovers in 2 s/ })).toBeTruthy();
-    await screen.findByRole('heading', { name: /Replaying 200 rps · 3 API → DB retries/ }, SLOW);
-    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 0 API → DB retries/ }));
-    await screen.findByRole('heading', { name: /Replaying 80 rps · 0 API → DB retries/ }, SLOW);
+    expect(screen.getByRole('button', { name: /80 requests per second, 1 DB retries: recovers in 2 s/ })).toBeTruthy();
+    await screen.findByRole('heading', { name: /Replaying 200 rps · 3 DB retries/ }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 0 DB retries/ }));
+    await screen.findByRole('heading', { name: /Replaying 80 rps · 0 DB retries/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    // Side by side: the replay's live timeline is rendered in the map's column.
-    const mapColumn = screen.getByRole('region', { name: 'Tipping point' });
-    expect(mapColumn.querySelector('.csl-split__timeline .csl-timeline-title')).not.toBeNull();
+    // Side by side: the replay's live timeline is rendered in the map's column, under the map.
+    const timeline = screen.getByRole('region', { name: 'Live timeline' });
+    expect(timeline.closest('.csl-split__slot')).not.toBeNull();
+    expect(screen.getByRole('region', { name: 'Tipping point' }).parentElement!.contains(timeline)).toBe(true);
   });
 
   it('summarises the scenario in one line on every step, and opens the editor to change it', async () => {
@@ -64,7 +69,7 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
-    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · 3 API → DB retries/);
+    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · 3 DB retries/);
     const toggle = within(summary).getByRole('button', { name: 'Change failure' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
@@ -86,7 +91,7 @@ describe('App', { timeout: 60_000 }, () => {
     const stuckPool = new FakePool();
     render(<App pool={stuckPool} />);
     fireEvent.click(screen.getAllByRole('button', { name: /Where's the tipping point/ })[1]);
-    await screen.findByText(/1,234 requests failed because of the incident/, undefined, SLOW);
+    await screen.findByText(/^1,234 failed requests$/, undefined, SLOW);
   });
 
   it('opens one tier\'s settings from its box in the topology', async () => {
@@ -160,10 +165,25 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
     expect(screen.getByText('Waiting for the original run…')).toBeTruthy();
-    await screen.findByRole('heading', { name: 'Does a fix help?' }, SLOW);
+    await screen.findByRole('heading', { name: 'Did the tipping point move?' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     fireEvent.click(screen.getByRole('button', { name: /Retry storm/ }));
     await act(async () => {});
+  });
+
+  it('opens the guided tour on a first visit once the run is ready, and replays it from the ? button', async () => {
+    localStorage.clear();
+    render(<App pool={new FakePool()} />);
+    expect(screen.queryByRole('dialog')).toBeNull(); // waits for the first run, so its targets exist
+    const tour = await screen.findByRole('dialog', {}, SLOW);
+    expect(tour.textContent).toMatch(/The failure/);
+    fireEvent.click(within(tour).getByRole('button', { name: /Skip tour/ }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(localStorage.getItem('csl-tour-seen-v1')).toBe('skipped');
+    fireEvent.click(screen.getByRole('button', { name: 'Show the guided tour' }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    // The theme toggle sits beside it in the top bar.
+    expect(screen.getByRole('button', { name: /Switch to (dark|light) mode/ })).toBeTruthy();
   });
 
   it('creates and disposes its own pool when none is injected (falls back in-process without Workers)', async () => {

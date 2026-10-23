@@ -29,15 +29,29 @@ describe('FixStep', { timeout: 60_000 }, () => {
     const pool = new FakePool(verdict);
     render(<FixStep pool={pool} topology={webChain} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText(/^\d+ fixes tested$/, undefined, SLOW);
-    expect(screen.getAllByText('Stuck → recovers in 4 s').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText(/retry budget/i).length).toBeGreaterThan(0);
-    await screen.findAllByText(/helps in 5 of 5 seeds/, undefined, SLOW);
-    expect(screen.getByRole('button', { name: /fixes tried that did not help/ })).toBeTruthy();
-
-    fireEvent.click(screen.getAllByRole('button', { name: /^Apply & compare/ })[0]);
+    // One tab per fix, best first; the best one is applied and compared straight away.
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.length).toBeGreaterThan(1);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(tabs[0].textContent).toMatch(/^✓.*4s$/);
+    expect(tabs.at(-1)!.textContent).toMatch(/^✕/); // fixes that did not help come last, without a badge
+    expect(screen.getByText('Stuck → recovers in 4 s')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Comparing' }).getAttribute('aria-pressed')).toBe('true');
+    await screen.findByText(/helps in 5 of 5 seeds/, undefined, SLOW);
     await screen.findByRole('heading', { name: /^Before vs after:/ }, SLOW);
     await screen.findByRole('heading', { name: 'Did the tipping point move?' }, SLOW);
     await screen.findByText(/the system used to tip at 120 requests\/s; with the fix it recovers at every traffic level shown/, undefined, SLOW);
+
+    // Picking another tab shows its details; applying it compares that fix instead.
+    fireEvent.click(tabs[1]);
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply & compare' }));
+    expect(screen.getByRole('button', { name: 'Comparing' })).toBeTruthy();
+    await screen.findByRole('heading', { name: new RegExp(`^Before vs after: .*`) }, SLOW);
+    // Un-applying leaves nothing to compare.
+    fireEvent.click(screen.getByRole('button', { name: 'Comparing' }));
+    expect(screen.getByText(/Pick a fix and press Apply & compare/)).toBeTruthy();
+    expect(screen.getByText('Apply a fix to see whether it moves the tipping point.')).toBeTruthy();
   });
 
   it('waits for the original run, and reports when no fix helped', async () => {

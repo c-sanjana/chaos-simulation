@@ -50,4 +50,21 @@ describe('Timeline', () => {
     expect(screen.queryByRole('list')).toBeNull();
     expect(screen.getByText('Nothing notable detected.')).toBeTruthy();
   });
+
+  it('plays along newest first, highlighting failures and the latest event', () => {
+    const { rerender } = render(<Timeline entries={entries} nowMs={40_000} />);
+    let items = screen.getAllByRole('listitem');
+    expect(items.map((i) => i.querySelector('.csl-timeline__time')!.textContent)).toEqual(['36–120 s', '34 s', '31 s', '30 s']);
+    expect(items[0].className).toContain('csl-timeline__item--latest');
+    expect(items[1].className).toContain('csl-timeline__item--alert'); // the tipping point
+    expect(items[3].className).toContain('csl-timeline__item--alert'); // the injected failure
+    expect(items[2].className).not.toContain('--alert');
+    expect(screen.getByText('2 more events ahead')).toBeTruthy();
+    rerender(<Timeline entries={entries} nowMs={60_000} />);
+    expect(screen.getByText('1 more event ahead')).toBeTruthy();
+    items = screen.getAllByRole('listitem');
+    expect(items[0].textContent).toContain('Recovered in 12 s');
+    rerender(<Timeline entries={entries} nowMs={120_000} />);
+    expect(screen.queryByText(/more events? ahead/)).toBeNull();
+  });
 });

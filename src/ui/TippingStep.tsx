@@ -28,32 +28,36 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
   const cellTitle = `${selected.x} rps · ${formatAxisValue(yAxis, selected.y)} ${yAxis.label}`;
 
   return (
-    <div className="csl-split">
-      <section className="csl-card csl-card--compact csl-split__side" aria-label="Tipping point">
-        <div>
-          <h2 className="csl-card__title">Where's the tipping point?</h2>
-          <p className="csl-card__sub">The same failure at every traffic × {yAxis.label}. Each cell is a full run compared with its no-failure control. Click one to replay it.</p>
-        </div>
-        <MapLegend />
-        <span className="csl-status" aria-live="polite">
-          {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs done`}
-        </span>
-        <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
-        <div className="csl-selected-line" aria-label="Selected cell">
-          <span className="csl-mono">{cellTitle}</span>
-          <strong style={{ fontWeight: 600 }}>{summary ? capitalise(shortVerdict(summary)) : 'Running…'}</strong>
-          {summary && summary.failedRequests > 0 && <span className="csl-status">{summary.failedRequests.toLocaleString()} requests failed because of the incident</span>}
-        </div>
-        {currentTip && (
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--csl-ink-2)' }}>
-            {currentTip.tipsAtX === null
-              ? `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system recovers at every traffic level shown.`
-              : `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system tips at ${currentTip.tipsAtX} requests/s.`}
+    <div className="csl-split csl-split--stretch">
+      <div className="csl-split__col csl-split__side">
+        <section className="csl-card csl-card--compact" aria-label="Tipping point" data-tour="map">
+          <div className="csl-card__head">
+            <h2 className="csl-card__title">Where's the tipping point?</h2>
+            <span className="csl-status" aria-live="polite">
+              {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs`}
+            </span>
+          </div>
+          <p className="csl-card__sub" style={{ margin: 0 }}>
+            The same failure at every traffic × {yAxis.label}. Each cell is a full run; click one to replay it.
           </p>
-        )}
-        <div className="csl-split__timeline" ref={setTimelineEl} />
-      </section>
-      <div className="csl-split__main">
+          <MapLegend />
+          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
+          <div className="csl-selected-line" aria-label="Selected cell">
+            <span className="csl-mono">{cellTitle}</span>
+            <strong style={{ fontWeight: 600 }}>{summary ? capitalise(shortVerdict(summary)) : 'Running…'}</strong>
+            {summary && summary.failedRequests > 0 && <span className="csl-status">{summary.failedRequests.toLocaleString()} failed requests</span>}
+          </div>
+          {currentTip && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--csl-ink-2)' }}>
+              {currentTip.tipsAtX === null
+                ? `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system recovers at every traffic level shown.`
+                : `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system tips at ${currentTip.tipsAtX} requests/s.`}
+            </p>
+          )}
+        </section>
+        <div className="csl-split__slot" ref={setTimelineEl} />
+      </div>
+      <div className="csl-split__main" data-tour="replay">
         {replay.status === 'done' && (
           <RunPlayer
             title={`Replaying ${cellTitle}`}

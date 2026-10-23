@@ -57,6 +57,8 @@ export function topologyView(topology: TopologyPreset, config: RunConfig, run: R
       instanceBusy: [],
       lines: [`${Math.round(perSecond(run, c.sent[b]))} rps sent`, `${pct(clientErrors)} errors`],
       health: clientErrors > BAD_CLIENT_ERRORS ? 'bad' : 'ok',
+      errorShare: clientErrors,
+      rps: perSecond(run, c.sent[b]),
     });
   }
   for (const tc of config.tiers) {
@@ -82,6 +84,9 @@ export function topologyView(topology: TopologyPreset, config: RunConfig, run: R
       instanceBusy: new Array<number>(tc.instances).fill(busy),
       lines,
       health: bad ? 'bad' : 'ok',
+      errorShare: errorShare(t, b),
+      rps: perSecond(run, arrivals(t, b)),
+      busy,
     });
   }
   return { nodes, edges: edgesAt(topology, config, run, b) };
@@ -110,11 +115,20 @@ function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b:
     const retries = target.arrivalsRetry[b];
     const rps = perSecond(run, total);
     if (call.cache) {
-      edges.push({ id: `${call.from}-${call.to}`, ...place, label: `${Math.round(rps)} lookups/s`, detail: `${pct(target.hits[b] / Math.max(1, target.ok[b]))} hits`, rps, health: 'ok' });
+      edges.push({ id: `${call.from}-${call.to}`, ...place, label: `${Math.round(rps)} lookups/s`, detail: `${pct(target.hits[b] / Math.max(1, target.ok[b]))} hits`, rps, health: 'ok', retryShare: 0, errorShare: errorShare(target, b), cache: true });
     } else {
       const failing = errorShare(target, b) > BAD_ERROR_SHARE;
       const detail = retries > 0 ? `incl. ${Math.round(perSecond(run, retries))} retries` : failing ? `${pct(errorShare(target, b))} fail` : 'no retries';
-      edges.push({ id: `${call.from}-${call.to}`, ...place, label: `${Math.round(rps)} rps`, detail, rps, health: retries / Math.max(1, total) > 0.5 || failing ? 'bad' : 'ok' });
+      edges.push({
+        id: `${call.from}-${call.to}`,
+        ...place,
+        label: `${Math.round(rps)} rps`,
+        detail,
+        rps,
+        health: retries / Math.max(1, total) > 0.5 || failing ? 'bad' : 'ok',
+        retryShare: retries / Math.max(1, total),
+        errorShare: errorShare(target, b),
+      });
     }
   }
   return edges;

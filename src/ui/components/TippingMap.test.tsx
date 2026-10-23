@@ -49,7 +49,7 @@ describe('cell helpers', () => {
 });
 
 describe('TippingMap', () => {
-  it('renders a button per cell, top row first, with row labels, x labels and captions', () => {
+  it('renders a button per cell, top row first, with row labels, x labels and named axes', () => {
     render(<TippingMap map={map} selected={null} onSelect={() => {}} />);
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((b) => b.textContent)).toEqual(['', '', '◆', '', '', '']);
@@ -58,7 +58,7 @@ describe('TippingMap', () => {
     expect(buttons[4].className).toContain('csl-map__cell--pending');
     expect(buttons[2].style.background).toBe('var(--csl-map-stuck)');
     expect(screen.getByRole('group', { name: 'Tipping-point map' })).toBeTruthy();
-    expect(screen.getByText('↑ retries')).toBeTruthy();
+    expect(screen.getByText('retries →')).toBeTruthy(); // runs along the y axis
     expect(screen.getByText('traffic (requests/s) →')).toBeTruthy();
     expect(screen.getByText('150')).toBeTruthy();
     expect(screen.getAllByText('3')).toHaveLength(1);
@@ -96,7 +96,7 @@ describe('MapLegend', () => {
   it('explains every colour band, pending cells, the current marker and the replay ring', () => {
     render(<MapLegend />);
     const items = screen.getAllByRole('listitem');
-    expect(items.map((i) => i.textContent)).toEqual(['Recovers in under 4 s', '4–9 s', '9 s or more', 'Stuck', 'Not run yet', '◆ current settings', 'replaying']);
+    expect(items.map((i) => i.textContent)).toEqual(['Recovers fast (< 4 s)', 'Recovers in 4–9 s', 'Recovers slowly (9 s+)', 'Stuck', 'Not run yet', '◆ current settings', 'replaying']);
     expect((items[3].querySelector('span') as HTMLElement).style.background).toBe('var(--csl-map-stuck)');
   });
 

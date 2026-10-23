@@ -5,12 +5,16 @@ import { createDefaultPool, type SimPool } from '../worker/pool';
 import { Drawer } from './components/Drawer';
 import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
+import { Tour, TourButton } from './components/Tour';
 import { presetDraft, type Draft } from './draft';
 import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
+import { ThemeToggle } from './themeMode';
 import { TippingStep } from './TippingStep';
+import { tourStops } from './tourStops';
+import { useTour } from './useTour';
 import { useAnalysis } from './useSimulation';
 import { labelsOf, verdictView } from './viewModels';
 
@@ -38,6 +42,7 @@ export function App({ pool: injected }: AppProps) {
   /** On steps 2 and 3 the scenario card collapses to one line to leave room for side-by-side views. */
   const [editingFailure, setEditingFailure] = useState(false);
   /** Settings drawer: closed, one tier ('client' = traffic), or every setting (null). */
+  const [timelineEl, setTimelineEl] = useState<HTMLElement | null>(null);
   const [settings, setSettings] = useState<{ open: boolean; only: string | null }>({ open: false, only: null });
   const openSettings = (only: string | null) => setSettings({ open: true, only });
   const closeSettings = () => setSettings((s) => ({ ...s, open: false }));
@@ -45,6 +50,8 @@ export function App({ pool: injected }: AppProps) {
   const labels = useMemo(() => labelsOf(applied.topology), [applied.topology]);
   const config = useMemo(() => buildRunConfig(applied.topology, applied.scenario), [applied]);
   const main = useAnalysis(pool, config, labels);
+  // First visit: the walkthrough opens once the first run is ready (so its targets exist).
+  const tour = useTour();
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied);
 
   const pickScenario = (id: string) => {
@@ -62,8 +69,23 @@ export function App({ pool: injected }: AppProps) {
         <h1 className="csl-topbar__title" title="See where a system stops recovering on its own, and whether a fix moves that point.">
           Chaos Simulation Lab
         </h1>
-        <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />
+        <div data-tour="scenario" className="csl-topbar__summary">
+          <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />
+        </div>
+        <div className="csl-topbar__actions">
+          <ThemeToggle />
+          <TourButton onClick={tour.start} />
+        </div>
       </header>
+      <Tour
+        stops={tourStops}
+        open={tour.open && main.status === 'done'}
+        onClose={(completed) => {
+          tour.close(completed);
+          setStep(0);
+        }}
+        onScreen={setStep}
+      />
 
       {editingFailure && (
         <section className="csl-card csl-card--compact" aria-label="Change the failure">
@@ -75,6 +97,7 @@ export function App({ pool: injected }: AppProps) {
         </section>
       )}
 
+      <div data-tour="steps">
       <StepTabs
         compact
         steps={[
@@ -85,22 +108,31 @@ export function App({ pool: injected }: AppProps) {
         current={step}
         onSelect={setStep}
       />
+      </div>
 
       {step === 0 && (
-        <>
-          {main.status === 'done' && (
-            <RunPlayer
-              title="What happened"
-              subtitle={`${applied.scenario.title} · ${applied.scenario.rps} requests/s · seed ${config.seed}`}
-              topology={applied.topology}
-              config={config}
-              result={main.value}
-              onEdit={openSettings}
-            />
-          )}
-          {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
-          {main.status === 'error' && <p className="csl-error">{main.message}</p>}
-        </>
+        <div className="csl-split csl-split--stretch">
+          <div className="csl-split__main">
+            {main.status === 'done' && (
+              <RunPlayer
+                title="What happened"
+                subtitle={`${applied.scenario.title} · ${applied.scenario.rps} requests/s · seed ${config.seed}`}
+                topology={applied.topology}
+                config={config}
+                result={main.value}
+                onEdit={openSettings}
+                compact
+                chartHeight={232}
+                timelineTarget={timelineEl}
+              />
+            )}
+            {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
+            {main.status === 'error' && <p className="csl-error">{main.message}</p>}
+          </div>
+          <aside className="csl-split__col csl-split__side--narrow">
+            <div className="csl-split__slot" ref={setTimelineEl} />
+          </aside>
+        </div>
       )}
       {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} onEdit={openSettings} />}
       {step === 2 && (

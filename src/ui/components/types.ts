@@ -13,6 +13,12 @@ export interface TopologyNodeView {
   instanceBusy: number[];
   lines: [string, string];
   health: Health;
+  /** 0..1 share of this tier's responses that failed this second (client: share of user requests). */
+  errorShare?: number;
+  /** Requests per second arriving (client: sent). */
+  rps?: number;
+  /** 0..1 share of workers busy (tiers only). */
+  busy?: number;
 }
 
 export interface TopologyEdgeView {
@@ -25,6 +31,12 @@ export interface TopologyEdgeView {
   detail: string;
   rps: number;
   health: Health;
+  /** 0..1 share of the calls on this arrow that were retries this second. */
+  retryShare?: number;
+  /** 0..1 share of the calls on this arrow that failed this second. */
+  errorShare?: number;
+  /** This arrow carries cache lookups. */
+  cache?: boolean;
 }
 
 export interface TimeSeries {
@@ -47,6 +59,8 @@ export interface ChartSpec {
   ariaLabel: string;
   /** Plot height in px (default CHART_HEIGHT); compact layouts use less. */
   height?: number;
+  /** Draw data only up to this time (s), so lines grow as a replay plays. Omit to draw everything. */
+  revealS?: number;
 }
 
 export interface TimelineEntryView {
@@ -75,12 +89,3 @@ export interface MapView {
   formatY?: (y: number) => string;
 }
 
-export interface FixView {
-  id: string;
-  title: string;
-  why: string;
-  result: string;
-  seeds: string;
-  affected: string;
-  caveat: string;
-}
