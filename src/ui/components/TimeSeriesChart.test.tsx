@@ -134,9 +134,9 @@ describe('toUplot', () => {
   it('draw hooks paint failure windows (under the series) and the playhead from the overlay', () => {
     const { options } = toUplot(spec());
     const { u, calls } = fakeU();
-    options.hooks!.drawClear![0](u);
+    options.hooks!.drawClear![0]!(u);
     expect(calls.filter((c) => c[0] === 'fillRect')).toEqual([['fillRect', 200, 10, 100, 200]]);
-    options.hooks!.draw![0](u);
+    options.hooks!.draw![0]!(u);
     expect(calls.filter((c) => c[0] === 'moveTo')).toEqual([['moveTo', 300, 10]]);
   });
 
@@ -145,7 +145,7 @@ describe('toUplot', () => {
     const { options } = toUplot(spec(), undefined, () => overlay);
     const { u, calls } = fakeU();
     overlay = { failureWindows: [], playheadS: 3 };
-    options.hooks!.draw![0](u);
+    options.hooks!.draw![0]!(u);
     expect(calls.filter((c) => c[0] === 'moveTo')).toEqual([['moveTo', 400, 10]]);
   });
 });

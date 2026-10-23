@@ -573,7 +573,7 @@ button.csl-map__cell {
   width: 18px;
 }
 .csl-fix__main {
-  flex: 1 1 260px;
+  flex: 1 1 200px;
   min-width: 0;
   display: flex;
   flex-direction: column;
