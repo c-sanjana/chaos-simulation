@@ -14,7 +14,7 @@ export interface FixCandidate {
 /**
  * Fixes worth trying for this run: each is the original config with one setting change. `why`
  * quotes the triggering signal with its number, e.g. "retries were 74% of DB load". Common
- * instincts get why = "a common first instinct". In catalog order; fixes that cannot be applied to
+ * instincts get why = "it is a common first instinct". In catalog order; fixes that cannot be applied to
  * this config (or would change nothing) are left out.
  */
 export function candidateFixes(config: RunConfig, signals: Signals, labels: Record<string, string>): FixCandidate[] {
@@ -27,7 +27,7 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
     candidates.push({
       id: def.id,
       title: `${def.title}: ${plan.where}`,
-      why: def.signal === null ? 'a common first instinct' : describeSignal(def.signal, signals, config, name),
+      why: def.signal === null ? 'it is a common first instinct' : describeSignal(def.signal, signals, config, name),
       caveat: def.caveat,
       config: plan.config,
     });

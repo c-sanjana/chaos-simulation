@@ -5,8 +5,7 @@ import { candidateFixes, type FixCandidate } from '../fixes/candidates';
 import { rankFixes, seedAgreement, seedVariants, type FixOutcome, type RankedFix, type SeedAgreement } from '../fixes/rank';
 import { CancelledError, type SimPool } from '../worker/pool';
 
-/** Fixes whose result is re-checked on other seeds (the top helpful ones). */
-const SEED_CHECKED = 3;
+/** Every fix that helped is re-checked on this many seeds (the original seed included). */
 const SEEDS = 5;
 
 export interface FixRankingState {
@@ -14,7 +13,7 @@ export interface FixRankingState {
   candidates: FixCandidate[];
   ranked: RankedFix[];
   tested: number;
-  /** "Recovers in N of 5 seeds" for the top fixes, by fix id, once known. */
+  /** "Helps in N of 5 seeds" for every fix that helped, by fix id, once known. */
   seeds: Record<string, SeedAgreement>;
   error: string | null;
 }
@@ -23,7 +22,7 @@ const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tes
 
 /**
  * Tries every candidate fix for a run in the worker pool, ranking them by what actually happened as
- * results arrive; then re-checks the top fixes on other random seeds. Each run is the fixed config
+ * results arrive; then re-checks every fix that helped on other random seeds. Each run is the fixed config
  * compared with its own no-failure control (see fixes/rank.ts).
  */
 export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analysis | null, labels: Record<string, string>): FixRankingState {
@@ -53,7 +52,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
       ),
     )
       .then(async () => {
-        const top = rankFixes(original, results).filter((f) => f.helped).slice(0, SEED_CHECKED);
+        const top = rankFixes(original, results).filter((f) => f.helped);
         if (top.length === 0) return;
         const originals = await Promise.all(seedVariants(config, SEEDS).map((c) => batch.cell(c)));
         await Promise.all(

@@ -68,8 +68,8 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
     expect(why['drop-expired']).toBe(`${pct(signals.wastedShare!.value)} of DB work was for requests whose caller had already given up`);
     const { before, during } = signals.cacheHitDrop!.value;
     expect(why['coalesce-misses']).toBe(`Cache hit rate fell from ${pct(before)} to ${pct(during)}`);
-    expect(why['longer-timeout']).toBe('a common first instinct');
-    expect(why['add-instances']).toBe('a common first instinct');
+    expect(why['longer-timeout']).toBe('it is a common first instinct');
+    expect(why['add-instances']).toBe('it is a common first instinct');
     expect(why['retry-budget']).toMatch(/^retries were [5-9]\d% of DB load$/);
     for (const c of candidates) {
       expect(c.caveat).toBe(FIX_CATALOG.find((d) => d.id === c.id)!.caveat);

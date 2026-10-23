@@ -152,6 +152,9 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 
 ## 8. Open questions
 
+- **Q5 (raised at the P7 review).** "Drop expired requests" checks the deadline when a queued request gets a worker. With 64 DB connections on 4 cores, admitted requests then wait for a core and expire there, so the fix doesn't help in the default scenario. Option: also re-check the deadline when compute starts (a deadline-aware handler), or leave it and keep the README note.
+- **Q6.** The permanent URL (claimed site) can only be updated with the owner's here.now API key, which this environment doesn't have.
+- ~~Q4~~ Decided at the P3 review: map axis B.
 - **Q4 (raised at the P3 review).** On the retry-storm map, rows for 1–5 retries per layer look identical. This is real behaviour, not a bug: retries at three layers multiply ((r+1)³ calls to the DB, so even 1 retry is 8×), and a 5 s blip can only tip the system if it overloads the DB during the blip (above ~80 requests/s), whatever the retry count. Options to make the map more informative are listed in the review message.
 
 - ~~Q1~~ Decided: here.now with a free account (see 9.8).
@@ -249,7 +252,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | P4 ✅ | Run player and page | Visual check against the mockups; page stays responsive |
 | P5 ✅ | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
 | P6 ✅ | Fixes | Identical arrivals before and after a fix; ranking order; visual check |
-| P7 | README and final deploy | Full walkthrough on the hosted URL in a clean browser |
+| P7 ✅ | README and final deploy | Full walkthrough on the hosted URL in a clean browser |
 | S1, S2, C1 | Per the build order | Known-pattern tests for each |
 
 ### 9.10 Quality bar
@@ -308,6 +311,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 |---------|----------|---------------|
 | 1 | _please fill in_ | Kickoff, requirements, risks, V1 scope (planning) |
 | 2 | ~15 min | P0: skeleton, tests and coverage gate, here.now deploy script, hosted worker smoke test passed |
+| 7 | ~40 min | P6 + P7: fix mechanisms and catalogue (sub-agent), fix step with seed checks and before/after maps, README with measured accuracy table, browser walkthrough of all three steps |
 | 6 | ~45 min | P4 + P5: map axis B; view-model layer, RunPlayer, app shell (scenario picker, failure editor, step tabs, settings drawer), tipping-point step with inline replay; worker pool and sweep (sub-agent, 57 tests). Checked in Chromium at 1280 px and 375 px: first run immediate, 60-cell map in 3.8 s, no horizontal overflow |
 | 5 | ~30 min | P3: recovery assessment, timeline rules, diagnosis signals, analysis tests (18, 100% lines). Measured option C and switched to the fallback |
 | 4 | ~25 min | P2: cache-aside, cache tiers (LRU + TTL, Zipf keys, warm start), slow/dead/per-instance faults, cache flush; web-chain topology and retry-storm preset as data. Stuck state emerges untuned: stuck with retries, recovers with 0. Hit rate matches Che within 1 point |
