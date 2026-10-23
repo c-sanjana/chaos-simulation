@@ -34,8 +34,10 @@ export function formatValue(v: number, unit: string): string {
  */
 export function toUplotData(spec: ChartSpec): uPlot.AlignedData {
   let stack: number[] | null = null;
+  // NaN means "no data this second" (e.g. no successful requests): uPlot draws a gap for null.
+  const gaps = (values: number[]) => values.map((v) => (Number.isNaN(v) ? null : v));
   const ys = spec.series.map((s) => {
-    if (!s.area) return s.values;
+    if (!s.area) return gaps(s.values);
     const below = stack;
     stack = s.values.map((v, i) => v + (below ? below[i] : 0));
     return stack;

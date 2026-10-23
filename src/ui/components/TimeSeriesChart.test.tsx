@@ -67,6 +67,13 @@ describe('formatValue', () => {
   });
 });
 
+describe('toUplotData gaps', () => {
+  it('turns NaN (no data) into null so uPlot draws a gap', () => {
+    const s: ChartSpec = { xsSeconds: [0, 1, 2], series: [{ label: 'p99', values: [5, NaN, 7], color: '#000' }], unit: 'ms', failureWindows: [], ariaLabel: 'x' };
+    expect(toUplotData(s)).toEqual([[0, 1, 2], [5, null, 7]]);
+  });
+});
+
 describe('toUplotData', () => {
   it('stacks area series on the previous area series and leaves lines alone', () => {
     const s = spec({

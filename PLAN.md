@@ -246,8 +246,8 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | P1 ✅ | Engine core | Matches queueing theory (M/M/1, M/M/c, Erlang C) within tolerance; Little's law holds; invariants hold; deterministic; arrivals identical across settings; events/s benchmark |
 | P2 ✅ | Cache, DB, failures, retry-storm preset | Retry storm stuck with 3 retries, recovers with 0; cache hit rate matches the analytic model of an LRU cache with Zipf-distributed keys |
 | P3 ✅ | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
-| P4 | Run player and page | Visual check against the mockups; page stays responsive |
-| P5 | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
+| P4 ✅ | Run player and page | Visual check against the mockups; page stays responsive |
+| P5 ✅ | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
 | P6 | Fixes | Identical arrivals before and after a fix; ranking order; visual check |
 | P7 | README and final deploy | Full walkthrough on the hosted URL in a clean browser |
 | S1, S2, C1 | Per the build order | Known-pattern tests for each |
@@ -298,6 +298,8 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | 2026-10-23 | Quality bar: correctness first, simple code, documented assumptions, over 90% coverage, accuracy tests against analytic models | User requirement |
 | 2026-10-23 | Sub-agents build independent modules in parallel (analytic models, utilities, presentational UI); the main session integrates and commits | User suggestion, to speed up implementation |
 | 2026-10-23 | Recovery uses option B with the control run as the reference (no tunable tolerance), replacing exact per-request matching (option C) | Measured: after recovery the cache holds slightly different keys until TTL churn evens them out, so a few requests harmlessly miss where the control hit; exact matching labelled clearly recovered runs as stuck (stray mismatches until second 116 of 120) |
+| 2026-10-23 | Map axis B: the retry-storm map varies API → DB retries only; other calls do not retry | Retries at every layer multiply ((r+1)³), so every retry count tipped at the same traffic; one varied call gives a staircase (1 retry tips at 220 rps, 2 at 140, 3+ at 120) |
+| 2026-10-23 | Continue past the 3-hour budget to finish P4–P7 | User decision at the P3 review |
 | 2026-10-23 | Histogram quantiles interpolate within a bin | Rounding to the bin centre put p99 up to ~11% off; now under 2% on known distributions |
 
 ## 11. Time log
@@ -306,6 +308,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 |---------|----------|---------------|
 | 1 | _please fill in_ | Kickoff, requirements, risks, V1 scope (planning) |
 | 2 | ~15 min | P0: skeleton, tests and coverage gate, here.now deploy script, hosted worker smoke test passed |
+| 6 | ~45 min | P4 + P5: map axis B; view-model layer, RunPlayer, app shell (scenario picker, failure editor, step tabs, settings drawer), tipping-point step with inline replay; worker pool and sweep (sub-agent, 57 tests). Checked in Chromium at 1280 px and 375 px: first run immediate, 60-cell map in 3.8 s, no horizontal overflow |
 | 5 | ~30 min | P3: recovery assessment, timeline rules, diagnosis signals, analysis tests (18, 100% lines). Measured option C and switched to the fallback |
 | 4 | ~25 min | P2: cache-aside, cache tiers (LRU + TTL, Zipf keys, warm start), slow/dead/per-instance faults, cache flush; web-chain topology and retry-storm preset as data. Stuck state emerges untuned: stuck with retries, recovers with 0. Hit rate matches Che within 1 point |
 | 3 | ~40 min | P1: engine core (two sub-agents built the analytic models and the utilities in parallel). 179 tests; matches M/M/1, M/M/c, M/G/1, M/D/1, E3/M/1 within 2–5%; Little's law within 2%; benchmark 1.4–2.1M events/s |
