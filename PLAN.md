@@ -269,12 +269,12 @@ _Proposed; see the conversation. To be agreed._
 | 2026-10-23 | Every "watch a run" replays inline in the current step, using one reusable run player | No navigating between steps to see a run |
 | 2026-10-23 | Topology shows arrows labelled with requests/s (thickness = load), with instances drawn inside each tier | Makes the flow, and where retries pile up, followable |
 | 2026-10-23 | Throughput and load are separate charts: "Throughput" (sent vs succeeded, end to end) and "Load & retries" (first attempts vs retries vs capacity, per tier) | Different scopes and scales; mixing them hid the success line |
-| 2026-10-24 | Mockups approved | — |
-| 2026-10-24 | Cache hit rate is an output of capacity, TTL, key count and popularity skew | Needed for a cold cache and the stampede to emerge |
-| 2026-10-24 | Load balancer modelled as a routing policy (round-robin); an explicit load-balancer tier is deferred | Simplest model that supports instance-level faults |
-| 2026-10-24 | CPU option B: cores are a second limit on each instance | CPU% becomes a real measurement; adding threads stops looking like a free fix |
-| 2026-10-24 | Encapsulate simulated things and sweeps as objects; settings and results stay plain data | Good abstractions, easy to extend; data crosses the worker boundary |
-| 2026-10-24 | Cache-aside for V1 | Most common pattern; clearest stampede |
+| 2026-10-23 | Mockups approved | — |
+| 2026-10-23 | Cache hit rate is an output of capacity, TTL, key count and popularity skew | Needed for a cold cache and the stampede to emerge |
+| 2026-10-23 | Load balancer modelled as a routing policy (round-robin); an explicit load-balancer tier is deferred | Simplest model that supports instance-level faults |
+| 2026-10-23 | CPU option B: cores are a second limit on each instance | CPU% becomes a real measurement; adding threads stops looking like a free fix |
+| 2026-10-23 | Encapsulate simulated things and sweeps as objects; settings and results stay plain data | Good abstractions, easy to extend; data crosses the worker boundary |
+| 2026-10-23 | Cache-aside for V1 | Most common pattern; clearest stampede |
 
 ## 11. Time log
 
