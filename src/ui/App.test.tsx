@@ -51,9 +51,23 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 0 API → DB retries/ }));
     await screen.findByRole('heading', { name: /Replaying 80 rps · 0 API → DB retries/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Hide replay' }));
-    expect(screen.queryByRole('heading', { name: /Replaying/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Watch this run' })).toBeTruthy();
+    // Side by side: the replay's live timeline is rendered in the map's column.
+    const mapColumn = screen.getByRole('region', { name: 'Tipping point' });
+    expect(mapColumn.querySelector('.csl-split__timeline .csl-timeline-title')).not.toBeNull();
+  });
+
+  it('collapses the scenario card to one line on steps 2 and 3, and expands it to change the failure', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
+    const summary = screen.getByRole('region', { name: 'Scenario' });
+    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · 3 API → DB retries/);
+    fireEvent.click(within(summary).getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '90' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/90 req\/s/);
+    expect(screen.getByRole('button', { name: 'Change failure' })).toBeTruthy();
+    expect(document.querySelector('.csl-page--split')).not.toBeNull();
   });
 
   it('reports failed requests for stuck cells and recovery everywhere when nothing tips', async () => {
@@ -64,7 +78,7 @@ describe('App', { timeout: 60_000 }, () => {
     const stuckPool = new FakePool();
     render(<App pool={stuckPool} />);
     fireEvent.click(screen.getAllByRole('button', { name: /Where's the tipping point/ })[1]);
-    await screen.findByText('1,234 requests failed because of the incident', undefined, SLOW);
+    await screen.findByText(/1,234 requests failed because of the incident/, undefined, SLOW);
   });
 
   it('opens one tier\'s settings from its box in the topology', async () => {
@@ -139,6 +153,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
     expect(screen.getByText('Waiting for the original run…')).toBeTruthy();
     await screen.findByRole('heading', { name: 'Does a fix help?' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     fireEvent.click(screen.getByRole('button', { name: /Retry storm/ }));
     await act(async () => {});
   });

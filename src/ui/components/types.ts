@@ -45,6 +45,8 @@ export interface ChartSpec {
   /** seconds */
   playheadS?: number;
   ariaLabel: string;
+  /** Plot height in px (default CHART_HEIGHT); compact layouts use less. */
+  height?: number;
 }
 
 export interface TimelineEntryView {

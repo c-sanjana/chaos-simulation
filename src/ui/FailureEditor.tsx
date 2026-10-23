@@ -33,3 +33,26 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
     </div>
   );
 }
+
+/** One-line version of the scenario card, used on steps 2 and 3. */
+export function ScenarioSummary({ draft, onChange }: { draft: Draft; onChange: () => void }) {
+  const s = draft.scenario;
+  const f = s.faults[0];
+  const label = draft.topology.layout[f.tier]?.label ?? f.tier;
+  return (
+    <section className="csl-summary" aria-label="Scenario">
+      <strong>{s.title}</strong>
+      <span className="csl-summary__text">
+        {label} {f.kind === 'slow' ? <b>slows {f.factor}×</b> : <b>goes down</b>} for <b>{(f.endMs - f.startMs) / 1000} s</b> at {f.startMs / 1000} s · <b>{s.rps} req/s</b>
+        {s.map.y.param === 'retries' && (
+          <>
+            {' '}· <b>{s.retries}</b> {s.map.y.label}
+          </>
+        )}
+      </span>
+      <button type="button" className="csl-btn csl-btn--small" onClick={onChange}>
+        Change failure
+      </button>
+    </section>
+  );
+}

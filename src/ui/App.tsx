@@ -6,7 +6,7 @@ import { Drawer } from './components/Drawer';
 import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
 import { presetDraft, type Draft } from './draft';
-import { FailureEditor } from './FailureEditor';
+import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
@@ -35,6 +35,8 @@ export function App({ pool: injected }: AppProps) {
   const [applied, setApplied] = useState<Draft>(() => presetDraft(DEFAULT_SCENARIO));
   const [draft, setDraft] = useState<Draft>(applied);
   const [step, setStep] = useState(0);
+  /** On steps 2 and 3 the scenario card collapses to one line to leave room for side-by-side views. */
+  const [editingFailure, setEditingFailure] = useState(false);
   /** Settings drawer: closed, one tier ('client' = traffic), or every setting (null). */
   const [settings, setSettings] = useState<{ open: boolean; only: string | null }>({ open: false, only: null });
   const openSettings = (only: string | null) => setSettings({ open: true, only });
@@ -51,11 +53,11 @@ export function App({ pool: injected }: AppProps) {
     setApplied(fresh);
     setDraft(fresh);
   };
-  const run = () => setApplied(structuredClone(draft));
+  const run = () => (setApplied(structuredClone(draft)), setEditingFailure(false));
   const verdict = main.status === 'done' ? verdictView(main.value.analysis.recovery) : null;
 
   return (
-    <main className="csl-page">
+    <main className={`csl-page${step > 0 ? ' csl-page--split' : ''}`}>
       <header className="csl-header">
         <div>
           <h1 className="csl-header__title">Chaos Simulation Lab</h1>
@@ -63,6 +65,9 @@ export function App({ pool: injected }: AppProps) {
         </div>
       </header>
 
+      {step > 0 && !editingFailure ? (
+        <ScenarioSummary draft={applied} onChange={() => setEditingFailure(true)} />
+      ) : (
       <section className="csl-card" aria-label="Scenario">
         <h2 className="csl-section-title" style={{ margin: 0 }}>
           Choose a failure to simulate
@@ -70,6 +75,7 @@ export function App({ pool: injected }: AppProps) {
         <ScenarioPicker scenarios={Object.values(scenarios).map(({ id, title, blurb }) => ({ id, title, blurb }))} selected={scenarioId} onSelect={pickScenario} />
         <FailureEditor draft={draft} onChange={setDraft} onRun={run} dirty={dirty} />
       </section>
+      )}
 
       <StepTabs
         steps={[

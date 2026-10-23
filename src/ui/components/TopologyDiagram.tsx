@@ -121,14 +121,16 @@ export interface TopologyDiagramProps {
   editable?: boolean;
   /** Controls shown beside the key line, e.g. an "Edit all settings" button. */
   actions?: ReactNode;
+  /** Smaller boxes and arrows, for side-by-side layouts. */
+  compact?: boolean;
 }
 
 /** System diagram: tiers as selectable cards on a 7×3 grid, flows as arrows between them. */
-export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, editable = false, actions }: TopologyDiagramProps) {
+export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, editable = false, actions, compact = false }: TopologyDiagramProps) {
   return (
     <div>
       <div className="csl-topology-scroll">
-        <div className="csl-topology-grid">
+        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}`}>
           {nodes.map((n) => (
             <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} />
           ))}

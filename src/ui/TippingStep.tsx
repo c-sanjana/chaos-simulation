@@ -15,11 +15,11 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
   const sweep = useSweep(pool, spec);
   const current = currentCell(scenario);
   const [selected, setSelected] = useState(current);
-  const [watching, setWatching] = useState(true);
+  const [timelineEl, setTimelineEl] = useState<HTMLElement | null>(null);
   const { x: xAxis, y: yAxis } = scenario.map;
   const yOverride = { [yAxis.param]: selected.y };
   const cellConfig = useMemo(() => buildRunConfig(topology, scenario, { rps: selected.x, ...yOverride }), [topology, scenario, selected.x, selected.y]);
-  const replay = useAnalysis(pool, watching ? cellConfig : null, labels);
+  const replay = useAnalysis(pool, cellConfig, labels);
 
   const map = mapView('Tipping-point map', xAxis, yAxis, (x, y) => sweep.result?.get(x, y), current);
   const summary = sweep.result?.get(selected.x, selected.y);
@@ -28,50 +28,56 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
   const cellTitle = `${selected.x} rps · ${formatAxisValue(yAxis, selected.y)} ${yAxis.label}`;
 
   return (
-    <>
-      <section className="csl-card" aria-label="Tipping point">
+    <div className="csl-split">
+      <section className="csl-card csl-card--compact csl-split__side" aria-label="Tipping point">
         <div>
           <h2 className="csl-card__title">Where's the tipping point?</h2>
-          <p className="csl-card__sub">
-            The same failure, re-run at every combination of traffic and {yAxis.label}. Each cell is a full simulation compared with its own no-failure run.
-          </p>
+          <p className="csl-card__sub">The same failure at every traffic × {yAxis.label}. Each cell is a full run compared with its no-failure control. Click one to replay it.</p>
         </div>
-        <div className="csl-row" style={{ alignItems: 'center', gap: 12 }}>
-          <MapLegend />
-          <span className="csl-status" style={{ marginLeft: 'auto' }} aria-live="polite">
-            {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs done`}
+        <MapLegend />
+        <span className="csl-status" aria-live="polite">
+          {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs done`}
+        </span>
+        <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
+        <div className="csl-panel">
+          <span className="csl-mono" style={{ fontSize: 14 }}>
+            {cellTitle}
           </span>
-        </div>
-        <div className="csl-row">
-          <div className="csl-row__main">
-            <TippingMap map={map} selected={selected} onSelect={(c) => (setSelected({ x: c.x, y: c.y }), setWatching(true))} />
-          </div>
-          <aside className="csl-row__side csl-panel">
-            <span className="csl-panel__label">Selected cell</span>
-            <span className="csl-mono" style={{ fontSize: 15 }}>
-              {cellTitle}
+          <span>
+            {summary ? capitalise(shortVerdict(summary)) : 'Running…'}
+            {summary && summary.failedRequests > 0 && <span className="csl-status"> · {summary.failedRequests.toLocaleString()} requests failed because of the incident</span>}
+          </span>
+          {currentTip && (
+            <span style={{ fontSize: 13, color: 'var(--csl-ink-2)' }}>
+              {currentTip.tipsAtX === null
+                ? `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system recovers at every traffic level shown.`
+                : `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system tips at ${currentTip.tipsAtX} requests/s.`}
             </span>
-            <span>{summary ? capitalise(shortVerdict(summary)) : 'Running…'}</span>
-            {summary && summary.failedRequests > 0 && <span className="csl-status">{summary.failedRequests.toLocaleString()} requests failed because of the incident</span>}
-            <button type="button" className="csl-btn csl-btn--primary" style={{ alignSelf: 'flex-start' }} aria-expanded={watching} onClick={() => setWatching((w) => !w)}>
-              {watching ? 'Hide replay' : 'Watch this run'}
-            </button>
-            {currentTip && (
-              <span style={{ fontSize: 13, color: 'var(--csl-ink-2)', borderTop: '1px solid var(--csl-border)', paddingTop: 8 }}>
-                {currentTip.tipsAtX === null
-                  ? `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system recovers at every traffic level shown.`
-                  : `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system tips at ${currentTip.tipsAtX} requests/s.`}
-              </span>
-            )}
-          </aside>
+          )}
         </div>
+        <div className="csl-split__timeline" ref={setTimelineEl} />
       </section>
-      {watching && replay.status === 'done' && (
-        <RunPlayer title={`Replaying ${cellTitle}`} subtitle="Re-run of this cell's settings: identical to the map's run" topology={topology} config={cellConfig} result={replay.value} onEdit={onEdit} />
-      )}
-      {watching && replay.status === 'running' && <p className="csl-status">Simulating {cellTitle}…</p>}
-      {replay.status === 'error' && <p className="csl-error">{replay.message}</p>}
-    </>
+      <div className="csl-split__main">
+        {replay.status === 'done' && (
+          <RunPlayer
+            title={`Replaying ${cellTitle}`}
+            subtitle="Re-run of this cell's settings: identical to the map's run"
+            topology={topology}
+            config={cellConfig}
+            result={replay.value}
+            onEdit={onEdit}
+            compact
+            timelineTarget={timelineEl}
+          />
+        )}
+        {replay.status === 'running' && (
+          <section className="csl-card csl-card--compact">
+            <p className="csl-status">Simulating {cellTitle}…</p>
+          </section>
+        )}
+        {replay.status === 'error' && <p className="csl-error">{replay.message}</p>}
+      </div>
+    </div>
   );
 }
 

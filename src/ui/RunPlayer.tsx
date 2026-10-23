@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { RunConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
 import type { AnalyzeResult } from '../worker/jobs';
@@ -23,14 +24,20 @@ export interface RunPlayerProps {
   autoPlay?: boolean;
   /** Opens settings: a tier id from clicking its box in the diagram, or null for every setting. */
   onEdit?: (tierId: string | null) => void;
+  /** Smaller topology and chart, for side-by-side layouts. */
+  compact?: boolean;
+  /** Render the live timeline into this element (e.g. a column beside the player) instead of inside it. */
+  timelineTarget?: HTMLElement | null;
 }
+
+const COMPACT_CHART_HEIGHT = 190;
 
 /**
  * Replays one computed run: topology with live flows, playback controls, metric charts and the
  * "why" timeline. In compare mode the charts overlay before and after, and the topology and
  * timeline switch between the two runs.
  */
-export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit }: RunPlayerProps) {
+export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit, compact = false, timelineTarget }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
   const [tab, setTab] = useState<MetricTab>('throughput');
@@ -55,9 +62,15 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
     ? { text: `${capitalise(shortVerdict(summary(result)))} → ${shortVerdict(summary(after.result))}`, tone: verdictView(after.result.analysis.recovery).tone }
     : verdict;
   const failureWindowsMs = (config.faults ?? []).map((f) => [f.startMs, f.endMs] as [number, number]);
+  const timeline = (
+    <>
+      <h3 className="csl-timeline-title">Why: live timeline{after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}</h3>
+      <Timeline entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} />
+    </>
+  );
 
   return (
-    <section className="csl-card" aria-label={title}>
+    <section className={`csl-card${compact ? ' csl-card--compact' : ''}`} aria-label={title}>
       <div className="csl-card__head">
         <div>
           <h2 className="csl-card__title">{title}</h2>
@@ -84,6 +97,7 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
         selectedId={null}
         onSelect={(id) => onEdit?.(id)}
         editable={onEdit !== undefined}
+        compact={compact}
         note={`Snapshot at t = ${Math.floor(playback.tMs / 1000)} s${after ? (showAfter ? ', after the fix' : ', before the fix') : ''}.${onEdit ? ' Click a box to edit that tier.' : ''}`}
         actions={
           onEdit && (
@@ -118,13 +132,11 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
             onScope={(id) => setScope(id === 'client' ? null : id)}
           />
           <ChartLegend series={chart.spec.series} />
-          <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} />
+          <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} height={compact ? COMPACT_CHART_HEIGHT : undefined} />
         </div>
-        <div className="csl-player__timeline">
-          <h3>Why: live timeline{after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}</h3>
-          <Timeline entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} />
-        </div>
+        {timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
       </div>
+      {timelineTarget && createPortal(timeline, timelineTarget)}
     </section>
   );
 }

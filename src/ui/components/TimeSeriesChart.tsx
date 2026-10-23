@@ -170,14 +170,14 @@ export function TimeSeriesChart(spec: ChartSpec) {
 
   useEffect(() => {
     const el = containerRef.current!;
-    const { options, data } = toUplot(spec, { width: widthOf(el), height: CHART_HEIGHT }, () => overlayRef.current);
+    const { options, data } = toUplot(spec, { width: widthOf(el), height: spec.height ?? CHART_HEIGHT }, () => overlayRef.current);
     const chart = new uPlot(options, data, el);
     chartRef.current = chart;
     appliedRef.current = { data: dataRefs(spec), overlay: overlayKey(overlayRef.current) };
 
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => chart.setSize({ width: widthOf(el), height: CHART_HEIGHT }));
+      observer = new ResizeObserver(() => chart.setSize({ width: widthOf(el), height: spec.height ?? CHART_HEIGHT }));
       observer.observe(el);
     }
     return () => {

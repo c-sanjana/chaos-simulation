@@ -1101,3 +1101,173 @@ button.csl-map__cell {
   cursor: pointer;
   padding: 2px 0 2px 4px;
 }
+
+/* ---------- Compact (side-by-side) layouts ---------- */
+.csl-topology-grid--compact {
+  min-width: 560px;
+  grid-template-columns:
+    minmax(84px, 1fr) minmax(52px, 0.6fr) minmax(84px, 1fr) minmax(52px, 0.6fr)
+    minmax(100px, 1.15fr) minmax(64px, 0.7fr) minmax(84px, 1fr);
+  grid-template-rows: auto 40px auto;
+}
+.csl-topology-grid--compact .csl-node {
+  padding: 6px 8px;
+  gap: 3px;
+  border-radius: 8px;
+}
+.csl-topology-grid--compact .csl-node__label {
+  font-size: 13px;
+}
+.csl-topology-grid--compact .csl-node__count {
+  display: none;
+}
+.csl-topology-grid--compact .csl-node__line {
+  font-size: 11px;
+}
+.csl-topology-grid--compact .csl-instance {
+  width: 10px;
+  height: 10px;
+}
+.csl-topology-grid--compact .csl-edge__label,
+.csl-topology-grid--compact .csl-edge__detail {
+  font-size: 10.5px;
+}
+.csl-card--compact {
+  padding: 14px 16px;
+  gap: 10px;
+}
+.csl-card--compact .csl-card__title {
+  font-size: 16px;
+}
+.csl-card--compact .csl-player__charts {
+  flex-basis: 380px;
+}
+.csl-card--compact .csl-player__timeline {
+  flex-basis: 240px;
+}
+.csl-card--compact .csl-topology-key {
+  font-size: 11px;
+}
+/* Two columns on wide screens, stacked below ~1100px. */
+.csl-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+}
+.csl-split__side {
+  flex: 1 1 440px;
+  max-width: 500px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.csl-split__main {
+  flex: 999 1 600px;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .csl-split__side {
+    max-width: none;
+  }
+}
+.csl-split__timeline {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.csl-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  background: var(--csl-card);
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.csl-summary__text {
+  color: var(--csl-muted);
+}
+.csl-summary__text b {
+  color: var(--csl-ink);
+  font-weight: 600;
+}
+.csl-summary .csl-btn {
+  margin-left: auto;
+}
+.csl-map--small {
+  --csl-map-cell: 15px;
+}
+.csl-map--small .csl-map__xlabel,
+.csl-map--small .csl-map__ylabel {
+  font-size: 9px;
+}
+
+.csl-timeline-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ---------- Side-by-side steps fill the viewport on wide screens ---------- */
+@media (min-width: 1100px) and (min-height: 680px) {
+  .csl-page--split {
+    height: 100vh;
+    padding-bottom: 16px;
+    gap: 12px;
+  }
+  .csl-page--split .csl-split {
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+  .csl-page--split .csl-split__side,
+  .csl-page--split .csl-split__main {
+    max-height: 100%;
+    overflow-y: auto;
+  }
+  .csl-page--split .csl-split__timeline {
+    max-height: none;
+  }
+}
+.csl-page--split .csl-header__tagline {
+  display: none;
+}
+/* Compact player: chart full width, timeline underneath. */
+.csl-card--compact .csl-player__body {
+  flex-direction: column;
+  align-items: stretch;
+}
+.csl-card--compact .csl-player__charts,
+.csl-card--compact .csl-player__timeline {
+  flex-basis: auto;
+}
+/* Compact fix cards in the side column. */
+.csl-split__side .csl-fix {
+  padding: 8px 10px;
+  gap: 4px;
+}
+.csl-split__side .csl-fix__row {
+  gap: 8px;
+}
+.csl-split__side .csl-fix__title {
+  font-size: 14px;
+}
+.csl-split__side .csl-fix__why,
+.csl-split__side .csl-fix__meta {
+  font-size: 12px;
+}
+.csl-split__side .csl-fix__outcome {
+  flex: 1 1 100%;
+  padding-left: 26px;
+}
+.csl-split__side .csl-fix__apply,
+.csl-split__side .csl-fix__caveat-btn {
+  min-height: 34px;
+}
+.csl-split__side .csl-fix-list {
+  gap: 8px;
+}
