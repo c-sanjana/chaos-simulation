@@ -152,6 +152,8 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 
 ## 8. Open questions
 
+- **Q4 (raised at the P3 review).** On the retry-storm map, rows for 1–5 retries per layer look identical. This is real behaviour, not a bug: retries at three layers multiply ((r+1)³ calls to the DB, so even 1 retry is 8×), and a 5 s blip can only tip the system if it overloads the DB during the blip (above ~80 requests/s), whatever the retry count. Options to make the map more informative are listed in the review message.
+
 - ~~Q1~~ Decided: here.now with a free account (see 9.8).
 - ~~Q2~~ Decided: one map with a Slow / Dead toggle.
 - ~~Q3~~ Decided: parallel calls are built only when a topology needs them (C1).
@@ -211,7 +213,7 @@ TypeScript, Vite, React. Vitest for tests. uPlot for time-series charts. The map
 
 ### 9.5 Analysis
 
-- **Recovery (option C):** compare per-request outcomes with a control run that has the same settings and seed but no failures. The run recovered at the point after which every request matches the control. If that never happens before the observation window ends, it is stuck. Fallback: option B, natural range.
+- **Recovery (option B, using the control as the reference; option C was measured and rejected, see decision log):** the control is the same config and seed with no failures. A second is healthy when (1) every request arriving in it succeeded exactly when it succeeded in the control, (2) end-to-end p99 is no higher than the control's highest per-second p99, and (3) every tier's queue is no higher than its highest per-second queue in the control. The run recovered at the start of the first second from which every later judged second is healthy; otherwise it is stuck. If the control itself fails requests, the verdict is "overloaded". The judged range ends where the client's longest possible request (all tries and backoffs) would still be unfinished.
 - **Timeline:** rule functions over the metrics. At most about 10 one-line entries, each with a time and a number.
 - **Fixes:** a fix is a candidate when the signal it targets showed up in the run. Every candidate is re-run with the same seed and ranked by: recovered, then recovery time, then requests affected. The top fixes get the 5-seed confidence check. Fixes tested that did not help are listed too, collapsed.
 
@@ -243,7 +245,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | P0 ✅ | Skeleton and deploy smoke test | Hosted page loads in a clean browser; the module worker responds. **Passed 2026-10-23:** headless Chromium shows "Worker OK" with no console errors; the worker is served as `text/javascript`; 5 tests, 100% coverage |
 | P1 ✅ | Engine core | Matches queueing theory (M/M/1, M/M/c, Erlang C) within tolerance; Little's law holds; invariants hold; deterministic; arrivals identical across settings; events/s benchmark |
 | P2 ✅ | Cache, DB, failures, retry-storm preset | Retry storm stuck with 3 retries, recovers with 0; cache hit rate matches the analytic model of an LRU cache with Zipf-distributed keys |
-| P3 | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
+| P3 ✅ | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
 | P4 | Run player and page | Visual check against the mockups; page stays responsive |
 | P5 | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
 | P6 | Fixes | Identical arrivals before and after a fix; ranking order; visual check |
@@ -294,6 +296,9 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | 2026-10-23 | Hosting on here.now with a free account | Permanent with an account; the user's choice |
 | 2026-10-23 | Milestones P0–P7 approved; review stops after P0, P3 and P7 | — |
 | 2026-10-23 | Quality bar: correctness first, simple code, documented assumptions, over 90% coverage, accuracy tests against analytic models | User requirement |
+| 2026-10-23 | Sub-agents build independent modules in parallel (analytic models, utilities, presentational UI); the main session integrates and commits | User suggestion, to speed up implementation |
+| 2026-10-23 | Recovery uses option B with the control run as the reference (no tunable tolerance), replacing exact per-request matching (option C) | Measured: after recovery the cache holds slightly different keys until TTL churn evens them out, so a few requests harmlessly miss where the control hit; exact matching labelled clearly recovered runs as stuck (stray mismatches until second 116 of 120) |
+| 2026-10-23 | Histogram quantiles interpolate within a bin | Rounding to the bin centre put p99 up to ~11% off; now under 2% on known distributions |
 
 ## 11. Time log
 
@@ -301,5 +306,6 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 |---------|----------|---------------|
 | 1 | _please fill in_ | Kickoff, requirements, risks, V1 scope (planning) |
 | 2 | ~15 min | P0: skeleton, tests and coverage gate, here.now deploy script, hosted worker smoke test passed |
+| 5 | ~30 min | P3: recovery assessment, timeline rules, diagnosis signals, analysis tests (18, 100% lines). Measured option C and switched to the fallback |
 | 4 | ~25 min | P2: cache-aside, cache tiers (LRU + TTL, Zipf keys, warm start), slow/dead/per-instance faults, cache flush; web-chain topology and retry-storm preset as data. Stuck state emerges untuned: stuck with retries, recovers with 0. Hit rate matches Che within 1 point |
 | 3 | ~40 min | P1: engine core (two sub-agents built the analytic models and the utilities in parallel). 179 tests; matches M/M/1, M/M/c, M/G/1, M/D/1, E3/M/1 within 2–5%; Little's law within 2%; benchmark 1.4–2.1M events/s |
