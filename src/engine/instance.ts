@@ -21,6 +21,8 @@ export class Instance {
 
   constructor(
     private readonly tier: Tier,
+    /** Position within the tier, used to target instance-level faults. */
+    readonly index: number,
     readonly workers: number,
     readonly cores: number,
     readonly queueLimit: number | null,

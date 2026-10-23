@@ -242,7 +242,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 |---|---|---|
 | P0 ✅ | Skeleton and deploy smoke test | Hosted page loads in a clean browser; the module worker responds. **Passed 2026-10-23:** headless Chromium shows "Worker OK" with no console errors; the worker is served as `text/javascript`; 5 tests, 100% coverage |
 | P1 ✅ | Engine core | Matches queueing theory (M/M/1, M/M/c, Erlang C) within tolerance; Little's law holds; invariants hold; deterministic; arrivals identical across settings; events/s benchmark |
-| P2 | Cache, DB, failures, retry-storm preset | Retry storm stuck with 3 retries, recovers with 0; cache hit rate matches the analytic model of an LRU cache with Zipf-distributed keys |
+| P2 ✅ | Cache, DB, failures, retry-storm preset | Retry storm stuck with 3 retries, recovers with 0; cache hit rate matches the analytic model of an LRU cache with Zipf-distributed keys |
 | P3 | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
 | P4 | Run player and page | Visual check against the mockups; page stays responsive |
 | P5 | Sweep and map | Tipping-point tests; replaying a cell gives the cell's exact result; measured map time |
@@ -301,4 +301,5 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 |---------|----------|---------------|
 | 1 | _please fill in_ | Kickoff, requirements, risks, V1 scope (planning) |
 | 2 | ~15 min | P0: skeleton, tests and coverage gate, here.now deploy script, hosted worker smoke test passed |
+| 4 | ~25 min | P2: cache-aside, cache tiers (LRU + TTL, Zipf keys, warm start), slow/dead/per-instance faults, cache flush; web-chain topology and retry-storm preset as data. Stuck state emerges untuned: stuck with retries, recovers with 0. Hit rate matches Che within 1 point |
 | 3 | ~40 min | P1: engine core (two sub-agents built the analytic models and the utilities in parallel). 179 tests; matches M/M/1, M/M/c, M/G/1, M/D/1, E3/M/1 within 2–5%; Little's law within 2%; benchmark 1.4–2.1M events/s |

@@ -41,6 +41,7 @@ export class TierMetrics implements CallStats {
   private readonly retriesSent: number[];
   private readonly latencySum: number[];
   private readonly wasted: number[];
+  private readonly hits: number[];
   private readonly hist: Uint32Array;
   private inFlight = 0;
   private computeTotal = 0;
@@ -60,7 +61,12 @@ export class TierMetrics implements CallStats {
     this.retriesSent = buckets.zeros();
     this.latencySum = buckets.zeros();
     this.wasted = buckets.zeros();
+    this.hits = buckets.zeros();
     this.hist = new Uint32Array(n * LATENCY_BINS);
+  }
+
+  cacheHit(timeMs: number): void {
+    this.hits[this.buckets.of(timeMs)]++;
   }
 
   arrival(timeMs: number, isRetry: boolean): void {
@@ -126,6 +132,7 @@ export class TierMetrics implements CallStats {
       busyWorkersAvg: avg(this.busyWorkers),
       busyCoresAvg: avg(this.busyCores),
       wastedMs: this.wasted,
+      hits: this.hits,
       totals: {
         arrivals: sum(this.arrivalsFirst) + sum(this.arrivalsRetry),
         ok: latencyCount,

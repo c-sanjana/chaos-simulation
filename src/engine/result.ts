@@ -29,6 +29,8 @@ export interface TierSeries {
   busyCoresAvg: number[];
   /** Compute time spent on attempts whose caller had already given up. */
   wastedMs: number[];
+  /** Cache tiers only (zeros elsewhere): lookups answered from the cache. Hit rate = hits / ok. */
+  hits: number[];
   totals: {
     arrivals: number;
     ok: number;

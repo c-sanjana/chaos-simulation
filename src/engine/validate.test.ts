@@ -39,6 +39,44 @@ describe('validateConfig', () => {
     expect(() => validateConfig(c)).toThrow(message);
   });
 
+  describe('caches and faults', () => {
+    const withCache = (): RunConfig => ({
+      ...ok(),
+      tiers: [
+        tier('svc', { kind: 'fixed', ms: 1 }, { cacheAside: call('cache'), downstream: call('db') }),
+        tier('cache', { kind: 'fixed', ms: 1 }, { cache: { capacity: 10, ttlMs: 1000, keys: 100, skew: 1 } }),
+        tier('db', { kind: 'fixed', ms: 1 }),
+      ],
+      faults: [{ tier: 'db', kind: 'slow', factor: 2, startMs: 10, endMs: 20, instance: 0 }],
+    });
+
+    it('accepts a valid cache-aside setup with faults', () => {
+      expect(() => validateConfig(withCache())).not.toThrow();
+    });
+
+    const cacheCases: Array<[string, (c: RunConfig) => void, RegExp]> = [
+      ['client calling a cache', (c) => (c.client.call.target = 'cache'), /client cannot call a cache/],
+      ['cache with a downstream', (c) => (c.tiers[1].downstream = call('db')), /cannot call other tiers/],
+      ['zero capacity', (c) => (c.tiers[1].cache!.capacity = 0), /capacity/],
+      ['zero keys', (c) => (c.tiers[1].cache!.keys = 0), /keys/],
+      ['negative skew', (c) => (c.tiers[1].cache!.skew = -1), /skew/],
+      ['bad ttl', (c) => (c.tiers[1].cache!.ttlMs = 0), /ttlMs/],
+      ['cacheAside to a non-cache', (c) => (c.tiers[0].cacheAside = call('db')), /not a cache tier/],
+      ['cacheAside without downstream', (c) => (c.tiers[0].downstream = null), /no downstream/],
+      ['cache as a downstream', (c) => ((c.tiers[0].cacheAside = undefined), (c.tiers[0].downstream = call('cache'))), /use cacheAside/],
+      ['fault on unknown tier', (c) => (c.faults![0].tier = 'x'), /unknown tier/],
+      ['fault with bad window', (c) => (c.faults![0].endMs = 5), /startMs < endMs/],
+      ['slow without factor', (c) => (c.faults![0].factor = undefined), /factor/],
+      ['fault on missing instance', (c) => (c.faults![0].instance = 3), /does not exist/],
+    ];
+
+    it.each(cacheCases)('rejects %s', (_, mutate, message) => {
+      const c = withCache();
+      mutate(c);
+      expect(() => validateConfig(c)).toThrow(message);
+    });
+  });
+
   it('rejects call cycles', () => {
     const c: RunConfig = {
       ...ok(),

@@ -40,6 +40,7 @@ export function validateConfig(config: RunConfig): void {
   };
 
   checkCall(config.client.call, 'client');
+  if (byId.get(config.client.call.target)?.cache) fail('the client cannot call a cache tier directly');
   for (const tier of config.tiers) {
     positiveInt(tier.instances, `${tier.id} instances`);
     positiveInt(tier.workersPerInstance, `${tier.id} workersPerInstance`);
@@ -49,6 +50,31 @@ export function validateConfig(config: RunConfig): void {
     }
     checkService(tier.service, tier.id);
     if (tier.downstream) checkCall(tier.downstream, tier.id);
+    if (tier.cache) {
+      const c = tier.cache;
+      if (tier.downstream || tier.cacheAside) fail(`cache tier ${tier.id} cannot call other tiers`);
+      positiveInt(c.capacity, `${tier.id} cache capacity`);
+      positiveInt(c.keys, `${tier.id} cache keys`);
+      if (!(c.skew >= 0)) fail(`${tier.id} cache skew must be >= 0`);
+      if (c.ttlMs !== null) positive(c.ttlMs, `${tier.id} cache ttlMs`);
+    }
+    if (tier.cacheAside) {
+      checkCall(tier.cacheAside, `${tier.id} cacheAside`);
+      if (!byId.get(tier.cacheAside.target)!.cache) fail(`${tier.id} cacheAside target "${tier.cacheAside.target}" is not a cache tier`);
+      if (!tier.downstream) fail(`${tier.id} uses cacheAside but has no downstream to read from on a miss`);
+    } else if (tier.downstream && byId.get(tier.downstream.target)!.cache) {
+      fail(`${tier.id} calls cache tier "${tier.downstream.target}" as a downstream; use cacheAside`);
+    }
+  }
+
+  for (const f of config.faults ?? []) {
+    const target = byId.get(f.tier);
+    if (!target) fail(`fault targets unknown tier "${f.tier}"`);
+    if (!(f.startMs >= 0 && f.endMs > f.startMs)) fail(`fault on ${f.tier} needs 0 <= startMs < endMs`);
+    if (f.kind === 'slow') positive(f.factor ?? NaN, `fault on ${f.tier} factor`);
+    if (f.instance !== undefined && !(Number.isInteger(f.instance) && f.instance >= 0 && f.instance < target!.instances)) {
+      fail(`fault on ${f.tier} targets instance ${f.instance}, which does not exist`);
+    }
   }
 
   // Calls must form a chain without cycles, or a single request would recurse forever.

@@ -15,8 +15,13 @@ export function runSimulation(config: RunConfig): RunResult {
   const tiers = new Map<string, Tier>();
   config.tiers.forEach((tc, i) => tiers.set(tc.id, new Tier(sim, tc, i, new TierMetrics(buckets))));
   for (const tier of tiers.values()) {
-    const target = tier.config.downstream?.target;
-    if (target) tier.connect(tiers.get(target)!);
+    const { downstream, cacheAside } = tier.config;
+    tier.connect(downstream ? tiers.get(downstream.target)! : null, cacheAside ? tiers.get(cacheAside.target)! : null);
+  }
+  for (const fault of config.faults ?? []) {
+    const tier = tiers.get(fault.tier)!;
+    sim.schedule(fault.startMs, () => tier.setFault(fault, true));
+    sim.schedule(fault.endMs, () => tier.setFault(fault, false));
   }
 
   const clientMetrics = new ClientMetrics(buckets);
