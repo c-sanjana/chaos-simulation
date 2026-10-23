@@ -13,8 +13,8 @@ traffic, whether it actually helps and whether it moves the tipping point.
 
 The page opens on a **retry storm**. A database slows down 8× for just 5 seconds, at a traffic
 level it normally handles easily. On a first visit a 30-second guided tour points out each part
-of the page (skip it, or replay it any time with **?** at the top right; ☾ / ☀ beside it switches
-between light and dark mode).
+of the page (skip it, or replay it any time with **?** at the top right; ☾ beside it switches to
+dark mode, and the page stays light unless you choose dark).
 
 1. **What happened.** The system never recovers, even though the failure is over. The timeline
    explains why, with numbers from the run:
@@ -30,8 +30,10 @@ between light and dark mode).
    and with 3 or more at 120.
 3. **Does a fix help?** Candidate fixes are chosen from what the run showed. Each one is a single
    setting change, re-run against the same traffic and the same failure, ranked by what actually
-   happened, and re-checked on 5 random seeds. Apply one to see before and after side by side, and
-   whether the tipping point moved.
+   happened, and re-checked on 5 random seeds. Each fix says in plain words what it changes, why it
+   was suggested, what happened, and its pros and cons (including cost, and drawbacks measured in
+   the run itself). Apply one to see before and after side by side and whether the tipping point
+   moved; click any cell of either map to replay that cell before and after.
 
 ## Why this is interesting
 

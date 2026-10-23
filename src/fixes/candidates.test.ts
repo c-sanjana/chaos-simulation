@@ -20,13 +20,18 @@ function diffPaths(a: unknown, b: unknown, path = ''): string[] {
 }
 
 describe('FIX_CATALOG', () => {
-  it('has one entry per kind, unique ids, and one-line caveats', () => {
+  it('has one entry per kind, unique ids, a short tab name, and one-line pros and cons', () => {
     const kinds: FixKind[] = ['retryBudget', 'capRetries', 'jitterBackoff', 'boundQueue', 'dropExpired', 'coalesceMisses', 'longerTimeout', 'addInstances'];
     expect(FIX_CATALOG.map((d) => d.kind).sort()).toEqual([...kinds].sort());
     expect(new Set(FIX_CATALOG.map((d) => d.id)).size).toBe(FIX_CATALOG.length);
     for (const d of FIX_CATALOG) {
-      expect(d.caveat.length).toBeGreaterThan(10);
-      expect(d.caveat).not.toMatch(/\n/);
+      expect(d.short.length).toBeLessThanOrEqual(12); // four tabs share a row
+      expect(d.pros.length).toBeGreaterThanOrEqual(2);
+      expect(d.cons.length).toBeGreaterThanOrEqual(2);
+      for (const line of [...d.pros, ...d.cons]) {
+        expect(line.length).toBeGreaterThan(10);
+        expect(line).not.toMatch(/\n|\.$/); // shown as list items
+      }
     }
     expect(FIX_CATALOG.filter((d) => d.signal === null).map((d) => d.kind)).toEqual(['longerTimeout', 'addInstances']);
   });
@@ -62,23 +67,35 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
     expect(candidates.map((c) => c.id)).toEqual(['retry-budget', 'cap-retries', 'jitter-backoff', 'bound-queue', 'drop-expired', 'coalesce-misses', 'longer-timeout', 'add-instances']);
     const why = Object.fromEntries(candidates.map((c) => [c.id, c.why]));
     const pct = (x: number) => `${Math.round(x * 100)}%`;
-    expect(why['retry-budget']).toBe(`retries were ${pct(signals.retryShare!.value)} of DB load`);
+    expect(why['retry-budget']).toBe(`retries made up ${pct(signals.retryShare!.value)} of DB's load`);
     expect(why['cap-retries']).toBe(why['retry-budget']);
-    expect(why['bound-queue']).toBe(`DB's queued wait reached ${Math.round(signals.queueWaitOverTimeout!.value)}× the API's 1 s timeout`);
+    expect(why['bound-queue']).toBe(`requests waited in DB's queue up to ${Math.round(signals.queueWaitOverTimeout!.value)}× longer than the API's 1 s timeout`);
     expect(why['drop-expired']).toBe(`${pct(signals.wastedShare!.value)} of DB work was for requests whose caller had already given up`);
     const { before, during } = signals.cacheHitDrop!.value;
     expect(why['coalesce-misses']).toBe(`Cache hit rate fell from ${pct(before)} to ${pct(during)}`);
     expect(why['longer-timeout']).toBe('it is a common first instinct');
     expect(why['add-instances']).toBe('it is a common first instinct');
-    expect(why['retry-budget']).toMatch(/^retries were [5-9]\d% of DB load$/);
+    expect(why['retry-budget']).toMatch(/^retries made up [5-9]\d% of DB's load$/);
     for (const c of candidates) {
-      expect(c.caveat).toBe(FIX_CATALOG.find((d) => d.id === c.id)!.caveat);
+      const def = FIX_CATALOG.find((d) => d.id === c.id)!;
+      expect([c.name, c.short, c.pros, c.cons]).toEqual([def.title, def.short, def.pros, def.cons]);
       expect(c.config).toEqual(applyFix(FIX_CATALOG.find((d) => d.id === c.id)!, config, signals));
     }
     expect(candidates.find((c) => c.id === 'bound-queue')!.title).toBe('Bound the queue (load shedding): DB, at most 93 queued per instance');
     expect(candidates.find((c) => c.id === 'retry-budget')!.title).toBe('Retry budget of 10%: API → DB');
     expect(candidates.find((c) => c.id === 'longer-timeout')!.title).toBe('Longer timeout (×3): API → DB, 1 s → 3 s');
     expect(candidates.find((c) => c.id === 'add-instances')!.title).toBe('Add instances (+50%): API, 4 → 6 instances');
+    // What each one changes, in a plain sentence with this run's numbers.
+    expect(Object.fromEntries(candidates.map((c) => [c.id, c.what]))).toEqual({
+      'retry-budget': 'API stops retrying DB once retries reach 10% of first attempts.',
+      'cap-retries': 'API retries a failed call to DB at most once (instead of 3 times).',
+      'jitter-backoff': 'API waits a random, growing delay before each retry to DB, so retries spread out instead of arriving together.',
+      'bound-queue': 'DB lets at most 93 requests wait per instance and turns the rest away immediately.',
+      'drop-expired': 'DB skips requests whose caller has already timed out, instead of doing work nobody will use.',
+      'coalesce-misses': 'When several requests miss the cache for the same key at once, API makes one read and shares the result.',
+      'longer-timeout': 'API waits up to 3 s for DB before giving up (instead of 1 s).',
+      'add-instances': 'API runs 6 instances instead of 4.',
+    });
     expect(config).toEqual(snapshot);
   });
 
@@ -184,6 +201,6 @@ describe('describeSignal', () => {
 
   it('formats small queue-wait ratios with one decimal', () => {
     const c = singleTier(1, { kind: 'fixed', ms: 1 }, 1000, {}, { timeoutMs: 250 });
-    expect(describeSignal('queueWaitOverTimeout', signalsWith({ queueWaitOverTimeout: { tier: 'svc', value: 2.345 } }), c, (id) => id)).toBe("svc's queued wait reached 2.3× the client's 250 ms timeout");
+    expect(describeSignal('queueWaitOverTimeout', signalsWith({ queueWaitOverTimeout: { tier: 'svc', value: 2.345 } }), c, (id) => id)).toBe("requests waited in svc's queue up to 2.3× longer than the client's 250 ms timeout");
   });
 });

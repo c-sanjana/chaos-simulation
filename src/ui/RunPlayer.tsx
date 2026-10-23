@@ -30,6 +30,8 @@ export interface RunPlayerProps {
   timelineTarget?: HTMLElement | null;
   /** Chart height in px (defaults: full layout 240, compact 175). */
   chartHeight?: number;
+  /** Show the live timeline beside the chart (under the metric tabs), as tall as the chart. */
+  sideTimeline?: boolean;
 }
 
 const COMPACT_CHART_HEIGHT = 175;
@@ -39,7 +41,7 @@ const COMPACT_CHART_HEIGHT = 175;
  * "why" timeline. In compare mode the charts overlay before and after, and the topology and
  * timeline switch between the two runs.
  */
-export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit, compact = false, timelineTarget, chartHeight }: RunPlayerProps) {
+export function RunPlayer({ title, subtitle, topology, config, result, after, autoPlay = true, onEdit, compact = false, timelineTarget, chartHeight, sideTimeline = false }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
   // ASSUMPTION: 16× is the default (a 120 s run replays in ~8 s); 1× and 4× are there to slow down.
@@ -139,10 +141,15 @@ export function RunPlayer({ title, subtitle, topology, config, result, after, au
             scope={scope ?? 'client'}
             onScope={(id) => setScope(id === 'client' ? null : id)}
           />
-          <ChartLegend series={chart.spec.series} />
-          <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
+          <div className={`csl-player__chartrow${sideTimeline ? ' csl-player__chartrow--side' : ''}`}>
+            <div className="csl-player__chart">
+              <ChartLegend series={chart.spec.series} />
+              <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
+            </div>
+            {sideTimeline && <div className="csl-player__timeline csl-player__timeline--side">{timeline}</div>}
+          </div>
         </div>
-        {timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
+        {!sideTimeline && timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
       </div>
       {timelineTarget && createPortal(timeline, timelineTarget)}
     </section>

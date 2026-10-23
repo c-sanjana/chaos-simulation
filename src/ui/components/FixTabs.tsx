@@ -1,20 +1,25 @@
 export interface FixTab {
   id: string;
-  /** Short name for the tab, e.g. "Retry budget". */
+  /** Short name for the tab, e.g. "Bound queue". */
   short: string;
-  /** Full description of the change, e.g. "Retry budget of 10%: API → DB". */
-  title: string;
-  /** Why it was suggested, e.g. "retries were 74% of DB load". */
+  /** Heading for the panel, e.g. "Bound the queue (load shedding)". */
+  name: string;
+  /** What changes, one plain sentence, e.g. "DB lets at most 93 requests wait per instance…". */
+  what: string;
+  /** Why it was suggested, a sentence, e.g. "Retries made up 74% of DB's load." */
   why: string;
   /** Measured outcome, e.g. "Stuck → recovers in 3 s". */
   result: string;
-  /** Short outcome for the tab itself, e.g. "3 s" or "stuck". */
+  /** e.g. "242 failed requests instead of 12,687". */
+  failed: string;
+  /** e.g. "Helped on 5 of 5 random seeds" (or "Checking other seeds…"); empty when not checked. */
+  seeds: string;
+  /** Short outcome for the tab itself, e.g. "3s" or "stuck"; empty for a fix that did not help. */
   badge: string;
   helped: boolean;
-  /** e.g. "helps in 5 of 5 seeds" (or "checking other seeds…"); empty when not checked. */
-  seeds: string;
-  affected: string;
-  caveat: string;
+  pros: string[];
+  /** Drawbacks: measured ones from this run first, then the general ones. */
+  cons: string[];
 }
 
 export interface FixTabsProps {
@@ -26,9 +31,9 @@ export interface FixTabsProps {
 }
 
 /**
- * Fixes as horizontal tabs (best first; ones that did not help come last, muted). The selected
- * tab's details sit underneath with an Apply & compare button, so every fix is one click away
- * without scrolling a long list.
+ * Fixes as tabs (best first; ones that did not help come last, muted). The selected tab's
+ * details sit underneath: what the fix changes, why it was suggested, what happened, and its pros
+ * and cons, with an Apply & compare button.
  */
 export function FixTabs({ tabs, selectedId, onSelect, appliedId, onApply }: FixTabsProps) {
   if (tabs.length === 0) return <p className="csl-empty">No fixes to try for this run.</p>;
@@ -58,7 +63,10 @@ export function FixTabs({ tabs, selectedId, onSelect, appliedId, onApply }: FixT
       </div>
       <div className="csl-fixtabs__panel" role="tabpanel" id="fix-tab-panel" aria-labelledby={`fix-tab-${selected.id}`}>
         <div className="csl-fixtabs__head">
-          <strong className="csl-fixtabs__title">{selected.title}</strong>
+          <div>
+            <h3 className="csl-fixtabs__title">{selected.name}</h3>
+            <p className="csl-fixtabs__what">{selected.what}</p>
+          </div>
           <button
             type="button"
             className={`csl-btn csl-btn--small${applied ? ' csl-btn--primary' : ''}`}
@@ -68,14 +76,44 @@ export function FixTabs({ tabs, selectedId, onSelect, appliedId, onApply }: FixT
             {applied ? 'Comparing' : 'Apply & compare'}
           </button>
         </div>
-        <span className="csl-fixtabs__why">Suggested because {selected.why}</span>
-        <span className="csl-fixtabs__result">
-          <b>{selected.result}</b>
-          {selected.seeds && <span className="csl-mono"> · {selected.seeds}</span>}
-          <span className="csl-mono"> · {selected.affected}</span>
-        </span>
-        <span className="csl-fixtabs__caveat">Caveat: {selected.caveat}</span>
+        <dl className="csl-fixtabs__facts">
+          <dt>Why try it</dt>
+          <dd>{selected.why}</dd>
+          <dt>Result</dt>
+          <dd>
+            <b className={selected.helped ? 'csl-fixtabs__good' : 'csl-fixtabs__bad'}>{selected.result}</b>
+            <span className="csl-fixtabs__detail">
+              {selected.failed}
+              {selected.seeds && ` · ${selected.seeds}`}
+            </span>
+          </dd>
+        </dl>
+        <div className="csl-fixtabs__procon">
+          <ProCon title="Pros" sign="+" items={selected.pros} tone="good" />
+          <ProCon title="Cons" sign="−" items={selected.cons} tone="bad" />
+        </div>
       </div>
     </div>
+  );
+}
+
+/** One list with its count in the heading, so several cons are never missed. */
+function ProCon({ title, sign, items, tone }: { title: string; sign: string; items: string[]; tone: 'good' | 'bad' }) {
+  return (
+    <section className={`csl-procon csl-procon--${tone}`} aria-label={title}>
+      <h4 className="csl-procon__title">
+        {title} <span className="csl-procon__count">({items.length})</span>
+      </h4>
+      <ul className="csl-procon__list">
+        {items.map((item) => (
+          <li key={item}>
+            <span className="csl-procon__sign" aria-hidden="true">
+              {sign}
+            </span>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

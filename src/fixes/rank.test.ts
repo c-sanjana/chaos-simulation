@@ -7,7 +7,7 @@ import { fixHelped, measureOutcome, rankFixes, seedAgreement, seedVariants, type
 
 const out = (verdict: FixOutcome['verdict'], recoveryMs: number | null, failedRequests: number): FixOutcome => ({ verdict, recoveryMs, failedRequests });
 const stuck = out('stuck', null, 12_000);
-const candidate = (id: string): FixCandidate => ({ id, title: id, why: '', caveat: '', config: singleTier(1, { kind: 'fixed', ms: 1 }, 1000) });
+const candidate = (id: string): FixCandidate => ({ id, title: id, name: id, short: id, what: '', why: '', pros: [], cons: [], config: singleTier(1, { kind: 'fixed', ms: 1 }, 1000) });
 
 describe('fixHelped', () => {
   it('from stuck or overloaded, helping means getting back to normal', () => {

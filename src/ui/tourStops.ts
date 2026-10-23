@@ -46,13 +46,13 @@ export const tourStops: TourStop[] = [
     target: 'fix-tabs',
     screen: 2,
     title: 'Try a fix',
-    body: 'Each tab is one setting change, re-run on the same traffic and ranked by what actually happened.',
+    body: 'Each tab is one setting change, re-run on the same traffic and ranked by the result.',
   },
   {
     target: 'fix-maps',
     screen: 2,
     title: 'Did the tipping point move?',
-    body: 'Compare the maps before and after the fix.',
+    body: 'Click a cell to replay it before and after.',
   },
   {
     target: 'help',

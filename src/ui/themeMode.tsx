@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
 
-/** localStorage key for the viewer's choice; index.html reads it too, before first paint. */
+/** localStorage key for the viewer's choice; index.html reads it too (same rule as initialTheme), before first paint. */
 export const THEME_KEY = 'csl-theme';
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
@@ -15,20 +15,18 @@ function safeStorage(): Store | null {
   }
 }
 
-/** Saved choice, else the system setting. ASSUMPTION: storage can be missing or throw (private windows). */
-export function initialTheme(storage: Store | null = safeStorage(), prefersDark = systemPrefersDark()): Theme {
+/**
+ * Light unless the viewer chose dark (the system setting is deliberately not followed: light is
+ * the default look). ASSUMPTION: storage can be missing or throw (private windows).
+ */
+export function initialTheme(storage: Store | null = safeStorage()): Theme {
   let saved: string | null = null;
   try {
     saved = storage?.getItem(THEME_KEY) ?? null;
   } catch {
     saved = null;
   }
-  if (saved === 'light' || saved === 'dark') return saved;
-  return prefersDark ? 'dark' : 'light';
-}
-
-function systemPrefersDark(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return saved === 'dark' ? 'dark' : 'light';
 }
 
 /** The theme on <html data-theme>, which every colour token keys off. */

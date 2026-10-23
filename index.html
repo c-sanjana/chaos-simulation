@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chaos Simulation Lab</title>
     <script>
-      // Theme before first paint (no light flash in dark mode): saved choice, else the system setting.
+      // Theme before first paint (no light flash for dark-mode viewers): light unless dark was chosen.
       (function () {
         var t = null;
         try { t = localStorage.getItem('csl-theme'); } catch (e) {}
-        if (t !== 'light' && t !== 'dark') t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.dataset.theme = t;
+        document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
       })();
     </script>
     <meta name="description" content="An interactive simulation of how distributed systems fail, where they stop recovering on their own, and whether a fix moves that point." />

@@ -4,7 +4,7 @@ import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { applyFix } from '../fixes/candidates';
 import { FIX_CATALOG } from '../fixes/catalog';
 import type { FixOutcome, RankedFix } from '../fixes/rank';
-import { buildSweep, tippingPoints, type SweepResult } from '../sweep/sweep';
+import { buildSweep, tippingPoints, type SweepResult, type SweepSpec } from '../sweep/sweep';
 import type { AnalyzeResult } from '../worker/jobs';
 import type { SimPool } from '../worker/pool';
 import { FixTabs, type FixTab } from './components/FixTabs';
@@ -32,10 +32,13 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const [appliedId, setAppliedId] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [timelineEl, setTimelineEl] = useState<HTMLElement | null>(null);
   const apply = (id: string | null) => (setTouched(true), setAppliedId(id));
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
-  const fixed = useAnalysis(pool, applied ? applied.candidate.config : null, labels);
+  // The map cell shown before vs after on the right; the current settings until the viewer clicks another.
+  const current = currentCell(scenario);
+  const [cell, setCell] = useState(current);
+  useEffect(() => setCell(currentCell(scenario)), [scenario]);
+  const atCurrent = cell.x === current.x && cell.y === current.y;
 
   const signals = original?.analysis.signals ?? null;
   const beforeSpec = useMemo(() => (applied ? buildSweep(topology, scenario) : null), [applied, topology, scenario]);
@@ -47,6 +50,13 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   }, [applied, signals, topology, scenario]);
   const before = useSweep(pool, beforeSpec);
   const after = useSweep(pool, afterSpec);
+  // At the current settings the original run is reused; any other cell re-runs that cell's map
+  // settings, without and with the fix.
+  const beforeConfig = atCurrent ? config : cellConfig(beforeSpec, cell);
+  const afterConfig = !applied ? null : atCurrent ? applied.candidate.config : cellConfig(afterSpec, cell);
+  const beforeOther = useAnalysis(pool, atCurrent ? null : beforeConfig, labels);
+  const fixed = useAnalysis(pool, afterConfig, labels);
+  const beforeRun = atCurrent ? (original ? { status: 'done' as const, value: original } : beforeOther) : beforeOther;
 
   const helped = ranking.ranked.filter((f) => f.helped);
   const allTested = ranking.candidates.length > 0 && ranking.tested === ranking.candidates.length;
@@ -61,6 +71,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
 
   if (!original) return <p className="csl-status">Waiting for the original run…</p>;
   const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.seeds[f.candidate.id]));
+  const { x: xAxis, y: yAxis } = scenario.map;
+  const cellTitle = `${cell.x} rps · ${formatAxisValue(yAxis, cell.y)} ${yAxis.label}`;
 
   return (
     <div className="csl-split csl-split--stretch">
@@ -80,14 +92,15 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                 <div className="csl-fix-maps csl-map--medium">
                   {[
                     { title: 'Before', sweep: before.result },
-                    { title: `After: ${shortName(applied.candidate.id)}`, sweep: after.result },
+                    { title: `After: ${applied.candidate.short}`, sweep: after.result },
                   ].map((m) => (
                     <div key={m.title}>
                       <span className="csl-status">{m.title}</span>
-                      <TippingMap map={mapView(m.title, scenario.map.x, scenario.map.y, (x, y) => m.sweep.get(x, y), currentCell(scenario))} />
+                      <TippingMap map={mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), current)} selected={cell} onSelect={(c) => setCell({ x: c.x, y: c.y })} />
                     </div>
                   ))}
                 </div>
+                <span className="csl-fix-maps__hint">◆ current settings · ▢ shown on the right. Click any cell to compare it there.</span>
                 <span style={{ fontSize: 13 }}>
                   {before.done === before.total && after.done === after.total ? moveSummary(scenario, before.result, after.result) : `${before.done + after.done} of ${before.total + after.total} runs done`}
                 </span>
@@ -102,25 +115,25 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             {allTested && <FixTabs tabs={tabs} selectedId={selectedId ?? appliedId} onSelect={setSelectedId} appliedId={appliedId} onApply={apply} />}
           </div>
         </section>
-        <div className="csl-split__slot" ref={setTimelineEl} />
       </div>
       <div className="csl-split__main" data-tour="replay">
-        {applied && fixed.status === 'done' && (
+        {applied && afterConfig && beforeConfig && fixed.status === 'done' && beforeRun.status === 'done' && (
           <RunPlayer
-            title={`Before vs after: ${applied.candidate.title}`}
-            subtitle="Same traffic, same failure, same seed. Only the fix differs."
+            title={`Before vs after: ${applied.candidate.name}`}
+            subtitle={`${cellTitle}${atCurrent ? ' (current settings)' : ''}. Same traffic, failure and seed; only the fix differs.`}
             topology={topology}
-            config={config}
-            result={original}
-            after={{ config: applied.candidate.config, result: fixed.value }}
+            config={beforeConfig}
+            result={beforeRun.value}
+            after={{ config: afterConfig, result: fixed.value }}
             onEdit={onEdit}
             compact
-            timelineTarget={timelineEl}
+            chartHeight={155}
+            sideTimeline
           />
         )}
-        {applied && fixed.status === 'running' && (
+        {applied && (fixed.status === 'running' || beforeRun.status === 'running') && (
           <section className="csl-card csl-card--compact">
-            <p className="csl-status">Simulating the fix…</p>
+            <p className="csl-status">Simulating {cellTitle} without and with the fix…</p>
           </section>
         )}
         {!applied && (
@@ -133,36 +146,35 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   );
 }
 
-/** Short tab names for the catalogue's fixes (four tabs share a row; the full title is in the panel). */
-const SHORT_NAMES: Record<string, string> = {
-  'retry-budget': 'Retry budget',
-  'cap-retries': 'Cap retries',
-  'jitter-backoff': 'Jitter',
-  'bound-queue': 'Bound queue',
-  'drop-expired': 'Drop expired',
-  'coalesce-misses': 'Coalesce',
-  'longer-timeout': 'Timeout',
-  'add-instances': 'Scale out',
-};
-
-function shortName(id: string): string {
-  return SHORT_NAMES[id] ?? id;
+/** A map cell's run config from a sweep spec (null until the spec exists). */
+function cellConfig(spec: SweepSpec | null, cell: { x: number; y: number }): RunConfig | null {
+  return spec?.cells.find((c) => c.x === cell.x && c.y === cell.y)?.config ?? null;
 }
 
-function fixTab(f: RankedFix, original: FixOutcome, seeds: { helped: number; of: number } | undefined): FixTab {
+/** The tab and panel for one tested fix. Cons measured in this run come before the general ones. */
+export function fixTab(f: RankedFix, original: FixOutcome, seeds: { helped: number; of: number } | undefined): FixTab {
   const o = f.outcome;
+  const measured: string[] = [];
+  if (o.failedRequests > original.failedRequests) {
+    measured.push(`In this run more requests failed with it than without (${o.failedRequests.toLocaleString()} vs ${original.failedRequests.toLocaleString()})`);
+  }
+  if (f.helped && seeds && seeds.helped < seeds.of) {
+    measured.push(`Helped on only ${seeds.helped} of ${seeds.of} random seeds, so the result depends on timing`);
+  }
   return {
     id: f.candidate.id,
-    short: shortName(f.candidate.id),
-    title: f.candidate.title,
-    why: f.candidate.why,
+    short: f.candidate.short,
+    name: f.candidate.name,
+    what: f.candidate.what,
+    why: `${capitalise(f.candidate.why)}.`,
     result: `${capitalise(shortVerdict(original))} → ${shortVerdict(o)}`,
+    failed: `${o.failedRequests.toLocaleString()} failed requests instead of ${original.failedRequests.toLocaleString()}`,
+    seeds: f.helped ? (seeds ? `helped on ${seeds.helped} of ${seeds.of} random seeds` : 'checking other seeds…') : '',
     // A fix that left the run stuck needs no badge: the tab's ✕ already says it did not help.
     badge: o.verdict === 'recovered' ? `${Math.round((o.recoveryMs ?? 0) / 1000)}s` : f.helped ? o.verdict : '',
     helped: f.helped,
-    seeds: f.helped ? (seeds ? `helps in ${seeds.helped} of ${seeds.of} seeds` : 'checking other seeds…') : '',
-    affected: `${o.failedRequests.toLocaleString()} failed requests (was ${original.failedRequests.toLocaleString()})`,
-    caveat: f.candidate.caveat,
+    pros: f.candidate.pros,
+    cons: [...measured, ...f.candidate.cons],
   };
 }
 

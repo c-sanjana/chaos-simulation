@@ -5,15 +5,23 @@ import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition } from './catalog';
 
 export interface FixCandidate {
   id: string;
+  /** Full name with where it applies, e.g. "Bound the queue (load shedding): DB, at most 93 queued per instance". */
   title: string;
+  /** The catalogue's name, e.g. "Bound the queue (load shedding)". */
+  name: string;
+  /** Tab label, e.g. "Bound queue". */
+  short: string;
+  /** What changes, in one plain sentence with this config's numbers. */
+  what: string;
   why: string;
-  caveat: string;
+  pros: string[];
+  cons: string[];
   config: RunConfig;
 }
 
 /**
  * Fixes worth trying for this run: each is the original config with one setting change. `why`
- * quotes the triggering signal with its number, e.g. "retries were 74% of DB load". Common
+ * quotes the triggering signal with its number, e.g. "retries made up 74% of DB's load". Common
  * instincts get why = "it is a common first instinct". In catalog order; fixes that cannot be applied to
  * this config (or would change nothing) are left out.
  */
@@ -27,8 +35,12 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
     candidates.push({
       id: def.id,
       title: `${def.title}: ${plan.where}`,
+      name: def.title,
+      short: def.short,
+      what: plan.what,
       why: def.signal === null ? 'it is a common first instinct' : describeSignal(def.signal, signals, config, name),
-      caveat: def.caveat,
+      pros: def.pros,
+      cons: def.cons,
       config: plan.config,
     });
   }
@@ -44,10 +56,13 @@ interface FixPlan {
   config: RunConfig;
   /** Where the change goes, for the candidate's title (e.g. "API → DB"). */
   where: string;
+  /** What changes, as a sentence (e.g. "API stops retrying DB once retries reach 10% of first attempts."). */
+  what: string;
 }
 
 function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: (id: string) => string): FixPlan | null {
   const callName = (ref: CallRef) => `${name(ref.owner)} → ${name(ref.policy.target)}`;
+  const [caller, target] = [(ref: CallRef) => name(ref.owner), (ref: CallRef) => name(ref.policy.target)];
   switch (def.kind) {
     // Retry fixes change the call whose retries showed up: retries arriving at a tier were sent by
     // its caller (retries further up arrive there as first attempts).
@@ -55,19 +70,32 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       const ref = retryingCall(config, signals);
       const ratio = FIX_SETTINGS.retryBudgetRatio;
       if (ref === null || (ref.policy.retryBudget ?? Infinity) <= ratio) return null;
-      return { config: withCall(config, ref, { retryBudget: ratio }), where: callName(ref) };
+      return {
+        config: withCall(config, ref, { retryBudget: ratio }),
+        where: callName(ref),
+        what: `${caller(ref)} stops retrying ${target(ref)} once retries reach ${percent(ratio)} of first attempts.`,
+      };
     }
     case 'capRetries': {
       const ref = retryingCall(config, signals);
       if (ref === null || ref.policy.retries <= FIX_SETTINGS.maxRetries) return null;
-      return { config: withCall(config, ref, { retries: FIX_SETTINGS.maxRetries }), where: callName(ref) };
+      const n = FIX_SETTINGS.maxRetries;
+      return {
+        config: withCall(config, ref, { retries: n }),
+        where: callName(ref),
+        what: `${caller(ref)} retries a failed call to ${target(ref)} at most ${times(n)} (instead of ${times(ref.policy.retries)}).`,
+      };
     }
     case 'jitterBackoff': {
       const ref = retryingCall(config, signals);
       if (ref === null || (ref.policy.jitter && ref.policy.backoffBaseMs > 0)) return null;
       // A call that retries immediately has no backoff to jitter, so it gets a base delay too.
       const patch = ref.policy.backoffBaseMs > 0 ? { jitter: true } : { jitter: true, backoffBaseMs: FIX_SETTINGS.jitterBaseMs };
-      return { config: withCall(config, ref, patch), where: callName(ref) };
+      return {
+        config: withCall(config, ref, patch),
+        where: callName(ref),
+        what: `${caller(ref)} waits a random, growing delay before each retry to ${target(ref)}, so retries spread out instead of arriving together.`,
+      };
     }
     case 'boundQueue': {
       const id = signals.queueWaitOverTimeout?.tier;
@@ -76,25 +104,41 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       const tier = tierById(config, id);
       const limit = queueLimitFor(tier, timeoutMs);
       if (tier.queueLimit !== null && tier.queueLimit <= limit) return null;
-      return { config: withTier(config, id, { queueLimit: limit }), where: `${name(id)}, at most ${limit} queued per instance` };
+      return {
+        config: withTier(config, id, { queueLimit: limit }),
+        where: `${name(id)}, at most ${limit} queued per instance`,
+        what: `${name(id)} lets at most ${limit} requests wait per instance and turns the rest away immediately.`,
+      };
     }
     case 'dropExpired': {
       const id = signals.wastedShare?.tier;
       if (id === undefined || tierById(config, id).dropExpired) return null;
-      return { config: withTier(config, id, { dropExpired: true }), where: name(id) };
+      return {
+        config: withTier(config, id, { dropExpired: true }),
+        where: name(id),
+        what: `${name(id)} skips requests whose caller has already timed out, instead of doing work nobody will use.`,
+      };
     }
     case 'coalesceMisses': {
       const cacheId = signals.cacheHitDrop?.tier;
       const tier = config.tiers.find((t) => t.cacheAside !== undefined && t.cacheAside.target === cacheId);
       if (tier === undefined || tier.coalesceMisses) return null;
-      return { config: withTier(config, tier.id, { coalesceMisses: true }), where: name(tier.id) };
+      return {
+        config: withTier(config, tier.id, { coalesceMisses: true }),
+        where: name(tier.id),
+        what: `When several requests miss the cache for the same key at once, ${name(tier.id)} makes one read and shares the result.`,
+      };
     }
     case 'longerTimeout': {
       const id = bottleneck(signals);
       const ref = id === null ? null : callInto(config, id);
       if (ref === null || ref.policy.timeoutMs === null) return null;
       const timeoutMs = ref.policy.timeoutMs * FIX_SETTINGS.timeoutFactor;
-      return { config: withCall(config, ref, { timeoutMs }), where: `${callName(ref)}, ${formatMs(ref.policy.timeoutMs)} → ${formatMs(timeoutMs)}` };
+      return {
+        config: withCall(config, ref, { timeoutMs }),
+        where: `${callName(ref)}, ${formatMs(ref.policy.timeoutMs)} → ${formatMs(timeoutMs)}`,
+        what: `${caller(ref)} waits up to ${formatMs(timeoutMs)} for ${target(ref)} before giving up (instead of ${formatMs(ref.policy.timeoutMs)}).`,
+      };
     }
     case 'addInstances': {
       // The instinct is to scale the tier calling the bottleneck (its threads are the ones seen
@@ -106,7 +150,11 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       const target = caller === null || caller.owner === 'client' ? id : caller.owner;
       const before = tierById(config, target).instances;
       const instances = Math.ceil(before * FIX_SETTINGS.instanceFactor);
-      return { config: withTier(config, target, { instances }), where: `${name(target)}, ${before} → ${instances} instances` };
+      return {
+        config: withTier(config, target, { instances }),
+        where: `${name(target)}, ${before} → ${instances} instances`,
+        what: `${name(target)} runs ${instances} instances instead of ${before}.`,
+      };
     }
   }
 }
@@ -141,17 +189,17 @@ function bottleneck(signals: Signals): string | null {
   return (signals.queueWaitOverTimeout ?? signals.wastedShare ?? signals.retryShare)?.tier ?? null;
 }
 
-/** One line quoting a signal and its number, e.g. "retries were 74% of DB load". */
+/** One line quoting a signal and its number, e.g. "retries made up 74% of DB's load". */
 export function describeSignal(signal: keyof Signals, s: Signals, config: RunConfig, name: (id: string) => string): string {
   switch (signal) {
     case 'retryShare':
-      return `retries were ${percent(s.retryShare!.value)} of ${name(s.retryShare!.tier)} load`;
+      return `retries made up ${percent(s.retryShare!.value)} of ${name(s.retryShare!.tier)}'s load`;
     case 'wastedShare':
       return `${percent(s.wastedShare!.value)} of ${name(s.wastedShare!.tier)} work was for requests whose caller had already given up`;
     case 'queueWaitOverTimeout': {
       const { tier, value } = s.queueWaitOverTimeout!;
       const caller = callInto(config, tier)!;
-      return `${name(tier)}'s queued wait reached ${formatRatio(value)} the ${name(caller.owner)}'s ${formatMs(caller.policy.timeoutMs!)} timeout`;
+      return `requests waited in ${name(tier)}'s queue up to ${formatRatio(value)} longer than the ${name(caller.owner)}'s ${formatMs(caller.policy.timeoutMs!)} timeout`;
     }
     case 'idleSaturation':
       return `${name(s.idleSaturation!.tier)} workers were all occupied but mostly idle for ${s.idleSaturation!.value} s`;
@@ -161,6 +209,8 @@ export function describeSignal(signal: keyof Signals, s: Signals, config: RunCon
     }
   }
 }
+
+const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
 const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 

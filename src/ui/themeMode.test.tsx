@@ -10,14 +10,14 @@ afterEach(() => {
 });
 
 describe('theme', () => {
-  it('starts from the saved choice, else the system setting', () => {
-    expect(initialTheme(store('dark'), false)).toBe('dark');
-    expect(initialTheme(store('light'), true)).toBe('light');
-    expect(initialTheme(store('purple'), true)).toBe('dark');
-    expect(initialTheme(store(null), false)).toBe('light');
-    expect(initialTheme(null, true)).toBe('dark');
-    expect(initialTheme(throwing, false)).toBe('light'); // blocked storage
-    expect(initialTheme()).toBe('light'); // jsdom: empty storage, no matchMedia
+  it('is light unless dark was chosen (the system setting is not followed)', () => {
+    expect(initialTheme(store('dark'))).toBe('dark');
+    expect(initialTheme(store('light'))).toBe('light');
+    expect(initialTheme(store('purple'))).toBe('light');
+    expect(initialTheme(store(null))).toBe('light');
+    expect(initialTheme(null)).toBe('light');
+    expect(initialTheme(throwing)).toBe('light'); // blocked storage
+    expect(initialTheme()).toBe('light'); // jsdom: empty storage
   });
 
   it('applies the theme to <html> and remembers it when it can', () => {

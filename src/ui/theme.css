@@ -1528,29 +1528,97 @@ button.csl-map__cell {
 .csl-fixtabs__panel {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 10px;
   border: 1px solid var(--csl-border);
   border-radius: 10px;
-  padding: 8px 12px;
+  padding: 12px 14px;
   background: var(--csl-ground);
   font-size: 13px;
+  line-height: 1.4;
 }
 .csl-fixtabs__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
 }
 .csl-fixtabs__title {
-  font-size: 14px;
+  margin: 0;
+  font-size: 15px;
   font-weight: 600;
 }
-.csl-fixtabs__why,
-.csl-fixtabs__caveat {
+.csl-fixtabs__what {
+  margin: 2px 0 0;
+  color: var(--csl-ink-2);
+}
+/* Label column + text: "Why try it" and "Result" read as two short facts. */
+.csl-fixtabs__facts {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 4px 10px;
+  margin: 0;
+}
+.csl-fixtabs__facts dt,
+.csl-procon__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--csl-muted);
+  padding-top: 2px;
+}
+.csl-fixtabs__facts dd {
+  margin: 0;
+}
+.csl-fixtabs__good {
+  color: var(--csl-good);
+}
+.csl-fixtabs__bad {
+  color: var(--csl-bad-text);
+}
+.csl-fixtabs__detail {
+  display: block;
   color: var(--csl-muted);
   font-size: 12.5px;
 }
-.csl-fixtabs__result .csl-mono {
+.csl-fixtabs__procon {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  border-top: 1px solid var(--csl-border);
+  padding-top: 8px;
+}
+.csl-procon__title {
+  margin: 0 0 4px;
+}
+.csl-procon__count {
+  font-weight: 400;
+}
+.csl-procon__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.csl-procon__list li {
+  display: flex;
+  gap: 6px;
+}
+.csl-procon__sign {
+  flex: none;
+  width: 10px;
+  font-weight: 700;
+}
+.csl-procon--good .csl-procon__sign {
+  color: var(--csl-good);
+}
+.csl-procon--bad .csl-procon__sign {
+  color: var(--csl-bad);
+}
+.csl-fix-maps__hint {
   font-size: 12px;
   color: var(--csl-muted);
 }
@@ -1659,4 +1727,34 @@ button.csl-map__cell {
 .csl-icon-button:hover {
   border-color: var(--csl-primary);
   color: var(--csl-primary);
+}
+
+/* Legend + chart; on step 3 the live timeline sits beside them (under the metric tabs). The
+   timeline column takes the chart's height and its window scrolls inside, so a long timeline
+   never makes the card taller. */
+.csl-player__chartrow,
+.csl-player__chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.csl-player__chartrow--side {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 14px;
+}
+.csl-player__chartrow--side .csl-player__chart {
+  flex: 1 1 0;
+}
+.csl-player__chartrow--side .csl-player__timeline--side {
+  flex: 0 0 300px;
+  position: relative;
+  min-height: 200px;
+}
+.csl-player__timeline--side .csl-timeline-window {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  min-height: 0;
 }
