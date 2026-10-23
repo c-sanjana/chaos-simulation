@@ -63,7 +63,7 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
 
   it('reports workers occupied while CPU idles', () => {
     const { analysis } = retryStormRun({ retries: 3 });
-    expect(analysis.timeline.some((e) => /workers 100% occupied, CPU \d+%: waiting, not working/.test(e.text))).toBe(true);
+    expect(analysis.timeline.some((e) => /workers \d+% occupied, CPU \d+%: waiting, not working/.test(e.text))).toBe(true);
   });
 
   it('has verdict entries for unaffected and overloaded runs', () => {

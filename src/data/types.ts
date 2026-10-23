@@ -28,7 +28,9 @@ export interface ScenarioPreset {
   topology: string;
   rps: number;
   durationMs: number;
-  /** Retries per layer for every call policy except cache lookups. */
+  /** The tier whose downstream call the `retries` setting (and the map's retries axis) controls. */
+  retryCall: string;
+  /** Retries on `retryCall`'s downstream call. Every other call keeps the topology's own setting. */
   retries: number;
   faults: Fault[];
   /** Tipping-point map axes: x is always traffic. */

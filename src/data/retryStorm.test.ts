@@ -23,7 +23,7 @@ describe('retry storm (bundled preset)', { timeout: 60_000 }, () => {
     for (const r of [stuck, recovered]) expect(sum(r.client.ok.slice(5, 30)) / sum(r.client.sent.slice(5, 30))).toBeGreaterThan(0.99);
   });
 
-  it('with 3 retries per layer, a 5-second DB slowdown leaves the system stuck long after it ends', () => {
+  it('with 3 API → DB retries, a 5-second DB slowdown leaves the system stuck long after it ends', () => {
     expect(tailSuccess(stuck)).toBeLessThan(0.05);
   });
 
@@ -42,10 +42,17 @@ describe('retry storm (bundled preset)', { timeout: 60_000 }, () => {
     expect(late(db.wastedMs) / (late(db.busyCoresAvg) * 1000)).toBeGreaterThan(0.9);
   });
 
-  it('while stuck, API workers are all occupied but mostly not computing (waiting on the DB)', () => {
-    const api = stuck.tiers.api;
+  it('while stuck, some tier\'s workers are all occupied but mostly not computing (waiting downstream)', () => {
     const b = 100;
-    expect(api.busyWorkersAvg[b] / api.workers).toBeGreaterThan(0.95);
-    expect(api.busyCoresAvg[b] / api.cores).toBeLessThan(0.5);
+    const saturatedIdle = Object.values(stuck.tiers).filter(
+      (t) => t.busyWorkersAvg[b] / t.workers > 0.95 && t.busyCoresAvg[b] / t.cores < 0.5,
+    );
+    expect(saturatedIdle.length).toBeGreaterThan(0);
+  });
+
+  it('each extra API → DB retry lowers the traffic at which the system tips (the staircase)', () => {
+    const tips = (retries: number) => runSimulation(buildRunConfig(webChain, retryStorm, { retries, rps: 160 }));
+    expect(tailSuccess(tips(1))).toBeGreaterThan(0.99); // 1 retry: still absorbs it at 160 rps
+    expect(tailSuccess(tips(2))).toBeLessThan(0.05); // 2 retries: tips at the same traffic
   });
 });

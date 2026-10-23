@@ -7,7 +7,7 @@ describe('computeSignals', { timeout: 60_000 }, () => {
     expect(s.retryShare!.value).toBeGreaterThan(0.5);
     expect(s.wastedShare).toMatchObject({ tier: 'db' });
     expect(s.wastedShare!.value).toBeGreaterThan(0.9);
-    expect(s.idleSaturation!.value).toBeGreaterThan(30);
+    expect(s.idleSaturation!.value).toBeGreaterThan(10); // seconds with workers saturated and CPU idle
     expect(s.queueWaitOverTimeout!.value).toBeGreaterThan(1);
     expect(s.cacheHitDrop!.value.during).toBeLessThan(s.cacheHitDrop!.value.before);
   });

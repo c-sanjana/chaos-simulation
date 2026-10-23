@@ -12,11 +12,12 @@ describe('buildRunConfig', () => {
     expect(c.faults).toEqual(retryStorm.faults);
   });
 
-  it('applies retries to every call except cache lookups', () => {
+  it("applies retries to the scenario's retry call only", () => {
     const c = buildRunConfig(webChain, retryStorm, { retries: 5 });
-    expect(c.client.call.retries).toBe(5);
+    expect(c.client.call.retries).toBe(webChain.clientCall.retries);
     for (const t of c.tiers) {
-      if (t.downstream) expect(t.downstream.retries).toBe(5);
+      const expected = t.id === retryStorm.retryCall ? 5 : webChain.tiers.find((w) => w.id === t.id)!.downstream?.retries;
+      expect(t.downstream?.retries).toBe(expected);
       if (t.cacheAside) expect(t.cacheAside.retries).toBe(0);
     }
   });
