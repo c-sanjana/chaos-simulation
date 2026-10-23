@@ -158,7 +158,7 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 
 ## 9. Plan: architecture, technical choices and milestones
 
-_Next to agree._
+High-level architecture agreed: static site; UI on the main thread; a pool of Web Workers, each running complete simulation runs; four layers (engine, analysis, data, UI). Details still being settled: UI layout (mockups: https://claude.ai/artifact/6cV8WhmMWanmYvRVQUj1te), sweep and attempt objects, how the cache, DB and load balancer are modelled, the CPU model, and hosting (here.now under evaluation).
 
 ## 10. Decision log
 
@@ -180,6 +180,10 @@ _Next to agree._
 | 2026-10-22 | Deeper trace-back and the drag-and-drop builder are revisited after V1 | Avoid UI clutter; see V1 first |
 | 2026-10-22 | S1 uses one map with a Slow / Dead toggle | One map keeps it simple; the toggle shows slow has the bigger stuck region |
 | 2026-10-22 | Parallel calls built only when a topology needs them | Don't build ahead of need; C1 will be the engine change that adds them |
+| 2026-10-23 | Stack: TypeScript + Vite + React; Vitest for tests | Widely known, mature, native worker support, static build |
+| 2026-10-23 | One queue per instance, with a load balancer choosing the instance | Enables instance-level faults and load-balancer behaviour |
+| 2026-10-23 | Open-loop traffic | Real traffic doesn't slow down when the system does; this is required for stuck states to emerge |
+| 2026-10-23 | Compute the run, then replay it in the UI | Deterministic and simple; no benefit to real-time simulation |
 
 ## 11. Time log
 
