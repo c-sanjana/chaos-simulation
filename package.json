@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc -b --noEmit",
-    "deploy": "npm run build && node scripts/deploy-herenow.mjs"
+    "deploy": "npm run build && node scripts/deploy-herenow.mjs",
+    "bench": "vite-node scripts/bench.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
