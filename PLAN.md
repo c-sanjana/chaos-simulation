@@ -2,7 +2,7 @@
 
 Single source of truth for this project. If this file and the conversation disagree, this file wins until we agree to change it.
 
-**Status:** Requirements, risks and V1 scope agreed. Architecture proposed; waiting for decisions. No code yet.
+**Status:** Requirements, risks, V1 scope, mockups and architecture agreed (hosting pending a final yes on Vercel). Milestones proposed; waiting for approval. No code yet.
 
 ---
 
@@ -80,9 +80,9 @@ Built in this order. Whatever is unfinished at the time limit is cut from the bo
 
 | # | Item | Detail |
 |---|------|--------|
-| M1 | Simulation engine | Simulates every request individually, using a priority queue of timed events. Random values are derived from stable keys (request, attempt, tier). Runs in Web Workers. Mechanisms: worker pools held while waiting on downstream calls, timeouts, retries with backoff and jitter, bounded or unbounded queues, work continuing on requests the caller already gave up on, cache hit ratio and refill on success, failing fast vs. responding slowly, long-tailed service times |
+| M1 | Simulation engine | Simulates every request individually, using a priority queue of timed events. Random values are derived from stable keys (request, attempt, tier). Runs in Web Workers. Mechanisms: worker pools held while waiting on downstream calls, timeouts, retries with backoff and jitter, bounded or unbounded queues, work continuing on requests the caller already gave up on, cache-aside caching with capacity, LRU eviction, TTL and refill on success (the hit rate is an output), CPU cores as a second limit on each instance, failing fast vs. responding slowly, long-tailed service times |
 | M2 | Modelling tests | (a) comparison with queueing theory (M/M/1, M/M/c and Erlang C formulas, Little's law); (b) invariants, such as conservation of requests, pool limits, retry multiplier bounds; (c) known failure patterns: a blip leaves the system stuck with retries and lets it recover without them, a slow DB is worse than a dead one, the cache doesn't recover while the DB is saturated |
-| M3 | Preset topology | Client → Gateway → API → Cache → DB, stored as data. Every setting is editable: traffic rate; per tier: instances, workers, queue limit, service time, timeout, retries, backoff, jitter; cache hit ratio |
+| M3 | Preset topology | Client → Gateway → API → DB, with a cache beside the API (cache-aside: the API checks the cache, and on a miss calls the DB itself). Stored as data. Every setting is editable: traffic rate; per tier: instances, workers, cores, queue limit, service time, timeout, retries, backoff, jitter; cache: capacity, TTL, number of distinct keys, popularity skew |
 | M4 | Retry-storm scenario | The headline scenario; the page opens on it |
 | M5 | Run view | Live topology with per-tier stats. One main chart with tabs for **throughput, latency (p50/p99), error rate, workers occupied, CPU busy**, with the failure window shaded. Clicking a tier switches the charts to it. A short timeline of detected events (one line per event, about 10 or fewer, each with a time and a number) |
 | M6 | Fixes and comparison | Candidate fixes are setting changes stored as data. They are **ranked by measured effect**: each candidate is actually run against the same seed. Fixes that can't be applied are not shown. Applying a fix re-simulates it with the full run view, overlaid on the original run |
@@ -152,13 +152,94 @@ Garbage-collection pauses; CPU contention slowing a server as it gets busier; ne
 
 ## 8. Open questions
 
-- **Q1.** Where to host, and whether the repo must be public for it. Decide with the stack.
+- **Q1.** Hosting: Vercel recommended over here.now (see 9.8). Waiting for your yes.
 - ~~Q2~~ Decided: one map with a Slow / Dead toggle.
 - ~~Q3~~ Decided: parallel calls are built only when a topology needs them (C1).
 
 ## 9. Plan: architecture, technical choices and milestones
 
-High-level architecture agreed: static site; UI on the main thread; a pool of Web Workers, each running complete simulation runs; four layers (engine, analysis, data, UI). Details still being settled: UI layout (mockups: https://claude.ai/artifact/6cV8WhmMWanmYvRVQUj1te), sweep and attempt objects, how the cache, DB and load balancer are modelled, the CPU model, and hosting (here.now under evaluation).
+Mockups (agreed): https://claude.ai/artifact/6cV8WhmMWanmYvRVQUj1te
+
+### 9.1 Overall shape
+
+A static site; everything runs in the browser.
+- **UI** runs on the main thread.
+- A **pool of Web Workers** (one per spare core, at most 8): each worker runs whole simulation runs, one at a time. A worker is a browser thread, **not** a node in the simulated system.
+
+| Layer | Folder | Job | Changes when… |
+|---|---|---|---|
+| Engine | `src/engine/` | Simulates requests: settings in, metrics and per-request outcomes out. Pure code, no DOM | A new *mechanism* is needed (rare, comes with tests) |
+| Analysis | `src/analysis/` | Recovery vs. the control run, the timeline, fix diagnosis. Pure | A new kind of insight |
+| Sweep | `src/sweep/` | Sweep specs, results and tipping-point extraction (pure); the runner that fans out to workers | — |
+| Data | `src/data/` | Topologies, scenarios, fixes as plain objects | A new scenario, topology or fix |
+| Worker | `src/worker/` | Worker entry point and pool | — |
+| UI | `src/ui/` | React components | Presentation |
+
+### 9.2 Stack
+
+TypeScript, Vite, React. Vitest for tests. uPlot for time-series charts. The map and topology are plain React and SVG components.
+
+### 9.3 Modelling principles
+
+- **Objects with encapsulated state and behaviour model the things that exist in a simulated system:** `Simulation`, `Tier`, `Instance`, `LoadBalancer`, `Cache`, `Database`, `Client`, `Attempt`, `MetricsRecorder`, and on the sweep side `SweepSpec`, `SweepRunner`, `SweepResult`, `TippingPoint`.
+- **Composition over inheritance.** Components share small interfaces (for example "accepts an attempt"). No deep class hierarchies.
+- **Settings and results stay plain data.** Topologies, scenarios, fixes, `RunConfig` and `RunResult` are plain objects, because they cross the worker boundary (which strips class methods) and because data-driven scenarios are an agreed principle. Objects are built from data inside the worker.
+
+### 9.4 Engine
+
+- **Event loop:** a time-ordered priority queue, with ties broken by a sequence number so results are bit-for-bit repeatable.
+- **Traffic:** open loop. New requests arrive at the set rate whatever the system's state.
+- **`Attempt`:** one call to one tier. It holds the request ID, the attempt path (which retry at each layer), the tier and the caller's deadline. Its states:
+  - queued → running → waiting on downstream → done or failed
+  - **abandoned:** the caller gave up. The tier keeps working on it unless "drop expired" is on, and time spent on abandoned attempts is recorded as **wasted work**.
+- **`Instance`:** its own FIFO queue (bounded or unbounded), a pool of workers, and **CPU cores (option B)**. A worker must hold a core to compute and queues for one otherwise. A worker is held, without a core, while it waits on a downstream call. CPU busy = busy cores ÷ cores.
+- **`Tier`:** a set of instances plus its settings: service-time distribution (long-tailed), timeout, retries, backoff, jitter, optional retry budget, and drop-expired.
+- **`LoadBalancer`:** a routing policy on each connection between tiers that picks an instance; round-robin in V1. An explicit load-balancer tier with its own capacity is deferred.
+- **`Cache` (cache-aside):**
+  - Holds real keys, up to a capacity, with LRU eviction and a TTL per entry. Requests ask for keys drawn from a popularity curve (Zipf).
+  - A hit means the key is present and not expired. On a miss **the API calls the DB**, and the key is stored only if that read succeeds.
+  - Runs start warm (pre-filled with the cache's normal contents). Failure modes: down, and flush (a cold restart).
+  - Optional: concurrent misses on the same key share one DB read.
+  - **The hit rate is an output, not a setting.**
+- **`Database`:** instances, a connection limit (its workers), long-tailed service times. Failure modes: slow (service time × N) and dead (refuses immediately). Reads only in V1.
+- **Same random numbers before and after:** every random value is a hash of (seed, stream, request ID, attempt path, tier), never drawn in sequence.
+- **Output (`RunResult`):** per-second metrics for each tier, and per-request outcomes at the client. Per-tier metrics:
+  - requests in, successes, errors
+  - latency p50 and p99 (fixed-size histogram)
+  - queue depth, workers occupied, CPU busy
+  - wasted work, retry multiplier, cache hit rate.
+
+### 9.5 Analysis
+
+- **Recovery (option C):** compare per-request outcomes with a control run that has the same settings and seed but no failures. The run recovered at the point after which every request matches the control. If that never happens before the observation window ends, it is stuck. Fallback: option B, natural range.
+- **Timeline:** rule functions over the metrics. At most about 10 one-line entries, each with a time and a number.
+- **Fixes:** a fix is a candidate when the signal it targets showed up in the run. Every candidate is re-run with the same seed and ranked by: recovered, then recovery time, then requests affected. The top fixes get the 5-seed confidence check. Fixes tested that did not help are listed too, collapsed.
+
+### 9.6 Sweep
+
+- **`SweepSpec`:** base config, axes from the scenario's data, and seeds.
+- **`SweepRunner`:** sends cells to the worker pool and reports progress as they finish. Changing settings cancels stale jobs.
+- **`SweepResult`:** the grid of `SweepCell`s.
+- **`TippingPoint`:** per row, the value where results flip from recovered to stuck. Rows that flip more than once are flagged.
+- **Drill-down:** re-runs a cell's settings, giving an identical result, and replays it inline.
+
+### 9.7 UI
+
+Follows the mockups:
+- A scenario picker and an editable failure sentence at the top, then three tabbed steps.
+- One reusable `RunPlayer`: topology with arrows, playback, chart tabs (Throughput, Load & retries, Latency, Errors, Workers & CPU) and the timeline.
+- `RunPlayer` is used in step 1, inline under the map in step 2, and in compare mode in step 3. A settings drawer opens from the header.
+
+### 9.8 Hosting
+
+**Recommended: Vercel**, through its Git integration. Waiting for your yes.
+- Static build, with automatic deploys on every push. The repo can stay private.
+- Watch-out: preview deployments may require a Vercel login by default. Reviewers must get the production URL, checked in a clean browser.
+- here.now: anonymous sites expire after 24 hours; with a free account they are permanent. Serving `.js` files and module workers is undocumented there.
+
+### 9.9 Milestones
+
+_Proposed; see the conversation. To be agreed._
 
 ## 10. Decision log
 
@@ -188,6 +269,12 @@ High-level architecture agreed: static site; UI on the main thread; a pool of We
 | 2026-10-23 | Every "watch a run" replays inline in the current step, using one reusable run player | No navigating between steps to see a run |
 | 2026-10-23 | Topology shows arrows labelled with requests/s (thickness = load), with instances drawn inside each tier | Makes the flow, and where retries pile up, followable |
 | 2026-10-23 | Throughput and load are separate charts: "Throughput" (sent vs succeeded, end to end) and "Load & retries" (first attempts vs retries vs capacity, per tier) | Different scopes and scales; mixing them hid the success line |
+| 2026-10-24 | Mockups approved | — |
+| 2026-10-24 | Cache hit rate is an output of capacity, TTL, key count and popularity skew | Needed for a cold cache and the stampede to emerge |
+| 2026-10-24 | Load balancer modelled as a routing policy (round-robin); an explicit load-balancer tier is deferred | Simplest model that supports instance-level faults |
+| 2026-10-24 | CPU option B: cores are a second limit on each instance | CPU% becomes a real measurement; adding threads stops looking like a free fix |
+| 2026-10-24 | Encapsulate simulated things and sweeps as objects; settings and results stay plain data | Good abstractions, easy to extend; data crosses the worker boundary |
+| 2026-10-24 | Cache-aside for V1 | Most common pattern; clearest stampede |
 
 ## 11. Time log
 
