@@ -30,7 +30,7 @@ export interface RunPlayerProps {
   timelineTarget?: HTMLElement | null;
 }
 
-const COMPACT_CHART_HEIGHT = 190;
+const COMPACT_CHART_HEIGHT = 175;
 
 /**
  * Replays one computed run: topology with live flows, playback controls, metric charts and the

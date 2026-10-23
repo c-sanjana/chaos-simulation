@@ -22,12 +22,15 @@ describe('App', { timeout: 60_000 }, () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(screen.queryByLabelText(/^Traffic/)).toBeNull(); // the editor starts closed
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     expect(screen.getByRole('button', { name: 'Re-run' })).toBeTruthy();
     const traffic = screen.getByLabelText(/^Traffic/);
     fireEvent.change(traffic, { target: { value: '80' } });
     expect(pool.analyzed).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     fireEvent.change(screen.getByLabelText(/^API → DB retries/), { target: { value: '0' } });
     fireEvent.change(screen.getByLabelText(/^DB slowdown/), { target: { value: '4' } });
     fireEvent.change(screen.getByLabelText(/^Lasting/), { target: { value: '10' } });
@@ -56,18 +59,23 @@ describe('App', { timeout: 60_000 }, () => {
     expect(mapColumn.querySelector('.csl-split__timeline .csl-timeline-title')).not.toBeNull();
   });
 
-  it('collapses the scenario card to one line on steps 2 and 3, and expands it to change the failure', async () => {
+  it('summarises the scenario in one line on every step, and opens the editor to change it', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
     expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · 3 API → DB retries/);
-    fireEvent.click(within(summary).getByRole('button', { name: 'Change failure' }));
+    const toggle = within(summary).getByRole('button', { name: 'Change failure' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('region', { name: 'Change the failure' })).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '90' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    expect(screen.queryByRole('region', { name: 'Change the failure' })).toBeNull();
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/90 req\/s/);
-    expect(screen.getByRole('button', { name: 'Change failure' })).toBeTruthy();
-    expect(document.querySelector('.csl-page--split')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('region', { name: 'Change the failure' })).toBeNull();
   });
 
   it('reports failed requests for stuck cells and recovery everywhere when nothing tips', async () => {

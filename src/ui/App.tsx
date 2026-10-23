@@ -57,27 +57,26 @@ export function App({ pool: injected }: AppProps) {
   const verdict = main.status === 'done' ? verdictView(main.value.analysis.recovery) : null;
 
   return (
-    <main className={`csl-page${step > 0 ? ' csl-page--split' : ''}`}>
-      <header className="csl-header">
-        <div>
-          <h1 className="csl-header__title">Chaos Simulation Lab</h1>
-          <p className="csl-header__tagline">See where a system stops recovering on its own, and whether a fix moves that point.</p>
-        </div>
+    <main className="csl-page">
+      <header className="csl-topbar">
+        <h1 className="csl-topbar__title" title="See where a system stops recovering on its own, and whether a fix moves that point.">
+          Chaos Simulation Lab
+        </h1>
+        <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />
       </header>
 
-      {step > 0 && !editingFailure ? (
-        <ScenarioSummary draft={applied} onChange={() => setEditingFailure(true)} />
-      ) : (
-      <section className="csl-card" aria-label="Scenario">
-        <h2 className="csl-section-title" style={{ margin: 0 }}>
-          Choose a failure to simulate
-        </h2>
-        <ScenarioPicker scenarios={Object.values(scenarios).map(({ id, title, blurb }) => ({ id, title, blurb }))} selected={scenarioId} onSelect={pickScenario} />
-        <FailureEditor draft={draft} onChange={setDraft} onRun={run} dirty={dirty} />
-      </section>
+      {editingFailure && (
+        <section className="csl-card csl-card--compact" aria-label="Change the failure">
+          <h2 className="csl-section-title" style={{ margin: 0 }}>
+            Choose a failure to simulate
+          </h2>
+          <ScenarioPicker scenarios={Object.values(scenarios).map(({ id, title, blurb }) => ({ id, title, blurb }))} selected={scenarioId} onSelect={pickScenario} />
+          <FailureEditor draft={draft} onChange={setDraft} onRun={run} dirty={dirty} />
+        </section>
       )}
 
       <StepTabs
+        compact
         steps={[
           { title: 'What happened', sub: verdict ? verdict.text : 'Simulating…' },
           { title: "Where's the tipping point?", sub: `Traffic × ${applied.scenario.map.y.label}` },

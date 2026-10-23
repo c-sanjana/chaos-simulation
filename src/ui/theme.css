@@ -897,9 +897,9 @@ button.csl-map__cell {
 
 /* ---------- Page layout (App, RunPlayer, steps) ---------- */
 .csl-page {
-  max-width: 1240px;
+  max-width: 1680px;
   margin: 0 auto;
-  padding: 24px 16px 64px;
+  padding: 14px 20px 48px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1156,8 +1156,8 @@ button.csl-map__cell {
   align-items: flex-start;
 }
 .csl-split__side {
-  flex: 1 1 440px;
-  max-width: 500px;
+  flex: 1 1 460px;
+  max-width: 600px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1172,9 +1172,8 @@ button.csl-map__cell {
     max-width: none;
   }
 }
-.csl-split__timeline {
-  max-height: 320px;
-  overflow-y: auto;
+.csl-split__timeline:empty {
+  display: none;
 }
 .csl-summary {
   display: flex;
@@ -1211,31 +1210,6 @@ button.csl-map__cell {
   font-weight: 600;
 }
 
-/* ---------- Side-by-side steps fill the viewport on wide screens ---------- */
-@media (min-width: 1100px) and (min-height: 680px) {
-  .csl-page--split {
-    height: 100vh;
-    padding-bottom: 16px;
-    gap: 12px;
-  }
-  .csl-page--split .csl-split {
-    flex: 1 1 auto;
-    min-height: 0;
-    flex-wrap: nowrap;
-    align-items: stretch;
-  }
-  .csl-page--split .csl-split__side,
-  .csl-page--split .csl-split__main {
-    max-height: 100%;
-    overflow-y: auto;
-  }
-  .csl-page--split .csl-split__timeline {
-    max-height: none;
-  }
-}
-.csl-page--split .csl-header__tagline {
-  display: none;
-}
 /* Compact player: chart full width, timeline underneath. */
 .csl-card--compact .csl-player__body {
   flex-direction: column;
@@ -1270,4 +1244,103 @@ button.csl-map__cell {
 }
 .csl-split__side .csl-fix-list {
   gap: 8px;
+}
+
+/* ---------- Compact top bar ---------- */
+.csl-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.csl-topbar__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.csl-topbar .csl-summary {
+  flex: 1 1 520px;
+}
+.csl-steps--compact .csl-step {
+  flex: 1 1 220px;
+  padding: 7px 12px;
+  min-height: 44px;
+}
+.csl-steps--compact .csl-step__text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.csl-steps--compact .csl-step__num {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+}
+.csl-steps--compact .csl-step__title {
+  font-size: 14px;
+}
+.csl-steps--compact .csl-step__sub {
+  font-size: 12px;
+}
+.csl-selected-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--csl-ground);
+  border: 1px solid var(--csl-border);
+  border-radius: 8px;
+}
+.csl-map--medium {
+  --csl-map-cell: 19px;
+}
+.csl-map--medium .csl-map__xlabel,
+.csl-map--medium .csl-map__ylabel {
+  font-size: 9.5px;
+}
+.csl-split__side .csl-map {
+  --csl-map-cell: 32px;
+}
+.csl-split__side .csl-map--medium .csl-map {
+  --csl-map-cell: 19px;
+}
+
+.csl-split__side--wide {
+  flex-basis: 560px;
+  max-width: 620px;
+}
+.csl-split__side .csl-map--medium .csl-map {
+  --csl-map-cell: 18px;
+}
+.csl-map--medium .csl-map__captions {
+  font-size: 10.5px;
+}
+
+/* Compact player trims: the static colour key is hidden (the arrows and squares carry it; the
+   full player still shows it), and playback controls stay on one line. */
+.csl-card--compact .csl-topology-key__legend {
+  display: none;
+}
+.csl-card--compact .csl-playback {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.csl-card--compact .csl-scrubber {
+  min-width: 120px;
+}
+.csl-card--compact .csl-speed {
+  min-width: 36px;
+  padding: 0 6px;
+}
+.csl-card--compact .csl-tab {
+  padding: 0 9px;
+  white-space: nowrap;
+}
+.csl-card--compact .csl-card__title {
+  font-size: 15px;
 }

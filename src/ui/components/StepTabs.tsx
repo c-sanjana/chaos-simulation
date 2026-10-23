@@ -3,12 +3,14 @@ export interface StepTabsProps {
   /** Index of the current step (0-based). */
   current: number;
   onSelect: (index: number) => void;
+  /** One slim line per step (title and subtitle side by side). */
+  compact?: boolean;
 }
 
 /** The three numbered steps; the current one is marked with aria-current="step". */
-export function StepTabs({ steps, current, onSelect }: StepTabsProps) {
+export function StepTabs({ steps, current, onSelect, compact = false }: StepTabsProps) {
   return (
-    <nav className="csl-steps" aria-label="Steps">
+    <nav className={`csl-steps${compact ? ' csl-steps--compact' : ''}`} aria-label="Steps">
       {steps.map((s, i) => (
         <button key={i} type="button" className="csl-step" aria-current={i === current ? 'step' : undefined} onClick={() => onSelect(i)}>
           <span className="csl-step__num" aria-hidden="true">

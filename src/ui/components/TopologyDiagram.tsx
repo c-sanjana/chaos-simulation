@@ -140,8 +140,8 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, edit
         </div>
       </div>
       <div className="csl-topology-key">
-        <span>Arrow thickness = requests/s. Orange = mostly retries or failing.</span>
-        <span className="csl-topology-key__item">
+        <span className="csl-topology-key__legend">Arrow thickness = requests/s. Orange = mostly retries or failing.</span>
+        <span className="csl-topology-key__item csl-topology-key__legend">
           Instances:
           <span className="csl-instance" style={{ background: 'var(--csl-instance-calm)' }} />
           idle-ish

@@ -34,8 +34,8 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
   );
 }
 
-/** One-line version of the scenario card, used on steps 2 and 3. */
-export function ScenarioSummary({ draft, onChange }: { draft: Draft; onChange: () => void }) {
+/** One-line summary of the scenario and failure, with a button that opens the full editor. */
+export function ScenarioSummary({ draft, editing, onToggle }: { draft: Draft; editing: boolean; onToggle: () => void }) {
   const s = draft.scenario;
   const f = s.faults[0];
   const label = draft.topology.layout[f.tier]?.label ?? f.tier;
@@ -50,8 +50,8 @@ export function ScenarioSummary({ draft, onChange }: { draft: Draft; onChange: (
           </>
         )}
       </span>
-      <button type="button" className="csl-btn csl-btn--small" onClick={onChange}>
-        Change failure
+      <button type="button" className="csl-btn csl-btn--small" aria-expanded={editing} onClick={onToggle}>
+        {editing ? 'Close' : 'Change failure'}
       </button>
     </section>
   );

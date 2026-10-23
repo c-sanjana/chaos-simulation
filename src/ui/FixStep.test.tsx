@@ -30,7 +30,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     render(<FixStep pool={pool} topology={webChain} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText(/^\d+ fixes tested$/, undefined, SLOW);
     expect(screen.getAllByText('Stuck → recovers in 4 s').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/retry budget/i)).toBeTruthy();
+    expect(screen.getAllByText(/retry budget/i).length).toBeGreaterThan(0);
     await screen.findAllByText(/helps in 5 of 5 seeds/, undefined, SLOW);
     expect(screen.getByRole('button', { name: /fixes tried that did not help/ })).toBeTruthy();
 

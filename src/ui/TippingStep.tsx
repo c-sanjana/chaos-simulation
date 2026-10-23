@@ -39,22 +39,18 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
           {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs done`}
         </span>
         <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
-        <div className="csl-panel">
-          <span className="csl-mono" style={{ fontSize: 14 }}>
-            {cellTitle}
-          </span>
-          <span>
-            {summary ? capitalise(shortVerdict(summary)) : 'Running…'}
-            {summary && summary.failedRequests > 0 && <span className="csl-status"> · {summary.failedRequests.toLocaleString()} requests failed because of the incident</span>}
-          </span>
-          {currentTip && (
-            <span style={{ fontSize: 13, color: 'var(--csl-ink-2)' }}>
-              {currentTip.tipsAtX === null
-                ? `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system recovers at every traffic level shown.`
-                : `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system tips at ${currentTip.tipsAtX} requests/s.`}
-            </span>
-          )}
+        <div className="csl-selected-line" aria-label="Selected cell">
+          <span className="csl-mono">{cellTitle}</span>
+          <strong style={{ fontWeight: 600 }}>{summary ? capitalise(shortVerdict(summary)) : 'Running…'}</strong>
+          {summary && summary.failedRequests > 0 && <span className="csl-status">{summary.failedRequests.toLocaleString()} requests failed because of the incident</span>}
         </div>
+        {currentTip && (
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--csl-ink-2)' }}>
+            {currentTip.tipsAtX === null
+              ? `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system recovers at every traffic level shown.`
+              : `With the current ${yAxis.label} (${formatAxisValue(yAxis, current.y)}), the system tips at ${currentTip.tipsAtX} requests/s.`}
+          </p>
+        )}
         <div className="csl-split__timeline" ref={setTimelineEl} />
       </section>
       <div className="csl-split__main">

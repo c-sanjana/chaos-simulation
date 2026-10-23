@@ -61,7 +61,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
 
   return (
     <div className="csl-split">
-      <section className="csl-card csl-card--compact csl-split__side" aria-label="Fixes">
+      <section className="csl-card csl-card--compact csl-split__side csl-split__side--wide" aria-label="Fixes">
         <div className="csl-card__head">
           <h2 className="csl-card__title">Does a fix help?</h2>
           <span className="csl-status" aria-live="polite">
@@ -71,6 +71,33 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         <p className="csl-card__sub" style={{ margin: 0 }}>
           Each fix is one setting change, re-run against the same traffic and failure, ranked by what actually happened.
         </p>
+        <div className="csl-panel" aria-label="Did the tipping point move?">
+          <h3 className="csl-section-title" style={{ margin: 0 }}>
+            Did the tipping point move?
+          </h3>
+          {applied && <span style={{ fontSize: 13, marginTop: -4 }}>With: {applied.candidate.title}</span>}
+          {applied && before.result && after.result ? (
+            <>
+              <div className="csl-row csl-map--medium" style={{ gap: 14 }}>
+                {[
+                  { title: 'Before', sweep: before.result },
+                  { title: 'After', sweep: after.result },
+                ].map((m) => (
+                  <div key={m.title}>
+                    <span className="csl-status">{m.title}</span>
+                    <TippingMap map={mapView(m.title, scenario.map.x, scenario.map.y, (x, y) => m.sweep.get(x, y), currentCell(scenario))} />
+                  </div>
+                ))}
+              </div>
+              <span className="csl-status">
+                {before.done + after.done} of {before.total + after.total} runs done
+              </span>
+              {before.done === before.total && after.done === after.total && <p style={{ margin: 0, fontSize: 13 }}>{moveSummary(scenario, before.result, after.result)}</p>}
+            </>
+          ) : (
+            <span className="csl-status">{allTested ? 'Apply a fix below to see whether it moves the tipping point.' : 'Testing fixes; the best one is applied automatically.'}</span>
+          )}
+        </div>
         {allTested && (
           <FixList
             fixes={fixes}
@@ -78,28 +105,6 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             onApply={apply}
             failed={didNotHelp.map((f) => ({ title: f.candidate.title, result: `${capitalise(shortVerdict(f.outcome))}: ${f.candidate.why}` }))}
           />
-        )}
-        {applied && before.result && after.result && (
-          <div className="csl-panel" aria-label="Did the tipping point move?">
-            <h3 className="csl-section-title" style={{ margin: 0 }}>
-              Did the tipping point move?
-            </h3>
-            <div className="csl-row csl-map--small" style={{ gap: 14 }}>
-              {[
-                { title: 'Before', sweep: before.result },
-                { title: 'After', sweep: after.result },
-              ].map((m) => (
-                <div key={m.title}>
-                  <span className="csl-status">{m.title}</span>
-                  <TippingMap map={mapView(m.title, scenario.map.x, scenario.map.y, (x, y) => m.sweep.get(x, y), currentCell(scenario))} />
-                </div>
-              ))}
-            </div>
-            <span className="csl-status">
-              {before.done + after.done} of {before.total + after.total} runs done
-            </span>
-            {before.done === before.total && after.done === after.total && <p style={{ margin: 0, fontSize: 13 }}>{moveSummary(scenario, before.result, after.result)}</p>}
-          </div>
         )}
       </section>
       <div className="csl-split__main">
