@@ -240,7 +240,7 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 
 | # | Milestone | Check before moving on |
 |---|---|---|
-| P0 | Skeleton and deploy smoke test | Hosted page loads in a clean browser; the module worker responds |
+| P0 ✅ | Skeleton and deploy smoke test | Hosted page loads in a clean browser; the module worker responds. **Passed 2026-10-23:** headless Chromium shows "Worker OK" with no console errors; the worker is served as `text/javascript`; 5 tests, 100% coverage |
 | P1 | Engine core | Matches queueing theory (M/M/1, M/M/c, Erlang C) within tolerance; Little's law holds; invariants hold; deterministic; arrivals identical across settings; events/s benchmark |
 | P2 | Cache, DB, failures, retry-storm preset | Retry storm stuck with 3 retries, recovers with 0; cache hit rate matches the analytic model of an LRU cache with Zipf-distributed keys |
 | P3 | Analysis | A run with no failure matches the control; recovered and stuck runs classified correctly; timeline numbers present in the metrics. Decide whether option C holds or we fall back to B |
@@ -300,3 +300,4 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | Session | Duration | What was done |
 |---------|----------|---------------|
 | 1 | _please fill in_ | Kickoff, requirements, risks, V1 scope (planning) |
+| 2 | ~15 min | P0: skeleton, tests and coverage gate, here.now deploy script, hosted worker smoke test passed |
