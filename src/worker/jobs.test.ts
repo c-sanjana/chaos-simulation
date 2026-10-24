@@ -1,12 +1,12 @@
 import { analyzeRun } from '../analysis/analyze';
 import { assessRecovery, controlConfig } from '../analysis/recovery';
 import { buildRunConfig } from '../data/buildConfig';
-import { retryStorm } from '../data/scenarios';
+import { cacheRestart, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { runSimulation } from '../engine/run';
 import { singleTier } from '../engine/testConfigs';
-import { executeJob } from './jobs';
+import { cellSummaryOf, executeJob, PROGRESS_INTERVAL_MS } from './jobs';
 
 // A small real run: one tier, slowed down for a second.
 const config: RunConfig = {
@@ -30,6 +30,40 @@ describe('executeJob', () => {
     expect(Object.keys(summary).sort()).toEqual(['failedRequests', 'recoveryMs', 'verdict']);
   });
 
+  it('cellSummaryOf an analysis is exactly the cell job of the same config (a cache relies on it)', () => {
+    expect(cellSummaryOf(executeJob({ kind: 'analyze', config, labels: {} }))).toEqual(executeJob({ kind: 'cell', config }));
+  });
+
+  it('reports progress now and then, from 0 to 1 over the run and its control, without changing the result', () => {
+    let wall = 0;
+    // Each call to the clock moves wall time on, as a slow run would.
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (wall += PROGRESS_INTERVAL_MS));
+    try {
+      const fractions: number[] = [];
+      const big = { ...config, durationMs: 60_000, client: { ...config.client, rps: 400 } };
+      const result = executeJob({ kind: 'cell', config: big }, (f) => fractions.push(f));
+      expect(result).toEqual(executeJob({ kind: 'cell', config: big }));
+      expect(fractions.length).toBeGreaterThan(2);
+      expect(fractions).toEqual([...fractions].sort((a, b) => a - b));
+      expect(fractions[0]).toBeGreaterThan(0);
+      expect(fractions.at(-1)!).toBeLessThanOrEqual(1);
+      expect(fractions.some((f) => f > 0.5)).toBe(true); // the control's half too
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('stays quiet while the job is quicker than the reporting interval', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      const onProgress = vi.fn();
+      executeJob({ kind: 'cell', config: { ...config, durationMs: 60_000, client: { ...config.client, rps: 400 } } }, onProgress);
+      expect(onProgress).not.toHaveBeenCalled();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('throws on an invalid config', () => {
     expect(() => executeJob({ kind: 'cell', config: { ...config, durationMs: -1 } })).toThrow('Invalid config');
   });
@@ -43,6 +77,12 @@ describe('executeJob', () => {
       expect(executeJob({ kind: 'cell', config: buildRunConfig(webChain, retryStorm) }).verdict).toBe('stuck');
     });
 
+    it('cellSummaryOf matches the cell job for the preset failures too', () => {
+      for (const scenario of [retryStorm, cacheRestart]) {
+        const c = buildRunConfig(webChain, scenario);
+        expect(cellSummaryOf(executeJob({ kind: 'analyze', config: c, labels: {} }))).toEqual(executeJob({ kind: 'cell', config: c }));
+      }
+    });
     it('recovers with no retries', () => {
       expect(executeJob({ kind: 'cell', config: buildRunConfig(webChain, retryStorm, { rps: 200, retries: { client: 0, gateway: 0, api: 0 } }) }).verdict).toBe('recovered');
     });
