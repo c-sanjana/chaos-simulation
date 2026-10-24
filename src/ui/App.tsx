@@ -273,18 +273,26 @@ export function App({ pool: injected }: AppProps) {
       )}
       {canvas !== null && (
         <section className="csl-card csl-card--compact csl-builder-page" aria-label="Build your own system">
-          <div className="csl-builder-page__head">
-            <span className="csl-builder-page__note">A chain for now: each part calls one next part, plus a cache. Branching is coming next.</span>
-            {system.kind === 'custom' && (
-              <button type="button" className="csl-btn csl-btn--small" onClick={useExample}>
-                Use the example system instead
-              </button>
-            )}
-            <button type="button" className="csl-btn csl-btn--small" onClick={cancelBuilder} title="Back to the system as it was; your drawing is kept for next time">
-              Cancel
-            </button>
-          </div>
-          <BuilderScreen graph={canvas} onChange={setCanvas} problems={validateGraph(canvas)} onUse={() => useCanvas(canvas)} />
+          {/* Cancel and "use the example" sit in the builder's own toolbar, so the page fits one screen. */}
+          <BuilderScreen
+            graph={canvas}
+            onChange={setCanvas}
+            problems={validateGraph(canvas)}
+            onUse={() => useCanvas(canvas)}
+            note="A chain for now: each part calls one next part, plus a cache. Branching is coming next."
+            actions={
+              <>
+                {system.kind === 'custom' && (
+                  <button type="button" className="csl-btn csl-btn--small" onClick={useExample}>
+                    Use the example system instead
+                  </button>
+                )}
+                <button type="button" className="csl-btn csl-btn--small" onClick={cancelBuilder} title="Back to the system as it was; your drawing is kept for next time">
+                  Cancel
+                </button>
+              </>
+            }
+          />
         </section>
       )}
       {canvas === null && (

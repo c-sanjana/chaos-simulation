@@ -3,13 +3,16 @@
  * (laid out by CSS grid) line up exactly; builder.css reads these through CSS variables set
  * inline by the canvas, so they are defined once, here.
  *
- * ASSUMPTION: 9 × 118 px by 5 × 100 px (1062 × 500) fits beside a 300 px settings panel inside the
- * app's 1400 px content width at a 1440 × 900 viewport, with the palette above, without scrolling.
+ * ASSUMPTION: 9 × 118 px by 5 × 96 px (1062 × 480, plus a 1 px border) fits beside a 288 px
+ * settings panel inside the app's 1400 px content width at a 1440 × 900 viewport, with the toolbar
+ * and palette above and up to three problems below, without scrolling. An 80 px box holds a
+ * one-line name, its kind and two lines of numbers; a two-line name may cut the last line short
+ * (the full text is in its tooltip).
  */
 import type { BuilderEdge, BuilderGraph, BuilderNode } from '../../builder/graph';
 
 export const CELL_W = 118;
-export const CELL_H = 100;
+export const CELL_H = 96;
 /** Space between a box and the edge of its cell. */
 export const INSET_X = 3;
 export const INSET_Y = 8;

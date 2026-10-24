@@ -4,8 +4,12 @@
  * Colours are tokens only, so the dark theme works. Cell sizes come from geometry.ts through the
  * --csl-cell-* variables set on the canvas.
  *
- * Height budget at 1440 × 900 (app top bar ≈ 60 px): bar 44 + palette 74 + canvas 500 + foot ≈ 90,
- * plus gaps, stays under ~780 px. The settings panel scrolls on its own.
+ * Height budget at 1440 × 900 (app top bar ≈ 68 px, page padding below ≈ 50 px): bar 52 (Cancel
+ * and "use the example" live in it) + palette 84 (blurbs at most two lines) + canvas 482 + foot
+ * ≤ 100 (the problem list scrolls inside past three lines), plus gaps, stays under ~780 px with
+ * problems listed. The settings panel scrolls on its own.
+ * Below 900 px wide (phones) everything stacks: palette, canvas (scrolls sideways at full size),
+ * status and problems, then the settings panel.
  */
 
 .csl-builder {
@@ -31,6 +35,10 @@
   font-size: 13px;
   color: var(--csl-muted);
 }
+.csl-builder__note {
+  display: block;
+  font-size: 12.5px;
+}
 .csl-builder__actions {
   display: flex;
   flex-wrap: wrap;
@@ -44,7 +52,8 @@
 .csl-builder__body {
   display: flex;
   align-items: stretch;
-  gap: 16px;
+  /* 12 px gap + 288 px panel leave the canvas column its full 1,064 px at the 1,400 px page width. */
+  gap: 12px;
   min-width: 0;
 }
 .csl-builder__main {
@@ -106,6 +115,11 @@
   font-size: 11.5px;
   line-height: 1.3;
   color: var(--csl-muted);
+  /* At most two lines (the full text is in the item's tooltip), so the page fits one screen. */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .csl-palette__add {
   grid-column: 3;
@@ -407,8 +421,14 @@
   background: var(--csl-alert-bg);
   color: var(--csl-bad-text);
   font-size: 13px;
-  max-height: 96px;
+  /* The title and two or three problems; more scroll inside (the count is on "Use this topology"). */
+  box-sizing: border-box;
+  max-height: 74px;
   overflow-y: auto;
+}
+.csl-builder__problems:focus-visible {
+  outline: 2px solid var(--csl-focus);
+  outline-offset: 2px;
 }
 .csl-builder__problems-title {
   margin: 0 0 2px;
@@ -422,7 +442,7 @@
 /* ---------- Settings panel ---------- */
 .csl-bpanel {
   position: relative;
-  flex: 0 0 300px;
+  flex: 0 0 288px;
   min-height: 360px;
   background: var(--csl-card);
   border: 1px solid var(--csl-border);
@@ -581,4 +601,25 @@
 .csl-builder .csl-btn[aria-disabled='true'].csl-btn--primary {
   cursor: pointer;
   opacity: 0.7;
+}
+
+/* ---------- Phones and narrow windows: stack the builder ---------- */
+@media (max-width: 900px) {
+  .csl-builder__body {
+    flex-direction: column;
+  }
+  .csl-palette {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* The panel follows the canvas at its natural height instead of filling a column beside it. */
+  .csl-bpanel {
+    flex: none;
+    min-height: 0;
+  }
+  .csl-bpanel__scroll {
+    position: static;
+  }
+  .csl-builder__problems {
+    max-height: none;
+  }
 }

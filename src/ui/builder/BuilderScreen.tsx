@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { addCell, addNode, connect, emptyGraph, moveNode, removeEdge, removeNode, type Cell } from '../../builder/edit';
 import type { BuilderGraph, ComponentKind } from '../../builder/graph';
 import { focusField, useInvalidFields } from '../components/useInvalidFields';
@@ -16,6 +16,10 @@ export interface BuilderScreenProps {
   problems: string[];
   /** Simulate this topology. Only offered while there are no problems. */
   onUse: () => void;
+  /** More buttons for the toolbar, before "Use this topology" (e.g. Cancel). */
+  actions?: ReactNode;
+  /** A line under the subtitle (e.g. what the builder supports for now). */
+  note?: string;
 }
 
 /** The last thing that happened, for the status line: a confirmation, or why an edit was refused. */
@@ -44,7 +48,7 @@ function exampleChain(graph: BuilderGraph): string {
  * settings panel for whatever is selected. The graph is owned by the parent (`graph`/`onChange`);
  * only the selection, the drag in progress and the status line live here.
  */
-export function BuilderScreen({ graph, onChange, problems, onUse }: BuilderScreenProps) {
+export function BuilderScreen({ graph, onChange, problems, onUse, actions, note }: BuilderScreenProps) {
   const [selection, setSelection] = useState<Selection>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
@@ -132,7 +136,9 @@ export function BuilderScreen({ graph, onChange, problems, onUse }: BuilderScree
       <div className="csl-builder__bar">
         <div className="csl-builder__titles">
           <h2 className="csl-builder__title">Build your own system</h2>
-          <p className="csl-builder__subtitle">Place components, connect them, and set how each call times out and retries.</p>
+          <p className="csl-builder__subtitle">
+            Place components, connect them, and set how each call times out and retries.{note && <span className="csl-builder__note"> {note}</span>}
+          </p>
         </div>
         <div className="csl-builder__actions">
           <button type="button" className="csl-btn csl-btn--small" onClick={loadExample}>
@@ -141,6 +147,7 @@ export function BuilderScreen({ graph, onChange, problems, onUse }: BuilderScree
           <button type="button" className="csl-btn csl-btn--small" onClick={clear} disabled={graph.nodes.length === 0}>
             Clear
           </button>
+          {actions}
           <button
             type="button"
             className="csl-btn csl-btn--primary"
