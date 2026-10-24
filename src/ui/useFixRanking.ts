@@ -3,7 +3,8 @@ import type { Analysis } from '../analysis/analyze';
 import type { RunConfig } from '../engine/config';
 import { candidateFixes, type FixCandidate } from '../fixes/candidates';
 import { fixHelped, rankFixes, seedAgreement, seedVariants, withLongerOutage, type FixOutcome, type RankedFix, type Robustness } from '../fixes/rank';
-import { CancelledError, type SimPool } from '../worker/pool';
+import { stableKey } from '../worker/cachingPool';
+import { CancelledError, PRIORITY, type SimPool } from '../worker/pool';
 
 /** Every fix that helped is re-checked on this many seeds (the original seed included). */
 const SEEDS = 5;
@@ -33,9 +34,12 @@ const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tes
  * with a slowdown twice as long (a fix tuned to exactly this failure may not survive a worse one).
  * Fixes that hold up rank first. Each run is the fixed config compared with its own no-failure
  * control (see fixes/rank.ts).
+ *
+ * Each fix is analysed in full where the pool keeps results (see CellOptions.analysisLabels), so
+ * replaying the chosen fix at the viewer's settings reuses the ranking's run instead of re-running it.
  */
 export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analysis | null, labels: Record<string, string>): FixRankingState {
-  const key = analysis ? JSON.stringify(config) : null;
+  const key = analysis ? stableKey(config) + stableKey(labels) : null;
   const [state, setState] = useState<FixRankingState>(EMPTY);
   useEffect(() => {
     if (!analysis) {
@@ -52,14 +56,14 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
       robustness[id] = { ...robustness[id], ...r };
       setState((s) => ({ ...s, robustness: { ...robustness }, ranked: rankFixes(original, results, robustness) }));
     };
-    const batch = pool.batch();
+    const batch = pool.batch({ priority: PRIORITY.ranking });
     const fail = (e: unknown) => {
       if (!(e instanceof CancelledError)) setState((s) => ({ ...s, error: String(e) }));
     };
 
     Promise.all(
       candidates.map((candidate) =>
-        batch.cell(candidate.config).then((outcome) => {
+        batch.cell(candidate.config, { analysisLabels: labels }).then((outcome) => {
           results.push({ candidate, outcome });
           setState((s) => ({ ...s, ranked: rankFixes(original, results), tested: results.length }));
         }),
@@ -91,7 +95,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
       })
       .catch(fail);
     return () => batch.cancel();
-    // `key` stands in for config + analysis (compared by value).
+    // `key` stands in for config, labels and analysis (compared by value; the analysis follows from them).
   }, [pool, key]);
   return state;
 }

@@ -14,6 +14,9 @@ const TREND_S = 10;
 /** Time the judged range must leave after the failure ends to see a recovery. */
 const AFTER_FAILURE_MS = 30_000;
 
+/** Wraps each simulation (0 = the run, 1 = its control), e.g. to report progress. Must return its result. */
+export type RunWrapper = (which: 0 | 1, simulate: () => RunResult) => RunResult;
+
 export interface Settled {
   /** The config as simulated: the input, with a longer duration if the run was extended. */
   config: RunConfig;
@@ -40,11 +43,12 @@ export interface Settled {
  * Extending is exact: the same seed gives the same requests and random values, so the first
  * 120 s of a longer run are identical to the 120 s run.
  */
-export function simulateUntilSettled(config: RunConfig): Settled {
+export function simulateUntilSettled(config: RunConfig, wrap: RunWrapper = (_, simulate) => simulate()): Settled {
   let cfg = config;
   for (;;) {
-    const run = runSimulation(cfg);
-    const control = runSimulation(controlConfig(cfg));
+    const current = cfg;
+    const run = wrap(0, () => runSimulation(current));
+    const control = wrap(1, () => runSimulation(controlConfig(current)));
     const recovery = assessRecovery(run, control, cfg);
     const need = moreTimeNeeded(run, control, cfg, recovery);
     if (need === null) return { config: cfg, run, control, recovery };

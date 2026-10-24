@@ -20,6 +20,16 @@ describe('handleRequest', () => {
     expect(handleRequest({ type: 'job', id: 7, job }, false)).toEqual({ type: 'result', id: 7, result: jobs.executeJob(job) });
   });
 
+  it('sends progress for a long job through `post`, tagged with the job id', () => {
+    vi.mocked(jobs.executeJob).mockImplementationOnce((_job, onProgress) => {
+      onProgress?.(0.4);
+      return { verdict: 'recovered', recoveryMs: 0, failedRequests: 0 };
+    });
+    const post = vi.fn();
+    expect(handleRequest({ type: 'job', id: 5, job: { kind: 'cell', config } }, false, post)).toEqual({ type: 'result', id: 5, result: { verdict: 'recovered', recoveryMs: 0, failedRequests: 0 } });
+    expect(post).toHaveBeenCalledWith({ type: 'progress', id: 5, fraction: 0.4 });
+  });
+
   it('replies with an error instead of throwing when the job fails', () => {
     const reply = handleRequest({ type: 'job', id: 8, job: { kind: 'cell', config: { ...config, seed: 1.5 } } }, false);
     expect(reply).toEqual({ type: 'error', id: 8, message: 'Invalid config: seed must be an integer (got 1.5)' });

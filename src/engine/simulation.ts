@@ -1,4 +1,5 @@
 import { EventQueue } from './eventQueue';
+import { PROGRESS_EVERY_EVENTS_MASK, reportSimulationProgress } from './progress';
 
 /**
  * The event loop: a clock plus a time-ordered queue of callbacks.
@@ -23,6 +24,7 @@ export class Simulation {
       const fire = this.events.pop()!;
       fire();
       this.eventsProcessed++;
+      if ((this.eventsProcessed & PROGRESS_EVERY_EVENTS_MASK) === 0) reportSimulationProgress(this.now);
     }
     this.now = untilMs;
   }

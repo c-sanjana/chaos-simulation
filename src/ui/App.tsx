@@ -4,11 +4,14 @@ import { buildRunConfig } from '../data/buildConfig';
 import { graphFromPreset, syncGraph } from '../builder/fromPreset';
 import type { BuilderGraph } from '../builder/graph';
 import { validateGraph } from '../builder/validate';
+import { CachingPool } from '../worker/cachingPool';
 import { createDefaultPool, type SimPool } from '../worker/pool';
 import { compareRuns, type RunSnapshot } from './compare';
 import { Drawer } from './components/Drawer';
+import { PlayerPlaceholder } from './components/PlayerPlaceholder';
 import { RunComparison } from './components/RunComparison';
 import { ScenarioPicker } from './components/ScenarioPicker';
+import { StepPanel } from './components/StepPanel';
 import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
 import { BuilderScreen } from './builder/BuilderScreen';
@@ -24,7 +27,7 @@ import { ThemeToggle } from './themeMode';
 import { TippingStep } from './TippingStep';
 import { tourStops } from './tourStops';
 import { useTour } from './useTour';
-import { useAnalysis } from './useSimulation';
+import { useCancellableAnalysis } from './useSimulation';
 import { labelsOf } from './viewModels';
 
 const DEFAULT_SCENARIO = 'retry-storm';
@@ -39,7 +42,8 @@ export interface AppProps {
  * `applied` is what is simulated; `draft` holds edits until the viewer runs them.
  */
 export function App({ pool: injected }: AppProps) {
-  const pool = useMemo(() => injected ?? createDefaultPool(), [injected]);
+  // Every step shares one cache of finished results (see CachingPool).
+  const pool = useMemo(() => new CachingPool(injected ?? createDefaultPool()), [injected]);
   useEffect(() => () => {
     if (!injected) pool.dispose();
   }, [pool, injected]);
@@ -69,7 +73,13 @@ export function App({ pool: injected }: AppProps) {
 
   const labels = useMemo(() => labelsOf(applied.topology), [applied.topology]);
   const config = useMemo(() => buildRunConfig(applied.topology, applied.scenario), [applied]);
-  const main = useAnalysis(pool, config, labels);
+  const { state: main, cancel: stopMain, retry: retryMain } = useCancellableAnalysis(pool, config, labels);
+  // Steps the viewer has visited stay mounted (hidden) while the settings they show are current.
+  const [kept, setKept] = useState<{ applied: Draft; steps: number[] }>({ applied, steps: [] });
+  const keptSteps = kept.applied === applied ? kept.steps : [];
+  useEffect(() => {
+    if (!keptSteps.includes(step)) setKept({ applied, steps: [...keptSteps, step] });
+  }, [step, applied]); // eslint-disable-line react-hooks/exhaustive-deps
   const story = useMemo(() => (main.status === 'done' ? buildStory(main.value.run, config, main.value.analysis, labels) : undefined), [main, config, labels]);
 
   // "Compared with your last run": after a re-run of the same preset with changed settings, the
@@ -146,6 +156,7 @@ export function App({ pool: injected }: AppProps) {
     setDraft(fresh);
   };
   const run = () => {
+    if (main.status === 'cancelled') retryMain(); // also when these are the stopped settings again
     // On a built system the map's traffic range follows the traffic, so it stays on the map.
     const next = withTrafficAxis(structuredClone(draft));
     setApplied(next);
@@ -154,6 +165,7 @@ export function App({ pool: injected }: AppProps) {
     setNotice(null);
   };
   const resetToPreset = () => {
+    if (main.status === 'cancelled') retryMain();
     const fresh = systemDraft(system, scenarioId);
     setApplied(fresh);
     setDraft(fresh);
@@ -312,7 +324,7 @@ export function App({ pool: injected }: AppProps) {
         compact
         steps={[
           // The verdict is not given away here: the replay reveals it when it gets there.
-          { title: 'What happened', sub: main.status === 'error' ? "Couldn't simulate these settings" : 'A short failure, replayed' },
+          { title: 'What happened', sub: main.status === 'error' ? "Couldn't simulate these settings" : main.status === 'cancelled' ? 'Stopped before it finished' : 'A short failure, replayed' },
           { title: "Where's the tipping point?", sub: `Traffic × ${applied.scenario.map.y.label}` },
           { title: 'Does a fix help?', sub: 'Fixes re-run against the same traffic' },
         ]}
@@ -321,7 +333,7 @@ export function App({ pool: injected }: AppProps) {
       />
       </div>
 
-      {step === 0 && (
+      <StepPanel active={step === 0} keep={keptSteps.includes(0)}>
         <div className="csl-split csl-split--stretch">
           <div className="csl-split__main">
             {main.status === 'done' && (
@@ -342,22 +354,27 @@ export function App({ pool: injected }: AppProps) {
                 endPanel={comparison && comparison.changes.length > 0 ? <RunComparison comparison={comparison} onDismiss={() => setPreviousRun(null)} /> : undefined}
               />
             )}
-            {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
+            {main.status === 'running' && (
+              <PlayerPlaceholder text={`Simulating ${config.durationMs / 1000} s of traffic and its no-failure control…`} progress={main.progress} minHeight={MAIN_PLAYER_HEIGHT} onCancel={stopMain} />
+            )}
             {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} built={built} />}
+            {main.status === 'cancelled' && <SimulationError stopped onEdit={() => openSettings(null)} onReset={resetToPreset} onRetry={retryMain} built={built} />}
           </div>
           <aside className="csl-split__col csl-split__side--narrow">
             <div className="csl-split__slot" ref={setTimelineEl} />
           </aside>
         </div>
-      )}
-      {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} onEdit={openSettings} />}
-      {step === 2 && (
-        main.status === 'error' ? (
-          <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} built={built} />
+      </StepPanel>
+      <StepPanel active={step === 1} keep={keptSteps.includes(1)}>
+        <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} onEdit={openSettings} />
+      </StepPanel>
+      <StepPanel active={step === 2} keep={keptSteps.includes(2)}>
+        {main.status === 'error' || main.status === 'cancelled' ? (
+          <SimulationError message={main.status === 'error' ? main.message : undefined} stopped={main.status === 'cancelled'} onEdit={() => openSettings(null)} onReset={resetToPreset} onRetry={retryMain} built={built} />
         ) : (
           <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} onEdit={openSettings} />
-        )
-      )}
+        )}
+      </StepPanel>
       </>
       )}
 
@@ -421,13 +438,19 @@ export function App({ pool: injected }: AppProps) {
   );
 }
 
-/** A run that could not be simulated: say why in plain words and keep the way out (settings, preset) on screen. */
-function SimulationError({ message, onEdit, onReset, built }: { message: string; onEdit: () => void; onReset: () => void; built: boolean }) {
+/** ASSUMPTION: about the height of step 1's player at 1440 × 900 (measured), so the page doesn't jump when it appears. */
+const MAIN_PLAYER_HEIGHT = 670;
+
+/**
+ * A run that could not be simulated, or that the viewer stopped (`stopped`): say why in plain
+ * words and keep the way out (settings, the preset or how it was built, or running it anyway) on screen.
+ */
+function SimulationError({ message, stopped = false, onEdit, onReset, onRetry, built }: { message?: string; stopped?: boolean; onEdit: () => void; onReset: () => void; onRetry?: () => void; built: boolean }) {
   return (
-    <section className="csl-card csl-card--compact" role="alert" aria-label="Simulation error">
-      <h2 className="csl-card__title">These settings couldn't be simulated</h2>
-      <p className="csl-error" style={{ margin: 0 }}>
-        {message.replace(/^(Error: )?Invalid config: /, '')}
+    <section className="csl-card csl-card--compact" role="alert" aria-label={stopped ? 'Simulation stopped' : 'Simulation error'}>
+      <h2 className="csl-card__title">{stopped ? 'You stopped this run before it finished' : "These settings couldn't be simulated"}</h2>
+      <p className={stopped ? 'csl-status' : 'csl-error'} style={{ margin: 0 }}>
+        {stopped ? 'Long runs (lots of traffic, or a long run time) take a while. Change the settings, or run it anyway.' : (message ?? '').replace(/^(Error: )?Invalid config: /, '')}
       </p>
       <div className="csl-row" style={{ gap: 8 }}>
         <button type="button" className="csl-btn csl-btn--primary" onClick={onEdit}>
@@ -436,6 +459,11 @@ function SimulationError({ message, onEdit, onReset, built }: { message: string;
         <button type="button" className="csl-btn" onClick={onReset}>
           {built ? 'Reset to how you built it' : 'Reset to the preset'}
         </button>
+        {stopped && onRetry && (
+          <button type="button" className="csl-btn" onClick={onRetry}>
+            Run it anyway
+          </button>
+        )}
       </div>
     </section>
   );

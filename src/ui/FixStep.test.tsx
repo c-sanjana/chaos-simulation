@@ -6,7 +6,7 @@ import type { RunConfig } from '../engine/config';
 import { buildSweep, SweepResult } from '../sweep/sweep';
 import { executeJob } from '../worker/jobs';
 import type { CellSummary } from '../worker/jobs';
-import { FixStep, fixTab, moveSummary } from './FixStep';
+import { FixStep, fixTab, meanProgress, moveSummary } from './FixStep';
 import { FakePool } from './testing/fakePool';
 import { labelsOf } from './viewModels';
 
@@ -201,5 +201,13 @@ describe('fixTab', () => {
     expect([stuck.badge, stuck.status, stuck.checks, stuck.result, stuck.failed]).toEqual(['', 'no', [], 'No improvement: still stuck', 'no change: 1,000 failed requests']);
     const unaffected = fixTab({ candidate, outcome: { verdict: 'unaffected', recoveryMs: null, failedRequests: 0 }, helped: true }, original, { seeds: { helped: 5, of: 5 } }, where, null);
     expect([unaffected.badge, unaffected.checks]).toEqual(['0 s', ['helped in 5 of 5 random runs']]);
+  });
+});
+
+describe('meanProgress', () => {
+  it('averages the two replays once either reports progress, counting a finished one as done', () => {
+    expect(meanProgress({ status: 'running' }, { status: 'running' })).toBeUndefined();
+    expect(meanProgress({ status: 'running', progress: 0.5 }, { status: 'done', value: original })).toBe(0.75);
+    expect(meanProgress({ status: 'running', progress: 0.4 }, { status: 'running' })).toBe(0.2);
   });
 });
