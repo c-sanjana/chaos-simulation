@@ -19,7 +19,7 @@ export function cellColor(cell: MapCellView): string {
   return 'var(--csl-map-barely)';
 }
 
-/** Cells carry no text (the legend explains the colours); only the current settings get a marker. */
+/** Cells carry no text (the legend explains the colours); only the marked cell (usually the current settings) gets a ◆. */
 export function cellText(cell: MapCellView): string {
   return cell.isCurrent ? '◆' : '';
 }
@@ -35,7 +35,7 @@ export function cellAriaLabel(cell: MapCellView, map: MapView): string {
   const yName = map.yLabel.replace(/\s*\([^)]*\)\s*$/, '');
   const status =
     cell.status === 'pending' ? 'not run yet' : cell.status === 'stuck' ? 'stuck' : `recovers in ${recoverySeconds(cell)} s`;
-  return `${cell.x} requests per second, ${fmtY(cell.y)} ${yName}: ${status}${cell.isCurrent ? ' (current settings)' : ''}`;
+  return `${cell.x} requests per second, ${fmtY(cell.y)} ${yName}: ${status}${cell.isCurrent ? ` (${map.markLabel ?? 'current settings'})` : ''}`;
 }
 
 export interface TippingMapProps {

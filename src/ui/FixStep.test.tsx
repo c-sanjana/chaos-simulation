@@ -48,12 +48,22 @@ describe('FixStep', { timeout: 60_000 }, () => {
     // Clicking a cell in either map compares that cell, re-running it without and with the fix.
     const analyzedBefore = pool.analyzed.length;
     fireEvent.click(screen.getAllByRole('button', { name: /^80 requests per second, 1 DB retries/ })[1]);
-    for (const b of screen.getAllByRole('button', { name: /^80 requests per second, 1 DB retries/ })) expect(b.getAttribute('aria-pressed')).toBe('true');
+    // The ◆ moves to the clicked cell in both maps; a link goes back to the current settings.
+    for (const b of screen.getAllByRole('button', { name: /^80 requests per second, 1 DB retries/ })) {
+      expect(b.getAttribute('aria-pressed')).toBe('true');
+      expect(b.textContent).toBe('◆');
+      expect(b.getAttribute('aria-label')).toMatch(/\(shown on the right\)$/);
+    }
+    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 3 DB retries/ })) expect(b.textContent).toBe('');
     expect(screen.getByText('Simulating 80 rps · 1 DB retries without and with the fix…')).toBeTruthy();
     await screen.findByText(/^80 rps · 1 DB retries\. Same traffic/, undefined, SLOW);
     const reruns = pool.analyzed.slice(analyzedBefore);
     expect(reruns.map((c) => c.client.rps)).toEqual([80, 80]);
     expect(reruns.map((c) => c.tiers.find((t) => t.id === 'api')!.downstream!.retryBudget)).toEqual([undefined, 0.1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to your settings (200 rps · 3 DB retries)' }));
+    await screen.findByText(/^200 rps · 3 DB retries \(current settings\)\. Same traffic/, undefined, SLOW);
+    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 3 DB retries/ })) expect(b.textContent).toBe('◆');
+    expect(screen.queryByRole('button', { name: /^Back to your settings/ })).toBeNull();
 
     // Picking another tab shows its details; applying it compares that fix instead.
     fireEvent.click(tabs[1]);

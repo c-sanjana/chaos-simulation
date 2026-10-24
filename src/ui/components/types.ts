@@ -87,5 +87,7 @@ export interface MapView {
   /** row-major, yValues[0] is the TOP row */
   cells: MapCellView[];
   formatY?: (y: number) => string;
+  /** What the ◆ cell (isCurrent) is, for screen readers; default "current settings". */
+  markLabel?: string;
 }
 

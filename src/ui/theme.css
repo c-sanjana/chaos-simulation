@@ -1758,3 +1758,12 @@ button.csl-map__cell {
   height: auto;
   min-height: 0;
 }
+/* On step 3 the ◆ marks the replayed cell, so the selection ring would only repeat it. */
+.csl-fix-maps .csl-map__cell[aria-pressed='true'] {
+  box-shadow: none;
+}
+.csl-fix-maps__back {
+  font-size: 12px;
+  padding: 0;
+  min-height: 0;
+}

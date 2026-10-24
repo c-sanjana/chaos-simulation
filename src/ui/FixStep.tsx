@@ -96,11 +96,19 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                   ].map((m) => (
                     <div key={m.title}>
                       <span className="csl-status">{m.title}</span>
-                      <TippingMap map={mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), current)} selected={cell} onSelect={(c) => setCell({ x: c.x, y: c.y })} />
+                      <TippingMap map={{ ...mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), cell), markLabel: 'shown on the right' }} selected={cell} onSelect={(c) => setCell({ x: c.x, y: c.y })} />
                     </div>
                   ))}
                 </div>
-                <span className="csl-fix-maps__hint">◆ current settings · ▢ shown on the right. Click any cell to compare it there.</span>
+                {/* Here the ◆ follows the clicked cell (it marks what the replay shows), so it moves with every click. */}
+                <span className="csl-fix-maps__hint">
+                  ◆ shown on the right. Click any cell to compare it there.{' '}
+                  {!atCurrent && (
+                    <button type="button" className="csl-btn csl-btn--link csl-fix-maps__back" onClick={() => setCell(current)}>
+                      Back to your settings ({current.x} rps · {formatAxisValue(yAxis, current.y)} {yAxis.label})
+                    </button>
+                  )}
+                </span>
                 <span style={{ fontSize: 13 }}>
                   {before.done === before.total && after.done === after.total ? moveSummary(scenario, before.result, after.result) : `${before.done + after.done} of ${before.total + after.total} runs done`}
                 </span>
