@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildStory } from '../analysis/story';
 import { buildRunConfig } from '../data/buildConfig';
 import { scenarios } from '../data/scenarios';
 import { createDefaultPool, type SimPool } from '../worker/pool';
+import { compareRuns, type RunSnapshot } from './compare';
 import { Drawer } from './components/Drawer';
+import { RunComparison } from './components/RunComparison';
 import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
@@ -52,6 +54,21 @@ export function App({ pool: injected }: AppProps) {
   const config = useMemo(() => buildRunConfig(applied.topology, applied.scenario), [applied]);
   const main = useAnalysis(pool, config, labels);
   const story = useMemo(() => (main.status === 'done' ? buildStory(main.value.run, config, main.value.analysis, labels) : undefined), [main, config, labels]);
+
+  // "Compared with your last run": after a re-run of the same preset with changed settings, the
+  // previous finished run is kept for comparison (switching presets starts afresh).
+  const lastRun = useRef<RunSnapshot | null>(null);
+  const [previousRun, setPreviousRun] = useState<RunSnapshot | null>(null);
+  useEffect(() => {
+    if (main.status !== 'done') return;
+    const last = lastRun.current;
+    if (last && last.result !== main.value) setPreviousRun(last.draft.scenario.id === applied.scenario.id ? last : null);
+    lastRun.current = { draft: applied, config, result: main.value };
+  }, [main]); // eslint-disable-line react-hooks/exhaustive-deps
+  const comparison = useMemo(
+    () => (previousRun && main.status === 'done' ? compareRuns(previousRun, { draft: applied, config, result: main.value }, labels) : null),
+    [previousRun, main, applied, config, labels],
+  );
   // First visit: the walkthrough opens once the first run is ready (so its targets exist).
   const tour = useTour();
   /** The step the tour was started from, to return to when it closes. */
@@ -145,6 +162,7 @@ export function App({ pool: injected }: AppProps) {
             {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} />}
           </div>
           <aside className="csl-split__col csl-split__side--narrow">
+            {comparison && comparison.changes.length > 0 && <RunComparison comparison={comparison} onDismiss={() => setPreviousRun(null)} />}
             <div className="csl-split__slot" ref={setTimelineEl} />
           </aside>
         </div>

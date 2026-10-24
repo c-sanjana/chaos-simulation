@@ -71,6 +71,27 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.queryByRole('group', { name: 'Failure 2' })).toBeNull();
   });
 
+  it('compares a re-run with the previous run, until dismissed or the preset changes', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull(); // nothing to compare yet
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText('API → DB'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    const panel = await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
+    expect(within(panel).getByText('You changed: API → DB retries 1 → 5')).toBeTruthy();
+    expect(within(panel).getByText(/^A lot changed inside the system, but users see about the same/)).toBeTruthy();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
+    expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
+    // A different preset isn't comparable.
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0].tier).toBe('cache'), SLOW);
+    await act(async () => {});
+    expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
+  });
+
   it('offers failures in other parts of the stack as presets', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);

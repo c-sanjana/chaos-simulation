@@ -34,6 +34,11 @@ dark mode, and the page stays light unless you choose dark).
    - Most DB work is for requests the API had already given up on, and the cache empties because
      nothing refills it.
 
+   After you change a setting and re-run, a "Compared with your last run" panel lists what you
+   changed and how the results moved (failed requests, retries sent, peak load on the most
+   overloaded part, busy workers) with a plain takeaway, e.g. "A lot changed inside the system,
+   but users see about the same: it was stuck either way."
+
    The diagram marks the injected slowdown (⚡), overloaded parts (⚠) and failing calls (✕), with
    a key. End-to-end latency is measured as how long users waited for an answer, errors
    included, so it rises when requests fail instead of looking fast.
