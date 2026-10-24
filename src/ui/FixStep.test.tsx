@@ -87,7 +87,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     // Choosing another tab shows that fix in the panel, the maps and the replay.
     fireEvent.click(tabs[1]);
     expect(tabs[1].getAttribute('aria-selected')).toBe('true');
-    const name = tabs[1].getAttribute('aria-label')!.split(':')[0];
+    const name = tabs[1].getAttribute('aria-label')!.split(':')[0].replace(/ \((one layer|whole stack)\)$/, '');
     await screen.findByText(new RegExp(`^After: ${name}$`), undefined, SLOW);
     await screen.findByRole('heading', { name: /^Before vs after: Cap retries/ }, SLOW);
   });
@@ -105,9 +105,9 @@ describe('FixStep', { timeout: 60_000 }, () => {
     render(<FixStep pool={new FakePool(luck)} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText('◆ = the run in the replay; select any cell', undefined, SLOW);
     const tabs = screen.getAllByRole('tab');
-    expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries at 1: helped/);
+    expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries at 1 \(one layer\): helped/);
     // Helping in 1 of 5 random runs is luck: marked like a fix that did not help.
-    const budget = screen.getByRole('tab', { name: /^Retry budget 10%: helped only by luck/ });
+    const budget = screen.getByRole('tab', { name: /^Budget, one layer: helped only by luck/ });
     expect(budget.textContent).toMatch(/^✕/);
     fireEvent.click(budget);
     expect(screen.getByText('Helped in only 1 of 5 random runs, so the result depends on luck')).toBeTruthy();

@@ -1,12 +1,13 @@
 import type { Signals } from '../analysis/signals';
 
 /**
- * Candidate fixes, as data. Each is one change (one setting, or for 'retryOneLayer' the retries of
- * every call but one), interpreted by `applyFix` (candidates.ts), which works out where in a given
+ * Candidate fixes, as data. Each is one change (one setting; for 'retryOneLayer' the retries of
+ * every call but one; for 'retryBudgetEveryLayer' a budget on every call that retries), interpreted by `applyFix` (candidates.ts), which works out where in a given
  * config the change goes and with what value.
  */
 export type FixKind =
   | 'retryBudget'
+  | 'retryBudgetEveryLayer'
   | 'capRetries'
   | 'jitterBackoff'
   | 'retryOneLayer'
@@ -51,6 +52,12 @@ export interface FixDefinition {
   refutable?: Record<string, Refutation>;
   /** which signal makes it relevant; null = a common instinct that is always tried */
   signal: keyof Signals | null;
+  /**
+   * Retry fixes only: whether the change is made by one caller ('layer': what one service team
+   * can ship on its own) or agreed across every layer that retries ('stack'). Retries multiply
+   * from layer to layer, so the panel shows the end-to-end multiplication before and after.
+   */
+  scope?: 'layer' | 'stack';
 }
 
 /** Settings the fixes apply. */
@@ -78,7 +85,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'retry-budget',
     kind: 'retryBudget',
     title: 'Retry budget of 10%',
-    short: 'Retry budget 10%',
+    short: 'Budget, one layer',
     how: 'Once repeats reach 10% of first tries, {caller} stops asking {target} again, so its repeats add at most a tenth more work.',
     pros: [
       "Stops this caller's retries from multiplying load while a dependency is struggling",
@@ -91,6 +98,26 @@ export const FIX_CATALOG: FixDefinition[] = [
       'Other layers that retry are not limited by it',
     ],
     signal: 'retryShare',
+    scope: 'layer',
+  },
+  {
+    id: 'retry-budget-every-layer',
+    kind: 'retryBudgetEveryLayer',
+    title: 'Retry budget of 10% at every layer',
+    short: 'Budget, all layers',
+    how: 'Every layer that asks again stops once its repeats reach 10% of its first tries. Each layer then adds at most a tenth more calls, so even multiplied across the stack the repeats stay small.',
+    pros: [
+      'Repeats cannot multiply from layer to layer into a storm',
+      'Retries still happen as normal while things are healthy',
+      'Cheap: a client setting on each caller, no new servers',
+    ],
+    cons: [
+      'Every team that owns a caller must adopt it: it is a decision for the whole system, not one service',
+      'Once the budgets are spent, users see errors sooner during a real outage',
+      'Each calling library must count its retries (many can)',
+    ],
+    signal: 'retryShare',
+    scope: 'stack',
   },
   {
     id: 'cap-retries',
@@ -106,6 +133,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     ],
     refutable: { [AT_MOST_DOUBLE]: 'loadOverDouble' },
     signal: 'retryShare',
+    scope: 'layer',
   },
   {
     id: 'jitter-backoff',
@@ -122,6 +150,7 @@ export const FIX_CATALOG: FixDefinition[] = [
       'Helps only when repeats arrive in bursts, not when they pile up steadily',
     ],
     signal: 'retryShare',
+    scope: 'layer',
   },
   {
     id: 'retry-one-layer',
@@ -141,6 +170,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     ],
     refutable: { [ONE_LAYER_HIDES]: 'failedMore' },
     signal: 'retryShare',
+    scope: 'stack',
   },
   {
     id: 'bound-queue',

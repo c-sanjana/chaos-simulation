@@ -144,9 +144,13 @@ describe('fixes for the default retry storm (200 rps, every layer retrying: 5 / 
   });
 
   // Measured: no change to one call's retries brings it back, because the other layers keep
-  // multiplying. Keeping retries at one layer only does, as do a longer timeout and a bounded queue.
-  it('retrying at one layer, a longer timeout and bounding the DB queue help at this seed; one-call retry fixes do not', () => {
-    expect(new Set(helpedIds())).toEqual(new Set(['longer-timeout', 'retry-one-layer', 'bound-queue']));
+  // multiplying. Changing every layer's retries does (the same 10% budget, or keeping retries at
+  // one layer only), as do a longer timeout and a bounded queue.
+  it('a retry budget at every layer, retrying at one layer, a longer timeout and bounding the DB queue help at this seed; one-call retry fixes do not', () => {
+    expect(new Set(helpedIds())).toEqual(new Set(['longer-timeout', 'retry-budget-every-layer', 'retry-one-layer', 'bound-queue']));
+    // The same budget on one layer leaves it stuck; on every layer it recovers.
+    expect(byId['retry-budget'].outcome.verdict).toBe('stuck');
+    expect(byId['retry-budget-every-layer'].outcome).toMatchObject({ verdict: 'recovered', recoveryMs: 8_000, failedRequests: 538 });
     for (const id of ['retry-budget', 'cap-retries', 'jitter-backoff']) {
       expect(byId[id].outcome.verdict).toBe('stuck');
       expect(byId[id].outcome.failedRequests).toBeLessThanOrEqual(original.failedRequests); // never worse, at least
@@ -159,6 +163,7 @@ describe('fixes for the default retry storm (200 rps, every layer retrying: 5 / 
   it('ranks the fixes that helped first, then the rest by failed requests', () => {
     expect(ranked.map((r) => r.candidate.id)).toEqual([
       'longer-timeout', // 9 s, 0 failed
+      'retry-budget-every-layer', // 8 s (a tie with 9 s), 538 failed
       'retry-one-layer', // 13 s
       'bound-queue', // 16 s
       'cap-retries', // stuck from here on
@@ -183,16 +188,16 @@ describe('fixes for the default retry storm (200 rps, every layer retrying: 5 / 
     expect(originals.every((o) => o.verdict === 'stuck')).toBe(true);
     const helpedIdsNow = helpedIds();
     const seeds = Object.fromEntries(helpedIdsNow.map((id) => [id, seedAgreement(originals, seedVariants(byId[id].candidate.config).map(measureOutcome))]));
-    expect(Object.fromEntries(helpedIdsNow.map((id) => [id, seeds[id].helped]))).toEqual({ 'longer-timeout': 4, 'retry-one-layer': 1, 'bound-queue': 5 });
+    expect(Object.fromEntries(helpedIdsNow.map((id) => [id, seeds[id].helped]))).toEqual({ 'longer-timeout': 4, 'retry-budget-every-layer': 3, 'retry-one-layer': 1, 'bound-queue': 5 });
 
     const longerOriginal = measureOutcome(withLongerOutage(config)!);
     expect(longerOriginal.verdict).toBe('stuck');
     const longer = Object.fromEntries(helpedIdsNow.map((id) => [id, fixHelped(longerOriginal, measureOutcome(withLongerOutage(byId[id].candidate.config)!))]));
-    expect(longer).toEqual({ 'longer-timeout': false, 'retry-one-layer': false, 'bound-queue': true });
+    expect(longer).toEqual({ 'longer-timeout': false, 'retry-budget-every-layer': false, 'retry-one-layer': false, 'bound-queue': true });
 
     const robustness: Record<string, Robustness> = Object.fromEntries(helpedIdsNow.map((id) => [id, { seeds: seeds[id], longer: longer[id] }]));
     const withChecks = rankFixes(original, ranked.map(({ candidate, outcome }) => ({ candidate, outcome })), robustness);
-    expect(withChecks.slice(0, 3).map((r) => r.candidate.id)).toEqual(['bound-queue', 'longer-timeout', 'retry-one-layer']);
+    expect(withChecks.slice(0, 4).map((r) => r.candidate.id)).toEqual(['bound-queue', 'longer-timeout', 'retry-budget-every-layer', 'retry-one-layer']);
   });
 });
 
@@ -214,10 +219,10 @@ describe('fixes for the default gateway slowdown (200 rps, Gateway 50× slower f
   const { original, ranked, byId } = rankPreset(gatewaySlow);
 
   // The Gateway's pile lands on the DB when it recovers: shedding load at the DB helps, and so does
-  // keeping retries at one layer; a longer App server → DB timeout does not (the pile comes from in front).
-  it('bounding the DB queue and retrying at one layer help', () => {
+  // limiting retries at every layer; a longer App server → DB timeout does not (the pile comes from in front).
+  it('bounding the DB queue, a retry budget at every layer and retrying at one layer help', () => {
     expect(original.verdict).toBe('stuck');
-    expect(ranked.filter((r) => r.helped).map((r) => r.candidate.id)).toEqual(['bound-queue', 'retry-one-layer']);
+    expect(ranked.filter((r) => r.helped).map((r) => r.candidate.id)).toEqual(['bound-queue', 'retry-budget-every-layer', 'retry-one-layer']);
     expect(byId['longer-timeout'].outcome.verdict).toBe('stuck');
   });
 });

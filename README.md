@@ -302,11 +302,17 @@ time log. The main calls:
     5 of 5 seeds; still helps with a 10 s slowdown). A 3× longer timeout recovers in 9 s with 0
     failed but not with a longer slowdown, and "retry at one layer only" helps on 1 of 5 seeds;
     the app marks both ⚠. Changing a single call's retries (budget, cap, jitter) no longer helps:
-    with three layers retrying, the others still multiply the load.
+    with three layers retrying, the others still multiply the load. The same 10% retry budget on
+    **every** layer does help: 8 s, 538 failed, 3 of 5 seeds, and the tipping point at a 5 s
+    slowdown moves from 100 to 240 req/s (⚠: not with a 10 s slowdown). Each retry fix's panel is
+    labelled "one layer" or "whole stack" and shows the end-to-end multiplication: up to 48× the
+    calls reach the DB while it fails (users' apps 6 × Gateway 4 × App server 2); a one-layer budget
+    takes that to 26×, a budget on every layer to 1.3×.
   - **Cache restarts empty** (stuck, 12,747 failed): coalescing cache misses (1 s, 0 failed; 5 of
     5) and bounding the DB queue (23 s) hold up; a longer timeout helps only sometimes.
   - **Gateway slows down** (stuck, 10,361 failed): bounding the queue (7 s, 0 failed; 5 of 5) holds
-    up; retrying at one layer only helps on 2 of 5 seeds. This preset's 2× longer slowdown happens
+    up; a retry budget at every layer (6 s) and retrying at one layer only also help at the default
+    seed. This preset's 2× longer slowdown happens
     to recover by itself, so the longer-slowdown check is skipped there (it can't tell anything).
 
   With a single retrying layer (App server → DB 3 times, the original preset; kept in the tests) the

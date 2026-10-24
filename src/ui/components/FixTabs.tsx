@@ -19,6 +19,10 @@ export interface FixTab {
   verdict?: { title: string; text: string };
   /** Measured outcome at the viewer's settings, e.g. "Stuck → recovers in 3 s". */
   result: string;
+  /** Retry fixes: changed by one caller ('layer') or by every layer that retries ('stack'). */
+  scope?: 'layer' | 'stack';
+  /** Retry fixes: the end-to-end retry multiplication before and with the fix, e.g. "… up to 48× … With this fix: up to 26× (6 × 4 × 1.1)." */
+  acrossStack?: string;
   /** Where the result was measured, e.g. "at your settings (200 req/s · 3 DB retries)". */
   where: string;
   /** e.g. "242 failed requests instead of 12,687", or "no change: 12,687 failed requests". */
@@ -49,6 +53,8 @@ export interface FixTabsProps {
   onSelect: (id: string) => void;
 }
 
+const SCOPE_TEXT: Record<NonNullable<FixTab['scope']>, string> = { layer: 'One layer', stack: 'Whole stack' };
+
 const MARK: Record<FixTab['status'], string> = { reliable: '✓', checking: '✓', unreliable: '⚠', rare: '✕', no: '✕' };
 const STATUS_TEXT: Record<FixTab['status'], string> = {
   reliable: 'helped',
@@ -58,9 +64,12 @@ const STATUS_TEXT: Record<FixTab['status'], string> = {
   no: 'did not help',
 };
 
-/** e.g. "Bound the queue: helped, back to normal 2 s after the failure ended". */
+/** e.g. "Bound the queue: helped, back to normal 2 s after the failure ended", or "Cap retries at 1 (one layer): did not help". */
 export function tabLabel(t: FixTab): string {
-  return `${t.short}: ${STATUS_TEXT[t.status]}${t.badge ? `, back to normal ${t.badge} after the failure ended` : ''}`;
+  // The scope, unless the name already says it ("Budget, one layer"; but "Retry at one layer" changes the whole stack).
+  const said = t.scope === 'layer' ? /one layer/i : /all layers/i;
+  const scope = t.scope && !said.test(t.short) ? ` (${SCOPE_TEXT[t.scope].toLowerCase()})` : '';
+  return `${t.short}${scope}: ${STATUS_TEXT[t.status]}${t.badge ? `, back to normal ${t.badge} after the failure ended` : ''}`;
 }
 
 const helpedStatus = (s: FixTab['status']) => s === 'reliable' || s === 'checking' || s === 'unreliable';
@@ -155,7 +164,10 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
             <h3 className="csl-fixtabs__title">{selected.name}</h3>
             <p className="csl-fixtabs__what">{selected.what}</p>
           </div>
-          <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown in the replay</span>
+          <div className="csl-fixtabs__chips">
+            {selected.scope && <span className={`csl-chip csl-fixtabs__scope csl-fixtabs__scope--${selected.scope}`}>{SCOPE_TEXT[selected.scope]}</span>}
+            <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown in the replay</span>
+          </div>
         </div>
         {/* What happened first (result, then why), then how the fix works in general. */}
         <dl className="csl-fixtabs__facts">
@@ -169,6 +181,12 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
             <>
               <dt>{selected.verdict.title}</dt>
               <dd>{selected.verdict.text}</dd>
+            </>
+          )}
+          {selected.acrossStack && (
+            <>
+              <dt>Across the stack</dt>
+              <dd>{selected.acrossStack}</dd>
             </>
           )}
           {reason && (
