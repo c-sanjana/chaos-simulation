@@ -1,5 +1,6 @@
 import type { TierConfig } from '../engine/config';
 import { lognormalMoments } from '../engine/theory';
+import { LIMITS } from '../data/limits';
 import type { Axis, ScenarioPreset, TopologyPreset } from '../data/types';
 
 const START_MS = 30_000;
@@ -32,21 +33,73 @@ export function estimateCapacityRps(topology: TopologyPreset): number {
   return best;
 }
 
-/** A "nice" number near x (1, 2, 2.5 or 5 × a power of ten). */
-function nice(x: number): number {
-  const p = 10 ** Math.floor(Math.log10(x));
-  return [1, 2, 2.5, 5, 10].map((m) => m * p).reduce((a, b) => (Math.abs(b - x) < Math.abs(a - x) ? b : a));
+/** Whole, round steps that read well on an axis. */
+const NICE_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500];
+
+/**
+ * The round step closest to `target` (by ratio) that is no bigger than the client's traffic,
+ * preferring one that divides the client's traffic exactly (so it is a cell of its own) when such a
+ * step is within a factor of 1.6 of the target.
+ */
+function pickStep(target: number, client: number): number {
+  const off = (s: number) => Math.abs(Math.log(s / target));
+  const usable = NICE_STEPS.filter((s) => s <= client);
+  const exact = usable.filter((s) => client % s === 0 && off(s) <= Math.log(1.6));
+  return (exact.length > 0 ? exact : usable).reduce((a, b) => (off(b) < off(a) ? b : a));
 }
 
 /**
- * Ten traffic levels from about a third of the estimated capacity to 1.5×, evenly stepped:
- * the tipping point usually falls inside, as on the presets' maps (DB at ~160 req/s → 60–240).
+ * The tipping-point map's traffic levels for a built system: 5 to 10 whole numbers in round steps,
+ * from about a third of the users' own traffic to about twice it, never above LIMITS.maxRps.
+ *
+ * ASSUMPTION: the map answers "how close is *my* traffic to the edge?", so it is centred on the
+ * client's traffic, which is always inside it (a cell of its own whenever a round step divides it).
+ * When the capacity estimate (without cache help) is nearby (1/4x to 4x the traffic) the range
+ * widens to take it in, since the tipping point is usually just below it. Without a cache that
+ * estimate is close to the real limit, so the range stops at 1.25x it (or just past the traffic, if
+ * that is higher): further right every cell is plain overload, failure or not (review: at 1.5x,
+ * half the map was). With a cache the healthy system handles more than the estimate, so the full
+ * 2x is kept. On the example system (200 req/s, DB ~160 req/s, cached) this gives 50-400.
  */
-export function trafficAxis(capacityRps: number): Axis {
-  const step = nice(capacityRps * 0.13);
-  const first = Math.max(step, Math.round((capacityRps * 0.35) / step) * step);
-  return { param: 'rps', label: 'traffic (requests/s)', values: Array.from({ length: 10 }, (_, i) => first + i * step) };
+export function trafficAxis(clientRps: number, capacityRps: number, hasCache: boolean): Axis {
+  const max = LIMITS.maxRps;
+  const c = Math.min(max, Math.max(1, Math.round(clientRps)));
+  const k = Number.isFinite(capacityRps) && capacityRps > 0 ? capacityRps : c;
+  let lo = 0.3 * c;
+  let hi = 2 * c;
+  if (k >= c / 4 && k <= 4 * c) {
+    lo = Math.min(lo, 0.5 * k);
+    hi = Math.max(hi, 1.2 * k);
+  }
+  if (!hasCache) hi = Math.min(hi, Math.max(1.25 * k, 1.2 * c));
+  hi = Math.min(hi, max);
+
+  const step = pickStep((hi - lo) / 9, c);
+  let first = Math.max(step, Math.round(lo / step) * step);
+  if (first > c) first = Math.floor(c / step) * step; // >= step, as step <= c
+  let count = Math.min(10, Math.max(5, Math.floor((hi - first) / step) + 1));
+  // The client's traffic must be on the map: move the range right until it is.
+  const last = () => first + (count - 1) * step;
+  if (last() < c) first += Math.ceil((c - last()) / step) * step;
+  // Never past the limit: drop levels above it, then add levels below while there is room.
+  while (last() > max) count--;
+  while (count < 5 && first - step >= step) (first -= step, count++);
+  return { param: 'rps', label: 'traffic (requests/s)', values: Array.from({ length: count }, (_, i) => first + i * step) };
 }
+
+/** The traffic axis of a built topology at `rps` (shared by every scenario, recomputed when the traffic changes). */
+export function builtTrafficAxis(topology: TopologyPreset, rps: number): Axis {
+  return trafficAxis(rps, estimateCapacityRps(topology), topology.tiers.some((t) => t.cache));
+}
+
+/** e.g. 0.3 -> "0.3 ms", 134 -> "134 ms", 2500 -> "2.5 s": how long a request takes, for the failure blurbs. */
+function formatTime(ms: number): string {
+  if (ms >= 1000) return `${Math.round(ms / 100) / 10} s`;
+  return `${ms < 10 ? Math.round(ms * 10) / 10 : Math.round(ms)} ms`;
+}
+
+/** The typical (median) time of a tier's work. */
+const medianMs = (t: TierConfig) => (t.service.kind === 'lognormal' ? t.service.medianMs : meanMs(t));
 
 const lengths = (seconds: number[]): Axis => ({ param: 'outageMs', label: 'failure length', values: seconds.map((s) => s * 1000) });
 
@@ -61,7 +114,7 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
   const chain: TierConfig[] = [];
   for (let t = byId.get(topology.clientCall.target); t; t = t.downstream ? byId.get(t.downstream.target) : undefined) chain.push(t);
   const label = (id: string) => topology.layout[id]?.label ?? id;
-  const x = trafficAxis(estimateCapacityRps(topology));
+  const x = builtTrafficAxis(topology, rps);
   const base = { topology: topology.id, rps, durationMs: DURATION_MS };
   const out: ScenarioPreset[] = [];
 
@@ -89,14 +142,19 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
   }
   const front = chain[0];
   if (front && kinds[front.id] !== 'database' && kinds[front.id] !== 'queue') {
-    // ASSUMPTION: slow it down enough that it can serve only about half the traffic; a front door
-    // usually has lots of spare capacity, so a fixed factor would often go unnoticed.
-    const factor = Math.min(1000, Math.max(2, Math.round((2 * tierCapacityRps(front)) / rps)));
+    // ASSUMPTION: slow it down enough that it can serve only about half of the users' traffic; a
+    // front door usually has lots of spare capacity, so a fixed factor would often go unnoticed.
+    // Sized for the client's traffic: on the map's other traffic levels the same slowdown is
+    // relatively milder or harsher, which is part of what the map shows. It stays a slowdown, not
+    // an outage: a typical request still finishes within half of the users' timeout.
+    const median = medianMs(front);
+    const byTimeout = topology.clientCall.timeoutMs === null ? 1000 : Math.max(2, Math.floor(topology.clientCall.timeoutMs / 2 / median));
+    const factor = Math.min(1000, byTimeout, Math.max(2, Math.round((2 * tierCapacityRps(front)) / rps)));
     out.push({
       ...base,
       id: 'custom-front-slow',
       title: `${label(front.id)} slows down`,
-      blurb: `${label(front.id)}, the first thing users reach, is ${factor}× slower for 20 s.`,
+      blurb: `${label(front.id)}, the first thing users reach, takes ~${formatTime(median * factor)} a request instead of ~${formatTime(median)} (${factor}× slower) for 20 s.`,
       faults: [{ tier: front.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
       map: { x, y: lengths([30, 20, 10, 5, 2]) },
     });
@@ -112,7 +170,7 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
       ...base,
       id: 'custom-queue-backlog',
       title: `Work behind ${label(queue.id)} slows down`,
-      blurb: `${label(worker)} is ${factor}× slower for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
+      blurb: `${label(worker)} takes ~${formatTime(medianMs(byId.get(worker)!) * factor)} a request instead of ~${formatTime(medianMs(byId.get(worker)!))} (${factor}× slower) for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
       faults: [{ tier: worker, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
       map: { x, y: lengths([40, 20, 10, 5, 2]) },
     });

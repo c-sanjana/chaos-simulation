@@ -7,6 +7,7 @@ import { assessRecovery, controlConfig, type Verdict } from '../analysis/recover
 import type { RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import { runSimulation } from '../engine/run';
+import { runSizeProblem } from '../data/limits';
 
 /** What a tipping-point map needs from one cell: small, so it is cheap to send between threads. */
 export interface CellSummary {
@@ -32,6 +33,9 @@ export function executeJob(job: AnalyzeJob): AnalyzeResult;
 export function executeJob(job: CellJob): CellSummary;
 export function executeJob(job: Job): JobResult;
 export function executeJob(job: Job): JobResult {
+  // A guard before any work: one oversized run can exhaust the tab's memory.
+  const tooBig = runSizeProblem(job.config.client.rps, job.config.durationMs);
+  if (tooBig) throw new Error(tooBig);
   const run = runSimulation(job.config);
   const control = runSimulation(controlConfig(job.config));
   if (job.kind === 'analyze') return { run, control, analysis: analyzeRun(run, control, job.config, job.labels) };

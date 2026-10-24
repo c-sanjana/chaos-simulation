@@ -24,6 +24,10 @@ describe('draftProblems', () => {
     expect(draftProblems(preset)).toEqual([]);
   });
 
+  it('refuses a run with too many requests to simulate', () => {
+    expect(draftProblems(updateScenario(preset, { rps: 30_000 }))[0]).toMatch(/^This many requests would take too long to simulate/);
+  });
+
   it('needs the failure to end in time to judge recovery', () => {
     const late = updateFault(preset, { startMs: 500_000, endMs: 505_000 });
     expect(draftProblems(late)).toEqual([
