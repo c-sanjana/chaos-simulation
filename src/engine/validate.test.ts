@@ -123,6 +123,57 @@ describe('validateConfig', () => {
     });
   });
 
+  describe('branching', () => {
+    /** svc calls a and b (and may call more); both call db: fan-out and fan-in. */
+    const branched = (): RunConfig => ({
+      ...ok(),
+      tiers: [
+        tier('svc', { kind: 'fixed', ms: 1 }, { downstream: call('a'), moreDownstream: [call('b', { share: 3 })], fanOut: 'split' }),
+        tier('a', { kind: 'fixed', ms: 1 }, { downstream: call('db') }),
+        tier('b', { kind: 'fixed', ms: 1 }, { downstream: call('db') }),
+        tier('db', { kind: 'fixed', ms: 1 }),
+        tier('cache', { kind: 'fixed', ms: 1 }, { cache: { capacity: 10, ttlMs: null, keys: 100, skew: 1 } }),
+        tier('q', { kind: 'fixed', ms: 1 }, { queue: { maxDepth: 10, consumers: 1 }, downstream: call('db') }),
+      ],
+    });
+
+    it('accepts fan-out in every mode, fan-in, cache-aside before a fan-out and a one-call split', () => {
+      for (const fanOut of ['sequence', 'parallel', 'split', undefined] as const) {
+        const c = branched();
+        c.tiers[0].fanOut = fanOut;
+        expect(() => validateConfig(c)).not.toThrow();
+      }
+      const cached = branched();
+      cached.tiers[0].cacheAside = call('cache');
+      cached.tiers[0].coalesceMisses = true;
+      expect(() => validateConfig(cached)).not.toThrow();
+      const single = branched();
+      single.tiers[0].moreDownstream = [];
+      expect(() => validateConfig(single)).not.toThrow();
+    });
+
+    const branchCases: Array<[string, (c: RunConfig) => void, RegExp]> = [
+      ['a further call to an unknown tier', (c) => c.tiers[0].moreDownstream!.push(call('nope')), /unknown tier "nope"/],
+      ['a further call to a cache', (c) => c.tiers[0].moreDownstream!.push(call('cache')), /use cacheAside/],
+      ['the same target twice', (c) => c.tiers[0].moreDownstream!.push(call('a')), /calls "a" more than once/],
+      ['a zero share', (c) => (c.tiers[0].moreDownstream![0].share = 0), /share must be a positive number/],
+      ['a negative share on the first call', (c) => (c.tiers[0].downstream!.share = -1), /share/],
+      ['a bad further call policy', (c) => (c.tiers[0].moreDownstream![0].retries = -1), /retries/],
+      ['further calls without a first call', (c) => (c.tiers[1].downstream = null, c.tiers[1].moreDownstream = [call('db')]), /no first call/],
+      ['an unknown fanOut', (c) => (c.tiers[0].fanOut = 'broadcast' as never), /fanOut/],
+      ['a queue with two calls', (c) => (c.tiers[5].moreDownstream = [call('a')]), /exactly one tier/],
+      ['a cache with further calls', (c) => ((c.tiers[4].downstream = call('db')), (c.tiers[4].moreDownstream = [call('a')])), /cannot call other tiers/],
+      ['a cycle through a second call', (c) => (c.tiers[3].downstream = call('b')), /cycle/],
+      ['a cycle through a further call only', (c) => (c.tiers[2].moreDownstream = [call('svc')]), /cycle/],
+    ];
+
+    it.each(branchCases)('rejects %s', (_, mutate, message) => {
+      const c = branched();
+      mutate(c);
+      expect(() => validateConfig(c)).toThrow(message);
+    });
+  });
+
   it('rejects call cycles', () => {
     const c: RunConfig = {
       ...ok(),

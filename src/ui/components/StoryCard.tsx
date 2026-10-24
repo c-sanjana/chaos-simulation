@@ -49,7 +49,9 @@ export function stepTime(s: Pick<StoryStepView, 'tMs' | 'kind'>): string {
  * The newest row also shows its full sentence, the one that explains the step; older rows show it
  * on "Why?" (visible on touch screens too, unlike a tooltip).
  *
- * `compact` (the step 2 and 3 replays, where there is less room) shows only the newest row.
+ * `compact` (the step 2 and 3 replays, where there is less room) shows only the newest row, its
+ * sentence on "Why?" like the older rows, and the "earlier steps" link beside the title, so the
+ * details panel under it keeps most of the height.
  */
 export function StoryCard({ steps, nowMs, compact = false }: { steps: StoryStepView[]; nowMs: number; compact?: boolean }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -67,7 +69,18 @@ export function StoryCard({ steps, nowMs, compact = false }: { steps: StoryStepV
     });
   return (
     <section className={`csl-story${compact ? ' csl-story--compact' : ''}`} aria-label="What is happening, in plain words" data-tour="story">
-      <h3 className="csl-story__title">What's happening</h3>
+      {compact ? (
+        <div className="csl-story__head">
+          <h3 className="csl-story__title">What's happening</h3>
+          {reached.length > 1 && (
+            <button type="button" className="csl-btn csl-btn--link csl-story__more" aria-expanded={earlier === 0} onClick={() => setAll((a) => !a)}>
+              {earlier > 0 ? `Show the ${earlier} earlier step${earlier === 1 ? '' : 's'}` : 'Show only the newest step'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <h3 className="csl-story__title">What's happening</h3>
+      )}
       {shown.length === 0 ? (
         <p className="csl-story__empty">All normal so far. Watch what happens when the failure starts.</p>
       ) : (
@@ -75,7 +88,7 @@ export function StoryCard({ steps, nowMs, compact = false }: { steps: StoryStepV
           {shown.map((s, i) => {
             const key = `${s.tMs}-${s.text}`;
             const latest = i === shown.length - 1;
-            const explained = latest || open.has(key);
+            const explained = (latest && !compact) || open.has(key);
             return (
               <li key={key} className={`csl-flow__step csl-flow__step--${s.tone}${latest ? ' csl-flow__step--latest' : ''}`} title={s.text}>
                 <span className="csl-sr-only">{s.text}</span>
@@ -91,7 +104,7 @@ export function StoryCard({ steps, nowMs, compact = false }: { steps: StoryStepV
                     <span className="csl-flow__time" aria-hidden="true">
                       {stepTime(s)}
                     </span>
-                    {!latest && s.headline && (
+                    {(!latest || compact) && s.headline && (
                       <button type="button" className="csl-btn csl-btn--link csl-flow__why" aria-expanded={explained} aria-label={`Why: ${s.headline}`} onClick={() => toggle(key)}>
                         {explained ? 'Hide' : 'Why?'}
                       </button>
@@ -109,11 +122,6 @@ export function StoryCard({ steps, nowMs, compact = false }: { steps: StoryStepV
             );
           })}
         </ol>
-      )}
-      {compact && reached.length > 1 && (
-        <button type="button" className="csl-btn csl-btn--link csl-story__more" aria-expanded={earlier === 0} onClick={() => setAll((a) => !a)}>
-          {earlier > 0 ? `Show the ${earlier} earlier step${earlier === 1 ? '' : 's'}` : 'Show only the newest step'}
-        </button>
       )}
       {ahead > 0 && shown.length > 0 && <p className="csl-story__ahead">{ahead} more as the replay continues…</p>}
     </section>

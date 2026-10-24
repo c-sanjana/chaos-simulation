@@ -61,7 +61,7 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
     expect(tourStops.at(-1)!.body).toMatch(/Use the \? button/);
     // Every stop on steps 2 and 3 that describes results waits for them.
     for (const s of tourStops.filter((x) => x.screen > 0 && x.target !== 'help')) expect(s.waitForResults).toBe(true);
-    expect(tourStops.find((s) => s.target === 'map')!.body).toMatch(/Cells marked ✕ got stuck; a bar marks the tipping point/);
+    expect(tourStops.find((s) => s.target === 'map')!.body).toMatch(/A bar marks the tipping point, where runs start getting stuck/);
     // The fix it names is the tab's own name.
     expect(tourStops.find((s) => s.target === 'fix-tabs')!.body).toContain(`Here, ${FIX_CATALOG.find((d) => d.kind === 'boundQueue')!.short} holds up.`);
   });

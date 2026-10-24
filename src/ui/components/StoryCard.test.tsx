@@ -78,9 +78,11 @@ describe('StoryCard', () => {
     expect(stepTime({ tMs: 31_000, kind: 'giveup' })).toBe('31 s');
   });
 
-  it('compact: only the newest step, with a way to see the earlier ones', () => {
+  it('compact: only the newest step, its sentence on "Why?", with a way to see the earlier ones', () => {
     render(<StoryCard steps={steps} nowMs={40_000} compact />);
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(document.querySelector('.csl-flow__text')).toBeNull(); // the details below keep the room
+    fireEvent.click(screen.getByRole('button', { name: `Why: ${steps[2].headline}` }));
     expect(screen.getByText(steps[2].text, { selector: '.csl-flow__text' })).toBeTruthy();
     expect(document.querySelector('.csl-cascade')).toBeNull(); // no room for the cascade blocks
     const more = screen.getByRole('button', { name: 'Show the 2 earlier steps' });

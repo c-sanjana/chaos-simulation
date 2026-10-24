@@ -1,5 +1,5 @@
 import { formatMs, percent } from '../analysis/helpers';
-import type { CallPolicy, RunConfig, TierConfig } from '../engine/config';
+import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
 
 /** One setting a fix changed, worded short enough to label the diagram with. */
 export interface ConfigChange {
@@ -14,11 +14,11 @@ export interface ConfigChange {
  * What changed between two configs of the same system, e.g. a config and the same config with a
  * fix applied: each tier's own settings (queue limit, skipping abandoned work, sharing cache
  * refills, instances, workers, cores), then each call's policy (the client's call, each tier's
- * downstream and cache-aside calls: retries, retry budget, timeout, retry delays). Texts are short
- * and plain, e.g. "6 instances (was 4)", "max 1 retry (was 3)".
+ * cache-aside call and every one of its downstream calls: retries, retry budget, timeout, retry
+ * delays). Texts are short and plain, e.g. "6 instances (was 4)", "max 1 retry (was 3)".
  *
- * Tiers are matched by id and calls by who makes them; a tier or call present in only one of the
- * two configs is not compared (fixes never add or remove one).
+ * Tiers are matched by id and calls by who makes them and what they call; a tier or call present
+ * in only one of the two configs is not compared (fixes never add or remove one).
  */
 export function configChanges(before: RunConfig, after: RunConfig): ConfigChange[] {
   const changes: ConfigChange[] = [];
@@ -48,14 +48,16 @@ function tierChanges(b: TierConfig, a: TierConfig): string[] {
   return texts;
 }
 
-/** Calls present in both configs, by who makes them: [caller, before, after]. */
+/** Calls present in both configs, by who makes them and what they call: [caller, before, after]. */
 function callPairs(before: RunConfig, after: RunConfig): Array<[string, CallPolicy, CallPolicy]> {
   const pairs: Array<[string, CallPolicy, CallPolicy]> = [['client', before.client.call, after.client.call]];
   for (const b of before.tiers) {
     const a = after.tiers.find((t) => t.id === b.id);
-    for (const field of ['cacheAside', 'downstream'] as const) {
-      const [pb, pa] = [b[field], a?.[field]];
-      if (pb && pa) pairs.push([b.id, pb, pa]);
+    if (!a) continue;
+    if (b.cacheAside && a.cacheAside) pairs.push([b.id, b.cacheAside, a.cacheAside]);
+    for (const pb of callsOf(b)) {
+      const pa = callsOf(a).find((c) => c.target === pb.target);
+      if (pa) pairs.push([b.id, pb, pa]);
     }
   }
   return pairs;

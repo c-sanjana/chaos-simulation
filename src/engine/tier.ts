@@ -1,7 +1,7 @@
 import type { Attempt, FinalState } from './attempt';
 import { CacheStore, ZipfKeys } from './cache';
 import { callWithRetries, type CallTarget } from './caller';
-import type { Fault, TierConfig } from './config';
+import { callsOf, type CallPolicy, type Fault, type TierConfig } from './config';
 import { sampleServiceTime } from './distributions';
 import { Instance } from './instance';
 import { RoundRobin, type LoadBalancer } from './loadBalancer';
@@ -9,7 +9,7 @@ import { MessageQueue } from './messageQueue';
 import type { TierMetrics } from './metrics';
 import type { TierSeries } from './result';
 import { budgetFor, type RetryBudget } from './retryBudget';
-import { Stream, uniform } from './rng';
+import { hashPath, Stream, uniform } from './rng';
 import type { Simulation } from './simulation';
 
 /**
@@ -23,14 +23,16 @@ import type { Simulation } from './simulation';
  * - a tier with `cacheAside` looks the request's key up in its cache tier and, on a miss, calls
  *   downstream and writes the key back if that succeeded (with `coalesceMisses`, concurrent misses
  *   for the same key share one downstream read);
- * - otherwise, a tier with a downstream calls it (holding the worker throughout);
+ * - otherwise, a tier with downstream calls makes them as its `fanOut` says (holding the worker
+ *   throughout; see `callDownstream`);
  * then it responds.
  *
- * ASSUMPTION: all compute happens before the downstream call (one compute phase per attempt).
+ * ASSUMPTION: all compute happens before the downstream calls (one compute phase per attempt).
  */
 export class Tier implements CallTarget {
   readonly instances: Instance[];
-  private downstream: Tier | null = null;
+  /** The tiers this tier calls, in the order of `callsOf(config)`; empty for a leaf. */
+  private targets: Tier[] = [];
   private cacheTier: Tier | null = null;
   private readonly balancer: LoadBalancer = new RoundRobin();
   /** Present on cache tiers. */
@@ -41,8 +43,13 @@ export class Tier implements CallTarget {
   /** Active fault effects, per instance. */
   private readonly slowFactor: number[];
   private readonly dead: boolean[];
-  /** Retry budgets for the calls this tier makes, shared by all its instances (null = no budget). */
-  private readonly downstreamBudget: RetryBudget | null;
+  /** The tier's downstream calls, in order (see `callsOf`). */
+  private readonly calls: CallPolicy[];
+  /**
+   * Retry budgets for the calls this tier makes, shared by all its instances (null = no budget):
+   * one per downstream call (each call has its own) and one for the cache lookups.
+   */
+  private readonly callBudgets: Array<RetryBudget | null>;
   private readonly cacheBudget: RetryBudget | null;
   /**
    * With `coalesceMisses`: keys currently being read from downstream → callbacks waiting for that
@@ -65,7 +72,8 @@ export class Tier implements CallTarget {
     );
     this.slowFactor = new Array<number>(config.instances).fill(1);
     this.dead = new Array<boolean>(config.instances).fill(false);
-    this.downstreamBudget = budgetFor(config.downstream);
+    this.calls = callsOf(config);
+    this.callBudgets = this.calls.map(budgetFor);
     this.cacheBudget = budgetFor(config.cacheAside);
     if (config.cache) {
       this.store = new CacheStore(config.cache.capacity, config.cache.ttlMs);
@@ -82,12 +90,13 @@ export class Tier implements CallTarget {
     return this.config.dropExpired;
   }
 
-  connect(downstream: Tier | null, cacheTier: Tier | null): void {
-    this.downstream = downstream;
+  /** `targets`: the tier each of `callsOf(config)` calls, in the same order. */
+  connect(targets: Tier[], cacheTier: Tier | null): void {
+    this.targets = targets;
     this.cacheTier = cacheTier;
-    // Validation guarantees a queue tier has a downstream.
+    // Validation guarantees a queue tier has exactly one downstream call.
     if (this.config.queue) {
-      this.queue = new MessageQueue(this.sim, this.config.queue, this.config.downstream!, downstream!, this.downstreamBudget, this.metrics);
+      this.queue = new MessageQueue(this.sim, this.config.queue, this.calls[0], targets[0], this.callBudgets[0], this.metrics);
     }
   }
 
@@ -201,7 +210,7 @@ export class Tier implements CallTarget {
       this.finish(attempt, instance, 'ok');
     } else if (this.cacheTier !== null) {
       this.lookUpThenCall(attempt, instance, this.cacheTier);
-    } else if (this.downstream !== null) {
+    } else if (this.calls.length > 0) {
       this.callDownstream(attempt, (ok) => this.finish(attempt, instance, ok ? 'ok' : 'failed'));
     } else {
       this.finish(attempt, instance, 'ok');
@@ -227,8 +236,9 @@ export class Tier implements CallTarget {
   }
 
   /**
-   * Reads a missed key from downstream and, if that succeeds, writes it to the cache. With
-   * `coalesceMisses`, a miss for a key already being read joins that read instead.
+   * Reads a missed key from downstream (all of the tier's calls, as `fanOut` says) and, if that
+   * succeeds, writes it to the cache. With `coalesceMisses`, a miss for a key already being read
+   * joins that read instead: the shared read is the whole fan-out.
    */
   private readMissedKey(attempt: Attempt, key: number, done: (ok: boolean) => void): void {
     const coalesce = this.config.coalesceMisses === true;
@@ -246,18 +256,78 @@ export class Tier implements CallTarget {
     });
   }
 
-  /** `downstream` is connected exactly when the config has a downstream policy (see runSimulation). */
+  /**
+   * Makes the tier's downstream calls for one attempt and calls `done` once with the outcome.
+   * With one call, it is simply made. With several, `fanOut` decides:
+   * - 'sequence': each call starts once the previous one succeeded; the first failure fails the
+   *   attempt and later calls are not made.
+   * - 'parallel': all calls start at once; `done` runs once every call has answered (or given up),
+   *   ok only if all succeeded. The worker is held until then.
+   * - 'split': exactly one call is made, picked at random by the calls' shares (see `splitPick`).
+   * Each call follows its own policy (timeout, retries, backoff) with its own retry budget, and
+   * counts its timeouts and retries on this tier, as a single call does.
+   */
   private callDownstream(attempt: Attempt, done: (ok: boolean) => void): void {
     attempt.state = 'waiting';
+    const n = this.calls.length;
+    const fanOut = n === 1 ? 'sequence' : this.config.fanOut ?? 'sequence';
+    if (fanOut === 'split') {
+      this.makeCall(attempt, this.splitPick(attempt), done);
+    } else if (fanOut === 'parallel') {
+      let pending = n;
+      let allOk = true;
+      for (let i = 0; i < n; i++) {
+        this.makeCall(attempt, i, (ok) => {
+          allOk &&= ok;
+          if (--pending === 0) done(allOk);
+        });
+      }
+    } else {
+      const next = (i: number) => this.makeCall(attempt, i, (ok) => (ok && i + 1 < n ? next(i + 1) : done(ok)));
+      next(0);
+    }
+  }
+
+  /**
+   * Call number `i` (in `callsOf` order) for an attempt.
+   *
+   * Its tries are keyed by a path branched per call, so that two calls of one attempt never share
+   * random values (e.g. two branches that both reach the same database would otherwise draw the
+   * same service time there). Call 0 keeps the attempt's own path, so a tier with a single call
+   * draws exactly the values it always has (chain configs give byte-identical results). Calls
+   * 1, 2, … branch with hashPath(path, −i): retries use positive attempt numbers and a queue's
+   * consumers use 0, so the branches never coincide with either.
+   */
+  private makeCall(attempt: Attempt, i: number, done: (ok: boolean) => void): void {
     callWithRetries(
       this.sim,
-      this.config.downstream!,
-      this.downstream!,
+      this.calls[i],
+      this.targets[i],
       attempt.requestId,
-      attempt.pathHash,
-      { stats: this.metrics, budget: this.downstreamBudget, fromRepeat: attempt.isRetry || attempt.fromRepeat },
+      i === 0 ? attempt.pathHash : hashPath(attempt.pathHash, -i),
+      { stats: this.metrics, budget: this.callBudgets[i], fromRepeat: attempt.isRetry || attempt.fromRepeat },
       done,
     );
+  }
+
+  /**
+   * With fanOut 'split': which call an attempt makes. Shares (default 1) are normalised, and a
+   * uniform keyed by (request, attempt path, tier) picks the call whose cumulative share covers it.
+   * ASSUMPTION: the pick is random per attempt (independent thinning, like a load balancer choosing
+   * a pool at random by weight), not round-robin across the pools.
+   * ASSUMPTION: the tier's own retries of the chosen call go to the same pool (each call keeps its
+   * own policy and budget); a retry by whoever calls this tier is a new attempt with its own path,
+   * so it is split afresh and may land on another pool.
+   */
+  private splitPick(attempt: Attempt): number {
+    const shares = this.calls.map((c) => c.share ?? 1);
+    const total = shares.reduce((a, b) => a + b, 0);
+    let u = uniform(this.sim.seed, Stream.Split, attempt.requestId, attempt.pathHash, this.index) * total;
+    for (let i = 0; i < shares.length - 1; i++) {
+      u -= shares[i];
+      if (u < 0) return i;
+    }
+    return shares.length - 1;
   }
 
   private finish(attempt: Attempt, instance: Instance, state: FinalState): void {

@@ -135,6 +135,8 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     seek(120_000);
     // The "after" run (shown by default) recovered: its newest step says so.
     expect(within(story).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(story).getByText(/back to normal/i, { selector: '.csl-flow__headline' })).toBeTruthy();
+    fireEvent.click(within(story).getByRole('button', { name: /^Why: back to normal/i }));
     expect(within(story).getByText(/back to normal/i, { selector: '.csl-flow__text' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Before' }));
     expect(within(screen.getByRole('region', { name: 'What is happening, in plain words' })).getByText('Still stuck')).toBeTruthy();

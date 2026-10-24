@@ -594,7 +594,7 @@ button.csl-map__cell {
 .csl-map__cell[aria-pressed='true'] {
   box-shadow: 0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink);
 }
-/* Overloaded even without the failure: hatched, so it differs from stuck (✕) without colour. */
+/* Overloaded even without the failure: hatched, so it differs from stuck without relying on colour. */
 .csl-map__cell--overloaded {
   background-image: repeating-linear-gradient(135deg, transparent 0 3px, var(--csl-map-hatch) 3px 5px);
 }
@@ -642,6 +642,14 @@ button.csl-map__cell {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+/* Step 3: one line under the heading. */
+.csl-map-legend--compact {
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.csl-map-legend--compact .csl-map-legend__group {
+  gap: 6px;
 }
 .csl-map-legend__swatch {
   width: 14px;
@@ -1828,17 +1836,28 @@ button.csl-map__cell {
 }
 
 /*
- * Step 3 on a wide screen: the fixes card is at most as tall as the screen below the steps, and
- * the selected fix's panel scrolls inside it, so the page never grows past the viewport.
+ * Step 3 on a wide screen: the fixes card is exactly as tall as the replay beside it (and at least
+ * as tall as the screen below the steps), and the selected fix's panel scrolls inside it. If even
+ * that is too short for the maps and the tabs, the card itself scrolls: nothing ever spills out
+ * of it (the panel used to, on screens under ~800 px tall).
  * ASSUMPTION: 194px is the top bar and step tabs above the card plus the page's bottom margin at
  * ≥ 1101px (measured: the card starts at 146px and the page ends 48px below it).
  */
-@media (min-width: 1101px) and (min-height: 640px) {
+@media (min-width: 1101px) {
+  .csl-split__side--wide {
+    position: relative;
+    min-height: max(520px, calc(100vh - 194px));
+  }
   .csl-split__side--wide > .csl-card {
+    position: absolute;
+    inset: 0;
     box-sizing: border-box;
-    max-height: calc(100vh - 194px);
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+  }
+  .csl-split__side--wide .csl-fix-maps__panel {
+    flex: none;
   }
   .csl-split__side--wide [data-tour='fix-tabs'] {
     flex: 1 1 auto;
@@ -1852,7 +1871,7 @@ button.csl-map__cell {
   }
   .csl-split__side--wide .csl-fixtabs__panel {
     flex: 1 1 auto;
-    min-height: 140px;
+    min-height: 160px;
     overflow-y: auto;
   }
 }
@@ -1864,7 +1883,7 @@ button.csl-map__cell {
   flex-wrap: wrap;
 }
 .csl-split__side .csl-fix-maps .csl-map {
-  --csl-map-cell: 15px;
+  --csl-map-cell: 17px;
   --csl-map-label: 26px;
 }
 /* Every other traffic label, so the numbers don't run together at this size (still read as headers). */
@@ -1883,9 +1902,25 @@ button.csl-map__cell {
 .csl-fix-maps__panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-bottom: 8px;
+  gap: 3px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--csl-border);
+}
+/* Each map is its title over the grid, with no line-box gaps around either (the panel is kept
+   ~11% shorter than with the old two-line legend, while the cells are 17px instead of 15px). */
+.csl-fix-maps > div {
+  display: flex;
+  flex-direction: column;
+}
+.csl-fix-maps > div > .csl-status {
+  font-size: 12px;
+  line-height: 14px;
+}
+.csl-fix-maps .csl-map-frame {
+  vertical-align: top;
+}
+.csl-fix-maps .csl-map__xaxis {
+  margin-top: 0;
 }
 /* Step 3's side column also holds the fixes, so its timeline may be a little shorter. */
 .csl-split__side--wide .csl-split__slot {
@@ -1950,10 +1985,12 @@ button.csl-map__cell {
   gap: 8px;
   overflow-y: auto;
 }
+/* The details take whatever the story leaves (at least 45%, as the story is capped at 55%) and
+   scroll inside, so their box is never cut off at the bottom. */
 .csl-player__sidestack > .csl-timeline-window {
-  flex: 1 1 120px;
+  flex: 1 1 0;
   height: auto;
-  min-height: 120px;
+  min-height: 0;
 }
 /* The story never hides the details: it takes at most about half the height and scrolls inside. */
 .csl-player__sidestack > .csl-story--compact {
@@ -1964,6 +2001,15 @@ button.csl-map__cell {
 .csl-story--compact {
   padding: 8px 10px;
   gap: 4px;
+}
+.csl-story__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.csl-story__head .csl-story__more {
+  align-self: baseline;
 }
 /* When the player is narrow (step 3 at ~1280 px, or stacked), the timeline goes under the chart
    so the chart keeps a readable width. */
