@@ -3,10 +3,9 @@
  * Nothing here simulates or decides anything; it only selects and formats.
  */
 import type { Analysis } from '../analysis/analyze';
-import { admittedIn, callerOf, formatMs, leafCapacityRps } from '../analysis/helpers';
+import { admittedIn, formatMs, leafCapacityRps, strictestCallerInto, trafficShares } from '../analysis/helpers';
 import type { RecoveryResult } from '../analysis/recovery';
 import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
-import { trafficShares } from '../builder/graphWalk';
 import { placeCalls, trunkSides } from './edgeRoutes';
 import type { RunResult, TierSeries } from '../engine/result';
 import type { Axis, TopologyPreset } from '../data/types';
@@ -134,7 +133,8 @@ export function topologyView(
     const busy = t.busyWorkersAvg[b] / t.workers;
     const cpu = t.busyCoresAvg[b] / t.cores;
     const leaf = leafCapacityRps(tc) !== null;
-    const timeout = callerOf(config, tc.id)?.timeoutMs ?? null;
+    // With several callers (a shared database), the least patient one: it gives up first.
+    const timeout = strictestCallerInto(config, tc.id)?.policy.timeoutMs ?? null;
     let lines: [string, string];
     // A queue: messages waiting, and how busy its consumers are (its workers only store messages).
     const consumersBusy = tc.queue ? t.busyConsumersAvg[b] / tc.queue.consumers : 0;
@@ -183,7 +183,7 @@ export function topologyView(
  */
 export function callWeights(config: RunConfig, run: RunResult, b: number, calls: Array<{ from: string; to: string; cache: boolean }>): number[] {
   const byId = new Map(config.tiers.map((t) => [t.id, t]));
-  const shares = trafficShares({ clientCall: config.client.call, tiers: config.tiers });
+  const shares = trafficShares(config);
   const part = (from: string, to: string, cache: boolean): number => {
     if (from === 'client') return 1;
     const t = byId.get(from)!;
@@ -409,10 +409,12 @@ export function chartView(
               { label: 'Typical wait (median)', values: answerTimes(run).p50, color: COLORS.secondary },
             ];
       }
-      const caller = tierScope ? callerOf(config, tierScope) : config.client.call;
+      // With several callers (a shared database), the least patient one: the first to give up.
+      const strictest = tierScope ? strictestCallerInto(config, tierScope) : null;
+      const caller = tierScope ? strictest?.policy : config.client.call;
       if (caller && caller.timeoutMs !== null) {
         // End to end, the wait spans every try, so the user's timeout applies to each try, not to the whole wait.
-        const label = tierScope ? `${name(callerOwner(config, tierScope))} gives up after ${formatMs(caller.timeoutMs)}` : `Users' apps give up on one try after ${formatMs(caller.timeoutMs)}`;
+        const label = tierScope ? `${name(strictest!.from)} gives up after ${formatMs(caller.timeoutMs)}` : `Users' apps give up on one try after ${formatMs(caller.timeoutMs)}`;
         series.push(ref(label, flat(caller.timeoutMs)));
       }
       if (!tierScope) {
@@ -456,12 +458,6 @@ export function chartView(
     defaultScopeId,
     ...(note ? { note } : {}),
   };
-}
-
-/** The id of the tier (or 'client') that calls `tierId` (the first, when several do). */
-function callerOwner(config: RunConfig, tierId: string): string {
-  if (config.client.call.target === tierId) return 'client';
-  return config.tiers.find((t) => callsOf(t).some((c) => c.target === tierId) || t.cacheAside?.target === tierId)?.id ?? 'client';
 }
 
 export function timelineView(analysis: Analysis): TimelineEntryView[] {

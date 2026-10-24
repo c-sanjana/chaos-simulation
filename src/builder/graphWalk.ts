@@ -1,13 +1,8 @@
 /**
- * Walking a system's calls: on a drawn graph (who calls whom, in which order, how deep) and on a
- * compiled topology (each part's share of the users' requests).
- *
- * NOTE: the engine/analysis work for branching adds similar helpers to `analysis/helpers.ts`
- * (`callersOf`, `callsFrom`, `trafficShares(config)`). These are kept here so the builder does not
- * depend on analysis; `trafficShares` follows the same rules (see below) and can be swapped for
- * that one once both are in.
+ * Walking a drawn graph's calls: who calls whom, in which order, and how deep. (A compiled
+ * topology's call graph is walked by `analysis/helpers.ts`: `callsFrom`, `callersOf`,
+ * `trafficShares`, … These work on the canvas's graph, before it is compiled.)
  */
-import { callsOf, type CallPolicy, type TierConfig } from '../engine/config';
 import type { BuilderEdge, BuilderGraph, BuilderNode } from './graph';
 
 const isCache = (n: BuilderNode | undefined) => n?.settings.kind === 'cache';
@@ -68,54 +63,4 @@ export function longestDepths(graph: BuilderGraph, rootId: string): Map<string, 
     }
   }
   return depth;
-}
-
-/** What a share computation needs: where users' requests go first, and the tiers. */
-export interface CallGraph {
-  clientCall: Pick<CallPolicy, 'target'>;
-  tiers: Array<Pick<TierConfig, 'id' | 'downstream' | 'moreDownstream' | 'fanOut' | 'cacheAside'>>;
-}
-
-/**
- * Each tier's share of the users' requests (1 = every request reaches it once), ignoring retries,
- * cache hits and failures: the entry tier gets 1; a tier that splits ('split') gives each call its
- * share of its own; one that calls one after another or all at once gives every call its whole
- * share; a cache gets the share of each tier that looks things up in it. Shares add up where calls
- * meet (two app servers using one database).
- * ASSUMPTION: an estimate of where traffic goes on a healthy system, for sizing scenarios and maps
- * and for splitting a shared part's measured arrivals between the arrows into it.
- */
-export function trafficShares(topology: CallGraph): Record<string, number> {
-  const byId = new Map(topology.tiers.map((t) => [t.id, t]));
-  const share: Record<string, number> = Object.fromEntries(topology.tiers.map((t) => [t.id, 0]));
-  const sends = (t: CallGraph['tiers'][number]): Array<[string, number]> => {
-    const calls = callsOf(t);
-    const out: Array<[string, number]> = [];
-    if (t.fanOut === 'split' && calls.length > 1) {
-      const total = calls.reduce((a, c) => a + weight(c), 0);
-      for (const c of calls) out.push([c.target, total > 0 ? weight(c) / total : 1 / calls.length]);
-    } else for (const c of calls) out.push([c.target, 1]);
-    if (t.cacheAside) out.push([t.cacheAside.target, 1]);
-    return out;
-  };
-  // Topological order over the tiers reached from the entry (the topology has no loops).
-  const indegree = new Map(topology.tiers.map((t) => [t.id, 0]));
-  for (const t of topology.tiers) for (const [to] of sends(t)) indegree.set(to, (indegree.get(to) ?? 0) + 1);
-  const ready = topology.tiers.filter((t) => indegree.get(t.id) === 0).map((t) => t.id);
-  if (byId.has(topology.clientCall.target)) share[topology.clientCall.target] = 1;
-  while (ready.length) {
-    const t = byId.get(ready.shift()!)!;
-    for (const [to, part] of sends(t)) {
-      if (!byId.has(to)) continue;
-      share[to] += share[t.id] * part;
-      indegree.set(to, indegree.get(to)! - 1);
-      if (indegree.get(to) === 0) ready.push(to);
-    }
-  }
-  return share;
-}
-
-/** A call's split weight: its share, or 1 when it has none (or a nonsensical one). */
-function weight(c: Pick<CallPolicy, 'share'>): number {
-  return c.share !== undefined && Number.isFinite(c.share) && c.share >= 0 ? c.share : 1;
 }

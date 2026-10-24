@@ -1,6 +1,8 @@
-import type { CallPolicy, TierConfig } from '../engine/config';
+import type { ReactNode } from 'react';
+import { shareFractions, sharesWith } from '../builder/edit';
+import { callsOf, type CallPolicy, type TierConfig } from '../engine/config';
 import { CheckboxField, NumberField } from './components/Fields';
-import { LIMITS, updateScenario, updateTier, type Draft } from './draft';
+import { LIMITS, updateCallAt, updateScenario, updateTier, type Draft } from './draft';
 import { FIELD_LIMITS as L, p99Message } from './fieldLimits';
 
 type Lognormal = { kind: 'lognormal'; medianMs: number; p99Ms: number };
@@ -28,6 +30,60 @@ function CallFields({ call, target, onChange }: { call: CallPolicy; target: stri
 }
 
 /**
+ * Every call a tier makes, each with its own timeout and retries. A tier that calls several parts
+ * also says how: a load balancer's share of traffic per call (in percent; the others make up the
+ * rest), or an app server's "one after another" / "all at once".
+ */
+function TierCalls({ tier: t, label, onCall, onTier }: { tier: TierConfig; label: (id: string) => string; onCall: (index: number, change: Partial<CallPolicy>) => void; onTier: (change: (t: TierConfig) => TierConfig) => void }) {
+  const calls = callsOf(t);
+  if (calls.length === 0) return null;
+  const split = t.fanOut === 'split' && calls.length > 1;
+  const fractions = shareFractions(calls.map((c) => c.share));
+  const setShare = (index: number, percent: number) => {
+    const next = sharesWith(calls.map((c) => c.share), index, percent);
+    onTier((x) => callsOf(x).reduce((acc, _, i) => updateCallAt(acc, i, { share: next[i] }), x));
+  };
+  return (
+    <>
+      {calls.length > 1 && !split && (
+        <label className="csl-field">
+          Calls its parts
+          <select
+            className="csl-field__box csl-field__select"
+            value={t.fanOut === 'parallel' ? 'parallel' : 'sequence'}
+            onChange={(e) => onTier((x) => ({ ...x, fanOut: e.target.value === 'parallel' ? 'parallel' : 'sequence' }))}
+          >
+            <option value="sequence">one after another</option>
+            <option value="parallel">all at once</option>
+          </select>
+        </label>
+      )}
+      {calls.map((c, i) => (
+        <CallGroup key={c.target} several={calls.length > 1}>
+          {split && (
+            <NumberField
+              label={`Share of traffic to ${label(c.target)}`}
+              unit="%"
+              value={Math.round(fractions[i] * 100)}
+              min={1}
+              max={99}
+              integer
+              onChange={(v) => setShare(i, v)}
+            />
+          )}
+          <CallFields call={c} target={label(c.target)} onChange={(change) => onCall(i, change)} />
+        </CallGroup>
+      ))}
+    </>
+  );
+}
+
+/** One call's fields; with several calls each is framed, so it is clear which fields go together. */
+function CallGroup({ several, children }: { several: boolean; children: ReactNode }) {
+  return several ? <div className="csl-field-grid csl-call-group">{children}</div> : <>{children}</>;
+}
+
+/**
  * Settings of the topology and scenario, grouped by part, with the same words and limits as the
  * builder's settings panel. Edits the draft only.
  * `only` limits it to one tier (or 'client' for traffic and the run); null shows everything.
@@ -36,7 +92,7 @@ export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; o
   const s = draft.scenario;
   const label = (id: string) => draft.topology.layout[id]?.label ?? id;
   const tier = (id: string, change: (t: TierConfig) => TierConfig) => onChange(updateTier(draft, id, change));
-  const call = (t: TierConfig, change: Partial<CallPolicy>) => tier(t.id, (x) => ({ ...x, downstream: { ...x.downstream!, ...change } }));
+  const call = (t: TierConfig, index: number, change: Partial<CallPolicy>) => tier(t.id, (x) => updateCallAt(x, index, change));
   const service = (t: TierConfig, change: Partial<Lognormal>) => tier(t.id, (x) => ({ ...x, service: { ...(x.service as Lognormal), ...change } }));
   const tiers = only === null ? draft.topology.tiers : draft.topology.tiers.filter((t) => t.id === only);
   return (
@@ -110,7 +166,7 @@ export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; o
                   <CheckboxField label="Skip requests whose caller already gave up" checked={t.dropExpired} onChange={(on) => tier(t.id, (x) => ({ ...x, dropExpired: on }))} />
                 </>
               )}
-              {t.downstream && <CallFields call={t.downstream} target={label(t.downstream.target)} onChange={(change) => call(t, change)} />}
+              <TierCalls tier={t} label={label} onCall={(index, change) => call(t, index, change)} onTier={(change) => tier(t.id, change)} />
             </div>
           </fieldset>
         );

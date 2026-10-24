@@ -4,7 +4,8 @@
  */
 import { leafCapacityRps, admittedIn } from '../analysis/helpers';
 import type { Verdict } from '../analysis/recovery';
-import type { RunConfig, TierConfig } from '../engine/config';
+import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
+import { shareFractions } from '../builder/edit';
 import type { RunResult } from '../engine/result';
 import type { AnalyzeResult } from '../worker/jobs';
 import { callKey, countsText, describeFault, retriesByCaller, retryCalls, type Draft } from './draft';
@@ -208,14 +209,22 @@ const TIER_FIELDS: Array<[string, (t: TierConfig) => string | number | undefined
   ['queue limit', (t) => (t.queueLimit === null ? 'none' : t.queueLimit)],
   ['typical service time', (t) => (t.service.kind === 'lognormal' ? `${t.service.medianMs} ms` : undefined)],
   ['slowest 1% service time', (t) => (t.service.kind === 'lognormal' ? `${t.service.p99Ms} ms` : undefined)],
-  ['timeout', (t) => (t.downstream?.timeoutMs == null ? undefined : `${t.downstream.timeoutMs} ms`)],
-  ['retry wait', (t) => (t.downstream ? `${t.downstream.backoffBaseMs} ms` : undefined)],
-  ['random retry delays', (t) => (t.downstream ? (t.downstream.jitter ? 'on' : 'off') : undefined)],
   ['skips abandoned work', (t) => (t.dropExpired ? 'on' : 'off')],
   ['size', (t) => t.cache?.capacity],
   ['entry lifetime', (t) => (t.cache?.ttlMs == null ? undefined : `${t.cache.ttlMs / 1000} s`)],
   ['distinct keys', (t) => t.cache?.keys],
   ['popularity skew', (t) => t.cache?.skew],
+];
+
+/** The tier field its calls' changes are listed just before. */
+const CALLS_BEFORE = 'skips abandoned work';
+
+/** Settings of each call a tier makes (every one of them, `callsOf`), in plain words. */
+const CALL_FIELDS: Array<[string, (c: CallPolicy, t: TierConfig) => string | undefined]> = [
+  ['timeout', (c) => (c.timeoutMs == null ? undefined : `${c.timeoutMs} ms`)],
+  ['retry wait', (c) => `${c.backoffBaseMs} ms`],
+  ['random retry delays', (c) => (c.jitter ? 'on' : 'off')],
+  ['share of traffic', (c, t) => (t.fanOut === 'split' && callsOf(t).length > 1 ? `${Math.round(100 * shareFractions(callsOf(t).map((x) => x.share))[callsOf(t).indexOf(c)])}%` : undefined)],
 ];
 
 /** What differs between two drafts, in plain words: traffic, failures, retries, then other settings. */
@@ -247,10 +256,28 @@ export function settingsChanges(prev: Draft, next: Draft): string[] {
   for (const t of next.topology.tiers) {
     const old = prev.topology.tiers.find((x) => x.id === t.id);
     if (!old) continue;
+    // Each call, matched by its target; "API timeout …" for a single call, "API → DB 2 timeout …" when it makes several.
+    const calls = callsOf(t);
+    const callChanges: string[] = [];
+    for (const c of calls) {
+      const was = callsOf(old).find((x) => x.target === c.target);
+      if (!was) continue;
+      const who = calls.length > 1 ? `${label(t.id)} → ${label(c.target)}` : label(t.id);
+      for (const [field, get] of CALL_FIELDS) {
+        const [x, y] = [get(was, old), get(c, t)];
+        if (x !== y && y !== undefined) callChanges.push(`${who} ${field} ${x} → ${y}`);
+      }
+    }
+    if (calls.length > 1 && t.fanOut !== old.fanOut && t.fanOut !== 'split' && old.fanOut !== 'split') {
+      callChanges.push(`${label(t.id)} calls its parts ${t.fanOut === 'parallel' ? 'all at once' : 'one after another'}`);
+    }
+    // The tier's own settings, with its calls' listed where the timeout used to be (after the service times).
     for (const [field, get] of TIER_FIELDS) {
+      if (field === CALLS_BEFORE) out.push(...callChanges.splice(0));
       const [x, y] = [get(old), get(t)];
       if (x !== y && y !== undefined) out.push(`${label(t.id)} ${field} ${x} → ${y}`);
     }
+    out.push(...callChanges);
   }
   return out;
 }

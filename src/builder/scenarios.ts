@@ -2,7 +2,7 @@ import type { TierConfig } from '../engine/config';
 import { lognormalMoments } from '../engine/theory';
 import { LIMITS } from '../data/limits';
 import type { Axis, ScenarioPreset, TopologyPreset } from '../data/types';
-import { trafficShares } from './graphWalk';
+import { trafficShares } from '../analysis/helpers';
 
 const START_MS = 30_000;
 const DURATION_MS = 120_000;
@@ -27,7 +27,7 @@ export function tierCapacityRps(t: TierConfig): number {
  */
 export function estimateCapacityRps(topology: TopologyPreset): number {
   const byId = new Map(topology.tiers.map((t) => [t.id, t]));
-  const shares = trafficShares(topology);
+  const shares = sharesOf(topology);
   let best = Infinity;
   for (const t of topology.tiers) {
     const share = shares[t.id] ?? 0;
@@ -36,6 +36,11 @@ export function estimateCapacityRps(topology: TopologyPreset): number {
     if (t.queue && t.downstream) best = Math.min(best, (t.queue.consumers * 1000) / meanMs(byId.get(t.downstream.target)!) / share);
   }
   return best;
+}
+
+/** Each tier's share of the users' requests (`trafficShares`), for a topology without a scenario. */
+export function sharesOf(topology: TopologyPreset): Record<string, number> {
+  return trafficShares({ seed: 0, durationMs: 0, client: { rps: 0, call: topology.clientCall }, tiers: topology.tiers });
 }
 
 /** Whole, round steps that read well on an axis. */
@@ -121,7 +126,7 @@ export const MAX_PER_KIND = 3;
  */
 export function builtScenarios(topology: TopologyPreset, kinds: Record<string, string>, rps: number): ScenarioPreset[] {
   const byId = new Map(topology.tiers.map((t) => [t.id, t]));
-  const shares = trafficShares(topology);
+  const shares = sharesOf(topology);
   const share = (t: TierConfig) => shares[t.id] ?? 0;
   const position = (t: TierConfig) => topology.tiers.indexOf(t);
   /** Busiest first; among equally busy, front to back (databases back to front: the last one first, as in a chain). */

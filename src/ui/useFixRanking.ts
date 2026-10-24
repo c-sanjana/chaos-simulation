@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Analysis } from '../analysis/analyze';
 import type { RunConfig } from '../engine/config';
+import type { RunResult } from '../engine/result';
 import { candidateFixes, type FixCandidate } from '../fixes/candidates';
 import { fixHelped, rankFixes, seedAgreement, seedVariants, withLongerOutage, type FixOutcome, type RankedFix, type Robustness } from '../fixes/rank';
 import { stableKey } from '../worker/cachingPool';
@@ -29,7 +30,8 @@ export interface FixRankingState {
 const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tested: 0, robustness: {}, checking: false, longerApplies: null, error: null };
 
 /**
- * Tries every candidate fix for a run in the worker pool, ranking them by what actually happened as
+ * Tries every candidate fix for a run in the worker pool (`run`, the run itself, lets the candidates
+ * aim at the call that carried the most load when several call one part), ranking them by what actually happened as
  * results arrive; then checks whether every fix that helped holds up: on other random seeds, and
  * with a slowdown twice as long (a fix tuned to exactly this failure may not survive a worse one).
  * Fixes that hold up rank first. Each run is the fixed config compared with its own no-failure
@@ -38,7 +40,7 @@ const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tes
  * Each fix is analysed in full where the pool keeps results (see CellOptions.analysisLabels), so
  * replaying the chosen fix at the viewer's settings reuses the ranking's run instead of re-running it.
  */
-export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analysis | null, labels: Record<string, string>): FixRankingState {
+export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analysis | null, labels: Record<string, string>, run?: RunResult): FixRankingState {
   const key = analysis ? stableKey(config) + stableKey(labels) : null;
   const [state, setState] = useState<FixRankingState>(EMPTY);
   useEffect(() => {
@@ -48,7 +50,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
     }
     const r = analysis.recovery;
     const original: FixOutcome = { verdict: r.verdict, recoveryMs: r.recoveryMs, failedRequests: r.failedRequests };
-    const candidates = candidateFixes(config, analysis.signals, labels);
+    const candidates = candidateFixes(config, analysis.signals, labels, run);
     const results: Array<{ candidate: FixCandidate; outcome: FixOutcome }> = [];
     const robustness: Record<string, Robustness> = {};
     setState({ ...EMPTY, original, candidates, checking: candidates.length > 0 });

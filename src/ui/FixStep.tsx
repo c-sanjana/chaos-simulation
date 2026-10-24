@@ -36,7 +36,7 @@ export interface FixStepProps {
  * everywhere: its details, the before/after maps and the before/after replay (of any map cell).
  */
 export function FixStep({ pool, topology, scenario, config, original, labels, onEdit }: FixStepProps) {
-  const ranking = useFixRanking(pool, config, original?.analysis ?? null, labels);
+  const ranking = useFixRanking(pool, config, original?.analysis ?? null, labels, original?.run);
   /** The viewer's pick; until then the best fix is shown once the checks are done. */
   const [chosenId, setChosenId] = useState<string | null>(null);
   useEffect(() => setChosenId(null), [config]);
