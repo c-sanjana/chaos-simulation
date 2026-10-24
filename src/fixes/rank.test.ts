@@ -18,9 +18,13 @@ describe('fixHelped', () => {
     expect(fixHelped(out('overloaded', null, 900), out('stuck', null, 5))).toBe(false);
   });
 
-  it('from recovered, helping means recovering strictly faster or failing strictly fewer requests', () => {
+  it('from recovered, helping means recovering more than a tie faster or failing fewer, and never failing more', () => {
     const recovered = out('recovered', 5000, 300);
-    expect(fixHelped(recovered, out('recovered', 4000, 300))).toBe(true);
+    expect(fixHelped(recovered, out('recovered', 3000, 300))).toBe(true);
+    expect(fixHelped(recovered, out('recovered', 4000, 300))).toBe(false); // 1 s faster is a tie
+    // Faster but more users fail: not help (review 2: 1 s → 0 s while failing 43 instead of 0).
+    expect(fixHelped(out('recovered', 1000, 0), out('recovered', 0, 43))).toBe(false);
+    expect(fixHelped(recovered, out('unaffected', null, 301))).toBe(false);
     expect(fixHelped(recovered, out('recovered', 5000, 299))).toBe(true);
     expect(fixHelped(recovered, out('recovered', 5000, 300))).toBe(false);
     expect(fixHelped(recovered, out('recovered', 6000, 400))).toBe(false);
@@ -147,8 +151,12 @@ describe('seedVariants and seedAgreement', () => {
   it('counts the seeds on which the fix helped against the original at the same seed', () => {
     const originals = [stuck, stuck, out('recovered', 4000, 100), out('recovered', 4000, 100), stuck];
     const fixed = [out('recovered', 1000, 10), stuck, out('recovered', 2000, 100), out('recovered', 5000, 100), out('unaffected', null, 0)];
-    expect(seedAgreement(originals, fixed)).toEqual({ helped: 3, of: 5 });
-    expect(seedAgreement([], [])).toEqual({ helped: 0, of: 0 });
+    // Seed 4: the original recovered by itself and the fix kept it so (1 s slower is a tie): left out.
+    expect(seedAgreement(originals, fixed)).toEqual({ helped: 3, of: 4, alreadyFine: 1 });
+    // A fix that makes an already-fine seed worse still counts against it.
+    expect(seedAgreement([out('recovered', 4000, 100)], [out('recovered', 9000, 100)])).toEqual({ helped: 0, of: 1, alreadyFine: 0 });
+    expect(seedAgreement([out('recovered', 4000, 0)], [out('recovered', 4000, 5)])).toEqual({ helped: 0, of: 1, alreadyFine: 0 });
+    expect(seedAgreement([], [])).toEqual({ helped: 0, of: 0, alreadyFine: 0 });
   });
 
   it('needs one fixed outcome per original', () => {
@@ -161,7 +169,7 @@ describe('isReliable', () => {
     expect(isReliable(undefined)).toBeNull();
     expect(isReliable({})).toBeNull();
     expect(isReliable({ longer: true })).toBeNull();
-    expect(isReliable({ seeds: { helped: 0, of: 0 } })).toBeNull();
+    expect(isReliable({ seeds: { helped: 0, of: 0, alreadyFine: 5 } })).toBe(true); // every seed fine without it: nothing against it
     expect(isReliable({ seeds: { helped: 4, of: 5 } })).toBe(true);
     expect(isReliable({ seeds: { helped: 5, of: 5 }, longer: true })).toBe(true);
     expect(isReliable({ seeds: { helped: 8, of: 10 } })).toBe(true);

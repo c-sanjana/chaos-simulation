@@ -3,10 +3,10 @@
  * in-process fallback pool, and tested directly (the worker entry point only wires messages).
  */
 import { analyzeRun, type Analysis } from '../analysis/analyze';
-import { assessRecovery, controlConfig, type Verdict } from '../analysis/recovery';
+import type { Verdict } from '../analysis/recovery';
+import { simulateUntilSettled } from '../analysis/settle';
 import type { RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
-import { runSimulation } from '../engine/run';
 
 /** What a tipping-point map needs from one cell: small, so it is cheap to send between threads. */
 export interface CellSummary {
@@ -27,14 +27,19 @@ export type CellJob = { kind: 'cell'; config: RunConfig };
 export type Job = AnalyzeJob | CellJob;
 export type JobResult = AnalyzeResult | CellSummary;
 
-/** Runs a job's config and its control (same config and seed, no failures), then analyses them. */
+/**
+ * Runs a job's config and its control (same config and seed, no failures), extended while a
+ * backlog is still draining (see settle.ts), then analyses them.
+ */
 export function executeJob(job: AnalyzeJob): AnalyzeResult;
 export function executeJob(job: CellJob): CellSummary;
 export function executeJob(job: Job): JobResult;
 export function executeJob(job: Job): JobResult {
-  const run = runSimulation(job.config);
-  const control = runSimulation(controlConfig(job.config));
-  if (job.kind === 'analyze') return { run, control, analysis: analyzeRun(run, control, job.config, job.labels) };
-  const { verdict, recoveryMs, failedRequests } = assessRecovery(run, control, job.config);
+  const { config, run, control, recovery } = simulateUntilSettled(job.config);
+  if (job.kind === 'analyze') {
+    const analysis = analyzeRun(run, control, config, job.labels);
+    return { run, control, analysis: { ...analysis, recovery } };
+  }
+  const { verdict, recoveryMs, failedRequests } = recovery;
   return { verdict, recoveryMs, failedRequests };
 }

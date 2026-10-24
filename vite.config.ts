@@ -9,6 +9,8 @@ export default defineConfig({
   base: './',
   worker: { format: 'es' },
   test: {
+    // Agents' worktrees live under .claude/; their tests are not this checkout's.
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**'],
     globals: true,
     environment: 'node',
     environmentMatchGlobs: [['src/ui/**', 'jsdom']],

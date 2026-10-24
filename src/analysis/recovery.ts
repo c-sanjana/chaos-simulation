@@ -27,6 +27,13 @@ export interface RecoveryResult {
   judgedUntilMs: number;
   /** When the last failure ends, as configured (it may be at or after the end of the run). */
   lastFaultEndMs: number;
+  /**
+   * Stuck only because the run (already extended to its longest, see settle.ts) ended while a
+   * backlog was still draining steadily: about how much longer it needed. Absent otherwise.
+   */
+  catchingUpMs?: number;
+  /** Overloaded: why. 'failures' = the no-failure run fails requests; 'queue' = a message queue falls further behind even without the failure. */
+  overloadedBy?: 'failures' | 'queue';
 }
 
 /**
@@ -108,7 +115,8 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   }
 
   const base = { failedRequests, judgedUntilMs, lastFaultEndMs };
-  if (controlFailures > 0 || queueFallsBehind(control, config, firstFaultStartMs, judgedUntilMs)) return { verdict: 'overloaded', recoveredAtMs: null, recoveryMs: null, ...base };
+  if (controlFailures > 0) return { verdict: 'overloaded', recoveredAtMs: null, recoveryMs: null, ...base, overloadedBy: 'failures' };
+  if (queueFallsBehind(control, config, firstFaultStartMs, judgedUntilMs)) return { verdict: 'overloaded', recoveredAtMs: null, recoveryMs: null, ...base, overloadedBy: 'queue' };
 
   const maxIgnoringNaN = (xs: number[]) => xs.reduce((m, x) => (x > m ? x : m), 0);
   const p99CeilingBin = latencyBin(maxIgnoringNaN(control.client.latencyP99Ms));

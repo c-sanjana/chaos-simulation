@@ -210,7 +210,7 @@ export function fixTab(f: RankedFix, original: FixOutcome, robustness: Robustnes
   if (f.helped && robustness?.longer === false && longerS !== null) measured.push(`Didn't help when the slowdown lasted ${longerS} s`);
   const checks: string[] = [];
   if (f.helped) {
-    if (seeds) checks.push(`helped in ${seeds.helped} of ${seeds.of} random runs`);
+    if (seeds) checks.push(`helped in ${seeds.helped} of ${seeds.of} random runs${seeds.alreadyFine ? ` (${seeds.alreadyFine} more recovered without it)` : ''}`);
     if (robustness?.longer !== undefined && longerS !== null) checks.push(robustness.longer ? `still helps if the slowdown lasts ${longerS} s` : `doesn't help if it lasts ${longerS} s`);
     if (!seeds || (robustness?.longer === undefined && longerS !== null)) checks.push('checking whether it holds up…');
   }

@@ -1,6 +1,6 @@
-import { assessRecovery, controlConfig, type Verdict } from '../analysis/recovery';
+import type { Verdict } from '../analysis/recovery';
+import { simulateUntilSettled } from '../analysis/settle';
 import type { RunConfig } from '../engine/config';
-import { runSimulation } from '../engine/run';
 import type { FixCandidate } from './candidates';
 import { FIX_CATALOG } from './catalog';
 
@@ -26,9 +26,9 @@ export interface RankedFix {
  * comes out as "overloaded" and ranks last.
  */
 export function measureOutcome(config: RunConfig): FixOutcome {
-  const run = runSimulation(config);
-  const control = runSimulation(controlConfig(config));
-  const { verdict, recoveryMs, failedRequests } = assessRecovery(run, control, config);
+  // Every run being compared is extended until it settles, so a fix can't win (or lose) just
+  // because its run is judged over a different stretch of time.
+  const { verdict, recoveryMs, failedRequests } = simulateUntilSettled(config).recovery;
   return { verdict, recoveryMs, failedRequests };
 }
 
@@ -39,13 +39,29 @@ const timeToNormal = (o: FixOutcome) => (o.verdict === 'unaffected' ? 0 : o.reco
 
 /**
  * Did the fix help? It turns a stuck/overloaded run into recovered/unaffected, or (if the original
- * already got back to normal) still gets back to normal and recovers strictly faster or fails
- * strictly fewer requests.
+ * already got back to normal) still gets back to normal, fails no more requests, and either
+ * recovers more than RECOVERY_TIE_MS faster or fails fewer requests.
+ * A fix that makes more users fail never counts as helping, however much faster things look:
+ * review 2 found "Cap retries" ranked first on a 1 s blip for recovering 1 s sooner while failing
+ * 43 requests instead of 0.
  */
 export function fixHelped(original: FixOutcome, fixed: FixOutcome): boolean {
   if (!backToNormal(original.verdict)) return backToNormal(fixed.verdict);
-  if (!backToNormal(fixed.verdict)) return false;
-  return timeToNormal(fixed) < timeToNormal(original) || fixed.failedRequests < original.failedRequests;
+  if (!backToNormal(fixed.verdict) || fixed.failedRequests > original.failedRequests) return false;
+  return timeToNormal(fixed) < timeToNormal(original) - RECOVERY_TIE_MS || fixed.failedRequests < original.failedRequests;
+}
+
+/**
+ * The original was already fine and the fix kept it that way (back to normal, no more failures,
+ * no slower beyond a tie): there was nothing for the fix to improve.
+ */
+function nothingToImprove(original: FixOutcome, fixed: FixOutcome): boolean {
+  return (
+    backToNormal(original.verdict) &&
+    backToNormal(fixed.verdict) &&
+    fixed.failedRequests <= original.failedRequests &&
+    timeToNormal(fixed) <= timeToNormal(original) + RECOVERY_TIE_MS
+  );
 }
 
 /**
@@ -71,10 +87,10 @@ const RELIABLE_SHARE = 0.8;
  * always apply); false when either check failed; null while the seeds are still unknown.
  */
 export function isReliable(r: Robustness | undefined): boolean | null {
-  if (r === undefined) return null;
-  const seedsKnown = r.seeds !== undefined && r.seeds.of > 0;
-  if ((seedsKnown && r.seeds!.helped < RELIABLE_SHARE * r.seeds!.of) || r.longer === false) return false;
-  return seedsKnown ? true : null;
+  if (r === undefined || r.seeds === undefined) return r?.longer === false ? false : null;
+  // Every seed already fine without the fix: nothing contradicts it.
+  if ((r.seeds.of > 0 && r.seeds.helped < RELIABLE_SHARE * r.seeds.of) || r.longer === false) return false;
+  return true;
 }
 
 /**
@@ -167,12 +183,23 @@ export function seedVariants(config: RunConfig, count = 5): RunConfig[] {
 }
 
 export interface SeedAgreement {
+  /** Seeds where the fix helped. */
   helped: number;
+  /** Seeds that could tell: the original needed help (or the fix made it worse). */
   of: number;
+  /** Seeds left out of `of`: the original was already fine and the fix kept it so (0 when absent). */
+  alreadyFine?: number;
 }
 
-/** Per seed i: did the fix help vs the original at the same seed. Both lists are in seed order. */
+/**
+ * Per seed i: did the fix help vs the original at the same seed. Both lists are in seed order.
+ * A seed where the original recovered by itself and the fix kept it that way says nothing about
+ * the fix, so it is left out of the count rather than counted as "didn't help" (review 2: Bound
+ * queue showed ✓ next to "helped in only 4 of 5 runs, so it depends on luck" because seed 46
+ * recovered without it).
+ */
 export function seedAgreement(originals: FixOutcome[], fixed: FixOutcome[]): SeedAgreement {
   if (originals.length !== fixed.length) throw new Error(`seedAgreement needs one fixed outcome per seed (${originals.length} vs ${fixed.length})`);
-  return { helped: originals.filter((o, i) => fixHelped(o, fixed[i])).length, of: originals.length };
+  const alreadyFine = originals.filter((o, i) => !fixHelped(o, fixed[i]) && nothingToImprove(o, fixed[i])).length;
+  return { helped: originals.filter((o, i) => fixHelped(o, fixed[i])).length, of: originals.length - alreadyFine, alreadyFine };
 }
