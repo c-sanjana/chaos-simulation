@@ -61,6 +61,34 @@ dark mode, and the page stays light unless you choose dark).
    changed labelled on the diagram, and whether the tipping point moved; click any cell of either
    map to replay that cell before and after.
 
+### Build your own system
+
+**✎ Build your own system** (top right) opens a canvas with the current system drawn on it. Drag
+components from the palette (or use their **Add** buttons): **client, load balancer, server,
+cache, database, queue**. Each starts with realistic defaults, and every setting can be changed in
+the panel beside the canvas, in plain words. Connect parts by dragging from a box's handle to
+another box, or with **Calls…**; select an arrow to set its timeout and retries. Problems are
+listed in plain words ("Server has a cache but nothing to ask when the cache doesn't have the
+answer"), and **Use this topology** runs all three steps on it.
+
+- **Chains for now.** Each part calls one next part, plus one cache for a server. Branching (a
+  server calling several parts, a load balancer splitting over several pools) is next.
+- **Scenarios are picked by what each part is:** the database slows down; the cache restarts
+  empty; the front door slows down enough to serve about half the traffic; the work behind a
+  queue slows down. The map's traffic range comes from the system's own capacity without cache
+  help (for the example system that is the DB's ~160 req/s, giving the preset's 60–240).
+- **The queue is an asynchronous message queue.** The sender is answered as soon as the message is
+  stored. Consumers take messages in order and call the next part with its timeout and retries; a
+  message that still fails is dropped ("dead-lettered"). Users never see a backlog, so the story,
+  the timeline and the diagram show it: messages waiting, consumers busy, how late the work is.
+  A "twice as many consumers" fix is offered when messages pile up; it is often a lesson in
+  itself, because when the part behind the queue is what's slow, more consumers just send it
+  more work at once.
+- **Accuracy.** A drawn topology compiles to exactly the data the presets use. The example system
+  redrawn on the canvas simulates identically to the preset (same results, request for request).
+  The queue is checked against queueing theory (M/D/1 and M/M/c waits, throughput, backlog growth
+  and drain time; see "How we know it's right").
+
 ## Why this is interesting
 
 Blog posts say "cap your retries", but not *at what point that starts to matter for your
@@ -112,14 +140,18 @@ bit-for-bit repeatable.
 ### "Recovered" means "back to how it behaves with no failure at all"
 
 Each run is compared with a **control run**: the same config and seed with the failures removed. A
-second counts as healthy when all three of these hold:
+second counts as healthy when all of these hold:
 1. every request succeeded exactly when it succeeded in the control;
 2. p99 latency is within the control's own range;
-3. every tier's queue is within the control's own range.
+3. every tier's queue is within the control's own range;
+4. every message queue's backlog is within the control's own range (its senders are answered at
+   once, so users alone would call a backlog that never drains "recovered");
+5. no message queue drops more messages than in the control's worst second.
 
 The run has recovered from the first second after which every judged second is healthy. Otherwise
-it is stuck. If the control itself fails requests, the verdict is **overloaded**. No tolerance is
-hand-tuned: the bounds come from the control run.
+it is stuck. If the control itself fails requests, or a message queue falls further and further
+behind even without the failure, the verdict is **overloaded**. No tolerance is hand-tuned: the
+bounds come from the control run.
 
 <details>
 <summary>Why not require every request to match the control exactly?</summary>
@@ -185,6 +217,8 @@ about 4 s on a laptop.
 - cache-aside caching (LRU, TTL, Zipf keys, warm start, coalesced misses)
 - slow, dead and per-instance failures, and cache restarts
 - long-tailed (lognormal) service times
+- asynchronous message queues: bounded depth, a pool of consumers calling the next part with
+  retries, dead-lettering, durable messages (a queue that goes down keeps what it holds)
 
 **Not modelled.** Each of these is a way real behaviour can differ:
 - garbage-collection pauses
@@ -212,6 +246,9 @@ the first check, this fix did not help in the default scenario (0 of 5 seeds); w
 - a tier that drops expired requests checks the deadline when a request starts computing, not
   during the computation, so a request that expires mid-compute still finishes (and is wasted);
 - cache writes are instantaneous and free;
+- a queue's consumers need no worker or CPU of the queue's own, and handing a message over takes no
+  time; delivery is "at least once" (a sender that times out and retries stores the message twice);
+  a dead-lettered message is counted and dropped, not reprocessed;
 - per-instance busyness in the diagram is drawn at the tier average.
 
 ## Design rationale

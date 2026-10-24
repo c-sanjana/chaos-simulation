@@ -1259,6 +1259,11 @@ button.csl-map__cell {
 }
 .csl-topology-grid--compact .csl-node__label {
   font-size: 13px;
+  /* One line, so a long name ("Load balancer") doesn't make every box taller; the full name is the tooltip. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .csl-topology-grid--compact .csl-node__count {
   display: none;

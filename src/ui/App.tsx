@@ -146,9 +146,6 @@ export function App({ pool: injected }: AppProps) {
       {canvas !== null && (
         <section className="csl-card csl-card--compact csl-builder-page" aria-label="Build your own system">
           <div className="csl-builder-page__head">
-            <h2 className="csl-section-title" style={{ margin: 0 }}>
-              Build your own system
-            </h2>
             <span className="csl-builder-page__note">A chain for now: each part calls one next part, plus a cache. Branching is coming next.</span>
             {system.kind === 'custom' && (
               <button type="button" className="csl-btn csl-btn--small" onClick={() => (switchSystem(PRESET_SYSTEM), setCanvas(null))}>

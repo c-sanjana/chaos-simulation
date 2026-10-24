@@ -93,11 +93,15 @@ export function topologyView(
     const leaf = leafCapacityRps(tc) !== null;
     const timeout = callerOf(config, tc.id)?.timeoutMs ?? null;
     let lines: [string, string];
-    if (tc.cache) lines = [`hit rate ${pct(t.hits[b] / Math.max(1, t.ok[b]))}`, `p99 ${Number.isNaN(t.latencyP99Ms[b]) ? '—' : formatMs(t.latencyP99Ms[b])}`];
+    // A queue: messages waiting, and how busy its consumers are (its workers only store messages).
+    const consumersBusy = tc.queue ? t.busyConsumersAvg[b] / tc.queue.consumers : 0;
+    if (tc.queue) lines = [`${Math.round(t.backlogAvg[b]).toLocaleString('en-US')} waiting`, `consumers ${pct(consumersBusy)}`];
+    else if (tc.cache) lines = [`hit rate ${pct(t.hits[b] / Math.max(1, t.ok[b]))}`, `p99 ${Number.isNaN(t.latencyP99Ms[b]) ? '—' : formatMs(t.latencyP99Ms[b])}`];
     else if (leaf) lines = [`${Math.round(perSecond(run, arrivals(t, b)))} rps in`, `CPU ${pct(cpu)}`];
     else lines = [`workers ${pct(busy)}`, `CPU ${pct(cpu)}`];
     // Overloaded: all workers (or a leaf's cores) busy, or answers slower than the caller waits.
-    const overloaded = busy >= 0.99 || (leaf && cpu >= 0.99) || (timeout !== null && t.latencyP99Ms[b] > timeout);
+    // A queue is overloaded while more messages wait than its consumers can hold at once.
+    const overloaded = tc.queue ? t.backlogAvg[b] > tc.queue.consumers : busy >= 0.99 || (leaf && cpu >= 0.99) || (timeout !== null && t.latencyP99Ms[b] > timeout);
     const bad = overloaded || errorShare(t, b) > BAD_ERROR_SHARE;
     const change = changes.filter((x) => x.tier === tc.id).map((x) => x.text).join(', ');
     nodes.push({
@@ -105,9 +109,9 @@ export function topologyView(
       label: layout.label,
       col: layout.col,
       row: layout.row,
-      instanceCountLabel: `${tc.instances} instance${tc.instances === 1 ? '' : 's'}`,
+      instanceCountLabel: tc.queue ? `${tc.queue.consumers} consumers` : `${tc.instances} instance${tc.instances === 1 ? '' : 's'}`,
       // ASSUMPTION: metrics are per tier, so every instance is drawn at the tier's average busyness.
-      instanceBusy: new Array<number>(tc.instances).fill(busy),
+      instanceBusy: new Array<number>(tc.instances).fill(tc.queue ? consumersBusy : busy),
       lines,
       health: bad ? 'bad' : 'ok',
       errorShare: errorShare(t, b),

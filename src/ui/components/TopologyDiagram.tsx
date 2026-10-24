@@ -138,7 +138,9 @@ function Node({ node, selected, onSelect, editable }: { node: TopologyNodeView; 
         </span>
       )}
       <span className="csl-node__head">
-        <span className="csl-node__label">{node.label}</span>
+        <span className="csl-node__label" title={node.label}>
+          {node.label}
+        </span>
         {node.instanceCountLabel && <span className="csl-node__count">{node.instanceCountLabel}</span>}
         {editable && (
           <span className="csl-node__edit" aria-hidden="true">
@@ -357,12 +359,23 @@ export interface TopologyDiagramProps {
   compact?: boolean;
 }
 
-/** System diagram: tiers as selectable cards on a 7×3 grid, flows as arrows between them. */
+/**
+ * Columns for a chain longer than the presets' 7: boxes and arrows alternate, sharing the width
+ * (the presets keep their tuned 7-column template from the stylesheet).
+ */
+export function gridStyle(nodes: TopologyNodeView[]): CSSProperties | undefined {
+  const cols = Math.max(0, ...nodes.map((n) => n.col));
+  if (cols <= 7) return undefined;
+  const template = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? 'minmax(0, 1fr)' : 'minmax(40px, 0.55fr)')).join(' ');
+  return { gridTemplateColumns: template, minWidth: 0 };
+}
+
+/** System diagram: tiers as selectable cards on a grid (7×3 for the presets), flows as arrows between them. */
 export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, editable = false, actions, compact = false }: TopologyDiagramProps) {
   return (
     <div>
       <div className="csl-topology-scroll">
-        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}`}>
+        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}`} style={gridStyle(nodes)}>
           {nodes.map((n) => (
             <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} />
           ))}

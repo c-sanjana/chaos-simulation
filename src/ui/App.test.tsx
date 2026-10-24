@@ -313,4 +313,38 @@ describe('App', { timeout: 60_000 }, () => {
     await act(async () => {});
     unmount();
   });
+
+  it('builds a system on the canvas and runs every step on it', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: '✎ Build your own system' }));
+    // The canvas opens on the example system, drawn.
+    const builder = screen.getByRole('region', { name: 'Build your own system' });
+    expect(within(builder).getByText(/Branching is coming next/)).toBeTruthy();
+    fireEvent.click(within(builder).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('region', { name: 'Build your own system' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '✎ Build your own system' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect((screen.getByRole('button', { name: 'Use this topology' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Start from the example' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Use this topology' }));
+    // New tier ids: the old run must never be shown against the new system.
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['loadBalancer-1', 'server-1', 'cache-1', 'database-1']), SLOW);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Database slows down/);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    expect(screen.getAllByRole('button', { name: /slows down|restarts empty/ }).map((b) => b.textContent!.split(/(?<=down|empty)/)[0])).toEqual(['Database slows down', 'Cache restarts empty', 'Load balancer slows down']);
+    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0].tier).toBe('cache-1'), SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
+    await screen.findByText(/Traffic × failure length/, undefined, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
+    // Edit the built system again; then go back to the example.
+    fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use the example system instead' }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['gateway', 'api', 'cache', 'db']), SLOW);
+    expect(screen.getByRole('button', { name: '✎ Build your own system' })).toBeTruthy();
+  });
 });
