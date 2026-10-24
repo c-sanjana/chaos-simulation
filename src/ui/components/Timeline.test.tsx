@@ -4,7 +4,7 @@ import type { TimelineEntryView } from './types';
 
 const entries: TimelineEntryView[] = [
   { tMs: 30_000, text: 'DB slows 8× (injected failure)', kind: 'fault' },
-  { tMs: 31_000, text: 'DB p99 1.9 s exceeds the API timeout of 1 s', kind: 'info' },
+  { tMs: 31_000, text: 'DB p99 1.9 s exceeds the app server timeout of 1 s', kind: 'info' },
   { tMs: 34_000, text: 'Tipping point: API queue holds 2.4 s of work', kind: 'tip' },
   { tMs: 36_000, endMs: 120_000, text: 'Still stuck', kind: 'info' },
   { tMs: 120_000, text: 'Never matched the no-failure run: stuck', kind: 'bad' },

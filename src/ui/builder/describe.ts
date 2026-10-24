@@ -2,7 +2,7 @@
  * Plain-language text for the builder: the key numbers on a box, the label on an arrow, and the
  * fuller sentences screen readers hear. Pure, so it is easy to test and reuse.
  */
-import { KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode, type CallSettings, type NodeSettings } from '../../builder/graph';
+import { aKind, KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode, type CallSettings, type NodeSettings } from '../../builder/graph';
 
 /** 1234 → "1,234". */
 export function formatCount(n: number): string {
@@ -57,14 +57,13 @@ export function edgeEnds(graph: BuilderGraph, edge: BuilderEdge): { from?: Build
   return { from: graph.nodes.find((n) => n.id === edge.from), to: graph.nodes.find((n) => n.id === edge.to) };
 }
 
-/** "Server calls Database", using names (or kinds for blank names). */
+/** "App server calls Database", using names (or kinds for blank names). */
 export function edgeTitle(graph: BuilderGraph, edge: BuilderEdge): string {
   const { from, to } = edgeEnds(graph, edge);
   return `${from ? displayName(from) : edge.from} calls ${to ? displayName(to) : edge.to}`;
 }
 
-/** Accessible name of a box: "Server 2, a server: 4 × 200 workers, ~4 ms each". */
+/** Accessible name of a box: "App server 2, an app server: 4 × 200 workers, ~4 ms each". */
 export function nodeSummary(node: BuilderNode): string {
-  const kind = KIND_LABELS[node.settings.kind].toLowerCase();
-  return `${displayName(node)}, a ${kind}: ${nodeLines(node.settings).join(', ')}`;
+  return `${displayName(node)}, ${aKind(node.settings.kind)}: ${nodeLines(node.settings).join(', ')}`;
 }

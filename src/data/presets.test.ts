@@ -1,6 +1,6 @@
 /**
- * The bundled presets with the default retries at every layer (users' apps 5, Gateway → API 3,
- * API → DB 1): each default run gets stuck, and each map's staircase is where the comments in
+ * The bundled presets with the default retries at every layer (users' apps 5, Gateway → App server 3,
+ * App server → DB 1): each default run gets stuck, and each map's staircase is where the comments in
  * scenarios.ts say it is. Measured, not scripted: if the engine changes, these say which claim moved.
  */
 import { assessRecovery, controlConfig, type Verdict } from '../analysis/recovery';

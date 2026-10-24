@@ -72,7 +72,7 @@ describe('coalesced cache misses', { timeout: 30_000 }, () => {
   });
 
   it('waiters share the reading attempt\'s outcome: a failed read fails every waiter', () => {
-    // The DB is slower than the API's 50 ms timeout, so every read fails (and nothing is written back).
+    // The DB is slower than the app server's 50 ms timeout, so every read fails (and nothing is written back).
     const failing = runSimulation(coldCacheBurst(true, { service: { kind: 'fixed', ms: 200 } }, 50));
     const plainFailing = runSimulation(coldCacheBurst(false, { service: { kind: 'fixed', ms: 200 } }, 50));
     const { status, arrivalMs } = failing.client.requests;

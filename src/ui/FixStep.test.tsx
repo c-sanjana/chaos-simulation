@@ -14,7 +14,7 @@ vi.mock('uplot', () => import('./testing/fakeUplot'));
 
 const SLOW = { timeout: 30_000 };
 const labels = labelsOf(webChain);
-// One retrying layer (the API retries the DB 3 times), so the canned physics below stays simple.
+// One retrying layer (the app server retries the DB 3 times), so the canned physics below stays simple.
 const singleLayer = {
   ...webChain,
   clientCall: { ...webChain.clientCall, retries: 0 },

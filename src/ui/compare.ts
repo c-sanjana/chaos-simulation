@@ -153,7 +153,7 @@ function takeaway(before: Verdict, now: Verdict, rows: ComparisonRow[]): string 
 
 /** Tier settings the viewer can edit, in plain words, for listing what changed. */
 const TIER_FIELDS: Array<[string, (t: TierConfig) => string | number | undefined]> = [
-  ['servers', (t) => t.instances],
+  ['copies', (t) => t.instances],
   ['workers per server', (t) => t.workersPerInstance],
   ['cores per server', (t) => t.coresPerInstance],
   ['queue limit', (t) => (t.queueLimit === null ? 'none' : t.queueLimit)],

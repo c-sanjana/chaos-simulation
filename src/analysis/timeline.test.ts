@@ -13,7 +13,7 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
     expect(t.map((e) => e.tMs)).toEqual([...t.map((e) => e.tMs)].sort((a, b) => a - b));
     expect(t[0]).toMatchObject({ tMs: 30_000, kind: 'fault', text: 'DB slows 8× (injected failure)' });
     expect(t.some((e) => e.kind === 'fault' && e.text === 'Failure ends; DB back to normal speed')).toBe(true);
-    expect(t.some((e) => /exceeds the API's 1 s timeout/.test(e.text))).toBe(true);
+    expect(t.some((e) => /exceeds the App server's 1 s timeout/.test(e.text))).toBe(true);
 
     const tip = t.find((e) => e.kind === 'tip')!;
     expect(tip.tMs).toBe(35_000);
@@ -61,8 +61,8 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
     // Display labels come from the web-chain layout (see testRuns.ts).
     expect(texts).toContain('Cache goes down (injected failure)');
     expect(texts).toContain('Failure ends; Cache restarts empty');
-    expect(texts).toContain('API instance 2 goes down (injected failure)');
-    expect(texts).toContain('Failure ends; API back up');
+    expect(texts).toContain('App server instance 2 goes down (injected failure)');
+    expect(texts).toContain('Failure ends; App server back up');
     expect(texts.some((x) => /^Cache hit rate falls to \d+% \(normally \d+%\)$/.test(x))).toBe(true);
   });
 

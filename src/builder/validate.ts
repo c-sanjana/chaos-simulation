@@ -1,10 +1,10 @@
-import { canConnect, KIND_LABELS, type BuilderGraph, type BuilderNode } from './graph';
+import { aKind, canConnect, KIND_NOUNS, type BuilderGraph, type BuilderNode } from './graph';
 
 /**
  * What stops a drawn topology from being simulated, in plain words (empty = it can run).
  *
  * The first version supports chains (user decision, 2026-10-24): users → one component → the next…,
- * each component calling at most one next component, plus one cache for a server. Branching (a
+ * each component calling at most one next component, plus one cache for an app server. Branching (a
  * server calling several components, a load balancer splitting over several pools) comes next.
  */
 export function validateGraph(graph: BuilderGraph): string[] {
@@ -20,7 +20,7 @@ export function validateGraph(graph: BuilderGraph): string[] {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) problems.push('A connection points at a component that no longer exists.');
-    else if (!canConnect(from.settings.kind, to.settings.kind)) problems.push(`${name(from)} can't call ${name(to)}: a ${KIND_LABELS[from.settings.kind].toLowerCase()} doesn't call a ${KIND_LABELS[to.settings.kind].toLowerCase()}.`);
+    else if (!canConnect(from.settings.kind, to.settings.kind)) problems.push(`${name(from)} can't call ${name(to)}: ${aKind(from.settings.kind)} doesn't call ${aKind(to.settings.kind)}.`);
   }
 
   for (const n of graph.nodes) {
@@ -46,7 +46,7 @@ export function validateGraph(graph: BuilderGraph): string[] {
   const names = new Map<string, number>();
   for (const n of graph.nodes) {
     const key = n.label.trim().toLowerCase();
-    if (key === '') problems.push(`Give the ${KIND_LABELS[n.settings.kind].toLowerCase()} a name.`);
+    if (key === '') problems.push(`Give the ${KIND_NOUNS[n.settings.kind]} a name.`);
     else names.set(key, (names.get(key) ?? 0) + 1);
   }
   for (const n of graph.nodes) {

@@ -43,7 +43,7 @@ describe('validateGraph', () => {
 
   it('refuses calls that make no sense, loops, missing ends and unreached parts', () => {
     const g = chainGraph(['client', 'server', 'database']);
-    expect(validateGraph(withEdge(g, 'n2', 'n1'))).toContain("database 2 can't call server 1: a database doesn't call a server.");
+    expect(validateGraph(withEdge(g, 'n2', 'n1'))).toContain("database 2 can't call server 1: a database doesn't call an app server.");
     const loop = withEdge(withEdge(withNode(chainGraph(['client', 'server']), 's2', 'server'), 'n1', 's2'), 's2', 'n1');
     expect(validateGraph(loop)).toContain('These call each other in a loop: server 1 → s2 → server 1. A request would go round forever.');
     expect(validateGraph(withEdge(g, 'n2', 'ghost'))).toContain('A connection points at a component that no longer exists.');
@@ -53,7 +53,7 @@ describe('validateGraph', () => {
   it('every part needs its own name', () => {
     const g = chainGraph(['client', 'server', 'server', 'database']);
     const named = (a: string, b: string) => ({ ...g, nodes: g.nodes.map((n) => (n.id === 'n1' ? { ...n, label: a } : n.id === 'n2' ? { ...n, label: b } : n)) });
-    expect(validateGraph(named('  ', 'API'))).toEqual(['Give the server a name.']);
+    expect(validateGraph(named('  ', 'API'))).toEqual(['Give the app server a name.']);
     expect(validateGraph(named('API', 'api '))).toEqual(['Two parts are called "API": give each its own name.', 'Two parts are called "api": give each its own name.']);
   });
 

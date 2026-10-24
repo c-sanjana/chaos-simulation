@@ -23,14 +23,14 @@ export const tourStops: TourStop[] = [
     screen: 0,
     atMs: 20_000,
     title: 'Normal traffic',
-    body: 'Requests flow from users’ apps through the Gateway and API to the database, with a cache beside the API. All calm.',
+    body: 'Requests flow from users’ apps through the Gateway and app server to the database, with a cache beside it. All calm.',
   },
   {
     target: 'topology',
     screen: 0,
     atMs: 32_000,
     title: 'The database slows down',
-    body: 'Answers now take longer than the API waits (1 s), so it gives up and asks again. So do the Gateway and users’ apps: the orange stripes.',
+    body: 'Answers take longer than the app server waits (1 s), so it gives up and asks again. So do the Gateway and users’ apps: the orange stripes.',
   },
   {
     target: 'charts',

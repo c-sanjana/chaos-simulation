@@ -2,7 +2,7 @@
  * The point of the feature: on the stuck retry storm, actually simulate every candidate fix (each
  * against its own no-fault control) and check which ones bring the system back.
  *
- * First with one retrying layer (the API retries the DB), where the retry fixes work as their
+ * First with one retrying layer (the app server retries the DB), where the retry fixes work as their
  * descriptions say; then each preset as it ships, with every layer retrying (users' apps 5,
  * Gateway 3, API 1), where changing one call's retries is no longer enough.
  */
@@ -36,7 +36,7 @@ function rankPreset(scenario: ScenarioPreset) {
   return { config, original, candidates, ranked, byId: Object.fromEntries(ranked.map((r) => [r.candidate.id, r])) };
 }
 
-describe('fixes for the stuck retry storm (200 rps, 3 API → DB retries, no other retries)', { timeout: 120_000 }, () => {
+describe('fixes for the stuck retry storm (200 rps, 3 App server → DB retries, no other retries)', { timeout: 120_000 }, () => {
   const { config, analysis } = retryStormRun({ retries: 3 });
   const original = measureOutcome(config);
   const candidates = candidateFixes(config, analysis.signals, labels);
@@ -214,7 +214,7 @@ describe('fixes for the default gateway slowdown (200 rps, Gateway 50× slower f
   const { original, ranked, byId } = rankPreset(gatewaySlow);
 
   // The Gateway's pile lands on the DB when it recovers: shedding load at the DB helps, and so does
-  // keeping retries at one layer; a longer API → DB timeout does not (the pile comes from in front).
+  // keeping retries at one layer; a longer App server → DB timeout does not (the pile comes from in front).
   it('bounding the DB queue and retrying at one layer help', () => {
     expect(original.verdict).toBe('stuck');
     expect(ranked.filter((r) => r.helped).map((r) => r.candidate.id)).toEqual(['bound-queue', 'retry-one-layer']);

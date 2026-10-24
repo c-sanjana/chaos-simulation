@@ -65,7 +65,8 @@ export const webChain: TopologyPreset = {
   layout: {
     client: { label: 'Client', col: 1, row: 3 },
     gateway: { label: 'Gateway', col: 3, row: 3 },
-    api: { label: 'API', col: 5, row: 3 },
+    // The tier runs the app's own code; "App server" is plainer for newcomers than "API" (user decision).
+    api: { label: 'App server', col: 5, row: 3 },
     cache: { label: 'Cache', col: 5, row: 1 },
     db: { label: 'DB', col: 7, row: 3 },
   },

@@ -9,7 +9,7 @@ import { assessRecovery, controlConfig, maxRequestMs } from './recovery';
 import { analyzed, retryStormRun } from './testRuns';
 
 describe('assessRecovery', { timeout: 60_000 }, () => {
-  it('a retry storm with 3 API → DB retries is stuck', () => {
+  it('a retry storm with 3 App server → DB retries is stuck', () => {
     const { analysis } = retryStormRun({ retries: 3 });
     expect(analysis.recovery.verdict).toBe('stuck');
     expect(analysis.recovery.recoveredAtMs).toBeNull();
@@ -135,7 +135,7 @@ describe('assessRecovery with a message queue', () => {
 
 describe('assessRecovery judges only what happened inside the run', { timeout: 60_000 }, () => {
   /**
-   * The retry storm (DB 8× slower) retrying at one layer (3 API → DB retries), with a different
+   * The retry storm (DB 8× slower) retrying at one layer (3 App server → DB retries), with a different
    * length and failure. Users' apps don't retry, so their longest request (3 s) fits these short runs.
    */
   const storm = (durationMs: number, fault: Partial<Fault>): RunConfig => {

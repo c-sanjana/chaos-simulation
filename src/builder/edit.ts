@@ -22,6 +22,7 @@ import {
   type PoolSettings,
   type QueueSettings,
   type ServiceSettings,
+  aKind,
 } from './graph';
 
 /** Size of the builder's canvas grid. Positions are 1-based, like the topology diagram's. */
@@ -91,7 +92,7 @@ function freshId(graph: BuilderGraph, kind: ComponentKind): string {
   }
 }
 
-/** "Server" for the first one, then "Server 2", "Server 3", …: the lowest label not already used. */
+/** "App server" for the first one, then "App server 2", "App server 3", …: the lowest label not already used. */
 function freshLabel(graph: BuilderGraph, kind: ComponentKind): string {
   const base = KIND_LABELS[kind];
   const used = new Set(graph.nodes.map((n) => n.label));
@@ -139,10 +140,10 @@ export function removeNode(graph: BuilderGraph, id: string): BuilderGraph {
 export function connectRefusal(from: ComponentKind, to: ComponentKind): string | null {
   if (canConnect(from, to)) return null;
   if (to === 'client') return 'Nothing calls the Client: it is where requests start.';
-  if (from === 'database' || from === 'cache') return `A ${KIND_LABELS[from].toLowerCase()} only answers calls; it doesn't call other components.`;
-  if (from === 'client') return `The Client sends requests to a load balancer, a server or a queue, not straight to a ${KIND_LABELS[to].toLowerCase()}.`;
+  if (from === 'database' || from === 'cache') return `${aKind(from, true)} only answers calls; it doesn't call other components.`;
+  if (from === 'client') return `The Client sends requests to a load balancer, an app server or a queue, not straight to ${aKind(to)}.`;
   // The only pair left that canConnect rules out: a load balancer or queue calling a cache.
-  return 'Only a server looks things up in a cache.';
+  return 'Only an app server looks things up in a cache.';
 }
 
 function name(node: BuilderNode): string {
@@ -218,8 +219,8 @@ export function emptyGraph(): BuilderGraph {
 }
 
 /**
- * The example to start from, laid out like the preset diagram: Client → Load balancer → Server →
- * Database left to right along the middle row, with the server's Cache above it.
+ * The example to start from, laid out like the preset diagram: Client → Load balancer → App server →
+ * Database left to right along the middle row, with the app server's Cache above it.
  */
 export function starterGraph(): BuilderGraph {
   const node = (kind: ComponentKind, col: number, row: number): BuilderNode => ({ id: `${kind}-1`, label: KIND_LABELS[kind], col, row, settings: defaultSettings(kind) });

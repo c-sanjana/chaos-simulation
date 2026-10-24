@@ -48,8 +48,8 @@ describe('names', () => {
   it('uses the name, or the kind for a blank name', () => {
     const g = updateNode(starterGraph(), 'server-1', { label: '   ' });
     expect(displayName(g.nodes[0])).toBe('Client');
-    expect(displayName(g.nodes[2])).toBe('Server');
-    expect(nodeSummary(g.nodes[2])).toBe('Server, a server: 4 × 200 workers, ~4 ms each');
+    expect(displayName(g.nodes[2])).toBe('App server');
+    expect(nodeSummary(g.nodes[2])).toBe('App server, an app server: 4 × 200 workers, ~4 ms each');
     expect(nodeSummary(g.nodes[1])).toMatch(/^Load balancer, a load balancer:/);
   });
 
@@ -57,7 +57,7 @@ describe('names', () => {
     const g = starterGraph();
     const edge = g.edges[3];
     expect(edgeEnds(g, edge).to?.label).toBe('Database');
-    expect(edgeTitle(g, edge)).toBe('Server calls Database');
+    expect(edgeTitle(g, edge)).toBe('App server calls Database');
     expect(edgeTitle({ nodes: [], edges: [] }, edge)).toBe('server-1 calls database-1');
   });
 });

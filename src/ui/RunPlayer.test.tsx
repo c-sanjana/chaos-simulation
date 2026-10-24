@@ -43,7 +43,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(screen.getByText('User gives up after 3 s')).toBeTruthy();
     fireEvent.change(scope, { target: { value: 'db' } });
     expect(scope.value).toBe('db');
-    expect(screen.getByText('API gives up after 1 s')).toBeTruthy();
+    expect(screen.getByText('App server gives up after 1 s')).toBeTruthy();
     fireEvent.change(scope, { target: { value: 'client' } });
     expect(screen.getByText('User gives up after 3 s')).toBeTruthy();
   });
@@ -51,7 +51,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
   it('opens settings for a clicked box, or all settings, when editing is enabled', () => {
     const onEdit = vi.fn();
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} onEdit={onEdit} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Edit API settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Edit App server settings/ }));
     expect(onEdit).toHaveBeenLastCalledWith('api');
     fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     expect(onEdit).toHaveBeenLastCalledWith(null);
@@ -61,7 +61,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
   it('has no edit affordances without an edit handler', () => {
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
     expect(screen.queryByRole('button', { name: /Edit all settings/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /^API \(/ })); // harmless
+    fireEvent.click(screen.getByRole('button', { name: /^App server \(/ })); // harmless
   });
 
   it('moves the topology snapshot with the playback position', () => {

@@ -17,8 +17,8 @@ describe('compareRuns', { timeout: 60_000 }, () => {
   it('says when a lot changed inside but users see the same', () => {
     const more = snapshot(updateRetries(base.draft, 'api', 5));
     const c = compareRuns(base, more, labels);
-    expect(c.changes).toEqual(['API → DB retries 1 → 5']);
-    expect(c.rows.map((r) => r.label)).toEqual(['Failed requests', 'Retries sent (all layers)', 'DB load at its peak', 'API workers busy after the failure']);
+    expect(c.changes).toEqual(['App server → DB retries 1 → 5']);
+    expect(c.rows.map((r) => r.label)).toEqual(['Failed requests', 'Retries sent (all layers)', 'DB load at its peak', 'App server workers busy after the failure']);
     expect(c.rows[0]).toMatchObject({ change: 'same', tone: 'same' });
     expect(c.rows[1].tone).toBe('worse');
     expect(c.rows[3]).toMatchObject({ before: expect.stringMatching(/%$/), tone: 'worse' });
@@ -83,12 +83,12 @@ describe('settingsChanges', () => {
       'Traffic 200 → 150 req/s',
       'Run length 120 → 90 s',
       'DB slows 8× for 5 s at 30 s → slows 4× for 10 s at 30 s',
-      'Gateway → API retries 3 → 0',
+      'Gateway → App server retries 3 → 0',
       "Users' timeout 3000 → 5000 ms",
-      'API servers 4 → 6',
-      'API queue limit none → 50',
-      'API random retry delays off → on',
-      'API skips abandoned work off → on',
+      'App server copies 4 → 6',
+      'App server queue limit none → 50',
+      'App server random retry delays off → on',
+      'App server skips abandoned work off → on',
       'Cache entry lifetime 60 s → 30 s',
     ]);
   });

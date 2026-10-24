@@ -39,8 +39,8 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     // Retries per layer, front to back (defaults 5 / 3 / 1).
-    expect(['Client → Gateway', 'Gateway → API', 'API → DB'].map((l) => (screen.getByLabelText(l) as HTMLInputElement).value)).toEqual(['5', '3', '1']);
-    fireEvent.change(screen.getByLabelText('API → DB'), { target: { value: '0' } });
+    expect(['Client → Gateway', 'Gateway → App server', 'App server → DB'].map((l) => (screen.getByLabelText(l) as HTMLInputElement).value)).toEqual(['5', '3', '1']);
+    fireEvent.change(screen.getByLabelText('App server → DB'), { target: { value: '0' } });
     fireEvent.change(screen.getByLabelText('Client → Gateway'), { target: { value: '2' } });
     const first = screen.getByRole('group', { name: 'Failure 1' });
     fireEvent.change(within(first).getByLabelText(/^How much slower/), { target: { value: '4' } });
@@ -77,7 +77,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull(); // nothing to compare yet
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.change(screen.getByLabelText('API → DB'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('App server → DB'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed).toHaveLength(2), SLOW);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
@@ -85,7 +85,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
     fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: '120000' } });
     const panel = await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
-    expect(within(panel).getByText('API → DB retries 1 → 5')).toBeTruthy();
+    expect(within(panel).getByText('App server → DB retries 1 → 5')).toBeTruthy();
     expect(within(panel).getByText(/^A lot changed inside the system, but users see about the same/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
@@ -123,7 +123,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
     expect(screen.getByText(/With a 5 s failure, the system tips at 120 req\/s/)).toBeTruthy();
-    expect(screen.getByText(/Every layer asks again when it gives up \(Client 5×, Gateway 3×, API 1×\)/)).toBeTruthy();
+    expect(screen.getByText(/Every layer asks again when it gives up \(Client 5×, Gateway 3×, App server 1×\)/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /80 requests per second, 1s failure length: recovers in 2 s/ })).toBeTruthy();
     await screen.findByRole('heading', { name: /Replaying 200 req\/s · 5s failure length/ }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
@@ -169,17 +169,17 @@ describe('App', { timeout: 60_000 }, () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
-    fireEvent.click(screen.getByRole('button', { name: /^Edit API settings/ }));
-    const dialog = screen.getByRole('dialog', { name: 'API settings' });
+    fireEvent.click(screen.getByRole('button', { name: /^Edit App server settings/ }));
+    const dialog = screen.getByRole('dialog', { name: 'App server settings' });
     expect(within(dialog).queryByRole('group', { name: 'DB' })).toBeNull();
-    expect(within(dialog).getByRole('group', { name: 'API' })).toBeTruthy();
+    expect(within(dialog).getByRole('group', { name: 'App server' })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Edit all settings' }));
     expect(screen.getByRole('dialog', { name: 'All settings' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
     fireEvent.click(screen.getByRole('button', { name: /^Edit Client settings/ }));
     const traffic = screen.getByRole('dialog', { name: 'Traffic settings' });
     expect(within(traffic).getByLabelText(/^User traffic/)).toBeTruthy();
-    expect(within(traffic).queryByRole('group', { name: 'API' })).toBeNull();
+    expect(within(traffic).queryByRole('group', { name: 'App server' })).toBeNull();
   });
 
   it('edits settings in the drawer, re-runs, and can reset to the preset', async () => {
@@ -188,7 +188,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     const dialog = screen.getByRole('dialog');
-    const api = within(dialog).getByRole('group', { name: 'API' });
+    const api = within(dialog).getByRole('group', { name: 'App server' });
     fireEvent.change(within(api).getByLabelText(/^Instances/), { target: { value: '8' } });
     fireEvent.click(within(api).getByLabelText('Jitter on retries'));
     fireEvent.click(within(api).getByLabelText('Drop requests whose caller gave up'));
@@ -197,7 +197,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.change(within(api).getByLabelText(/^Retries/), { target: { value: '1' } });
     const gateway = within(dialog).getByRole('group', { name: 'Gateway' });
     fireEvent.change(within(gateway).getByLabelText(/^Retries/), { target: { value: '2' } });
-    fireEvent.change(within(gateway).getByLabelText(/^Timeout to API/), { target: { value: '1500' } });
+    fireEvent.change(within(gateway).getByLabelText(/^Timeout to App server/), { target: { value: '1500' } });
     fireEvent.change(within(gateway).getByLabelText(/^Backoff base/), { target: { value: '20' } });
     fireEvent.change(within(gateway).getByLabelText(/^Service time median/), { target: { value: '2' } });
     fireEvent.change(within(gateway).getByLabelText(/^Service time p99/), { target: { value: '9' } });

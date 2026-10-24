@@ -73,11 +73,11 @@ describe('addNode', () => {
   it('adds a component with default settings, a unique id and a numbered label', () => {
     const first = addNode(emptyGraph(), 'server', 3, 2);
     expect(first.id).toBe('server-1');
-    expect(first.graph.nodes).toEqual([{ id: 'server-1', label: 'Server', col: 3, row: 2, settings: defaultSettings('server') }]);
+    expect(first.graph.nodes).toEqual([{ id: 'server-1', label: 'App server', col: 3, row: 2, settings: defaultSettings('server') }]);
     const second = addNode(first.graph, 'server', 3, 2);
-    expect(second.graph.nodes[1]).toMatchObject({ id: 'server-2', label: 'Server 2', col: 3, row: 1 });
+    expect(second.graph.nodes[1]).toMatchObject({ id: 'server-2', label: 'App server 2', col: 3, row: 1 });
     const third = addNode(second.graph, 'server', 1, 1);
-    expect(third.graph.nodes[2]).toMatchObject({ id: 'server-3', label: 'Server 3' });
+    expect(third.graph.nodes[2]).toMatchObject({ id: 'server-3', label: 'App server 3' });
   });
 
   it('reuses the lowest free id and label after a removal', () => {
@@ -162,15 +162,15 @@ describe('connect', () => {
   it('refuses self-calls, duplicates, unknown ids and pairs canConnect rules out', () => {
     const g = starterGraph();
     expect(connect(g, 'server-1', 'server-1')).toEqual({ graph: g, reason: "A component can't call itself." });
-    expect(connect(g, 'server-1', 'database-1')).toEqual({ graph: g, reason: 'Server already calls Database.' });
+    expect(connect(g, 'server-1', 'database-1')).toEqual({ graph: g, reason: 'App server already calls Database.' });
     expect(connect(g, 'server-1', 'ghost').reason).toMatch(/no longer exists/);
     expect(connect(g, 'database-1', 'server-1')).toEqual({ graph: g, reason: "A database only answers calls; it doesn't call other components." });
-    expect(connect(g, 'loadBalancer-1', 'cache-1').reason).toBe('Only a server looks things up in a cache.');
+    expect(connect(g, 'loadBalancer-1', 'cache-1').reason).toBe('Only an app server looks things up in a cache.');
   });
 
   it('names blank-labelled components by their kind in reasons', () => {
     const g = updateNode(updateNode(starterGraph(), 'server-1', { label: '' }), 'database-1', { label: '' });
-    expect(connect(g, 'server-1', 'database-1').reason).toBe('Server already calls Database.');
+    expect(connect(g, 'server-1', 'database-1').reason).toBe('App server already calls Database.');
   });
 
   it('reports whether a connection would work', () => {
@@ -195,7 +195,7 @@ describe('connectRefusal', () => {
     expect(connectRefusal('cache', 'database')).toMatch(/A cache only answers calls/);
     expect(connectRefusal('client', 'database')).toMatch(/not straight to a database/);
     expect(connectRefusal('client', 'cache')).toMatch(/not straight to a cache/);
-    expect(connectRefusal('queue', 'cache')).toMatch(/Only a server/);
+    expect(connectRefusal('queue', 'cache')).toMatch(/Only an app server/);
   });
 });
 
@@ -209,7 +209,7 @@ describe('updateNode', () => {
     const g = updateNode(starterGraph(), 'server-1', { settings: { instances: 8, service: { p99Ms: 50 }, rps: 999, capacity: 1 } });
     const s = g.nodes.find((n) => n.id === 'server-1')!.settings;
     expect(s).toEqual({ ...defaultSettings('server'), instances: 8, service: { medianMs: 4, p99Ms: 50 } });
-    expect(g.nodes.find((n) => n.id === 'server-1')!.label).toBe('Server');
+    expect(g.nodes.find((n) => n.id === 'server-1')!.label).toBe('App server');
   });
 
   it('never changes the kind, and accepts nulls for "no limit"', () => {
@@ -236,10 +236,10 @@ describe('updateCall', () => {
 });
 
 describe('starterGraph', () => {
-  it('lays out Client → Load balancer → Server → Database left to right, with the Cache above the Server', () => {
+  it('lays out Client → Load balancer → App server → Database left to right, with the Cache above the App server', () => {
     const g = starterGraph();
     const at = Object.fromEntries(g.nodes.map((n) => [n.label, [n.col, n.row]]));
-    expect(at).toEqual({ Client: [1, 3], 'Load balancer': [3, 3], Server: [5, 3], Cache: [5, 1], Database: [7, 3] });
+    expect(at).toEqual({ Client: [1, 3], 'Load balancer': [3, 3], 'App server': [5, 3], Cache: [5, 1], Database: [7, 3] });
     expect(g.edges.map((e) => `${e.from}>${e.to}`)).toEqual(['client-1>loadBalancer-1', 'loadBalancer-1>server-1', 'server-1>cache-1', 'server-1>database-1']);
     for (const e of g.edges) {
       const from = g.nodes.find((n) => n.id === e.from)!.settings.kind;

@@ -11,6 +11,8 @@ import {
   type PoolSettings,
   type QueueSettings,
   type ServiceSettings,
+  aKind,
+  KIND_NOUNS,
 } from '../../builder/graph';
 import { CheckboxField, NumberField } from '../components/Fields';
 import { LIMITS } from '../draft';
@@ -159,7 +161,7 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
         <div>
           <h3 className="csl-bpanel__title">{displayName(node)}</h3>
           <p className="csl-bpanel__sub">
-            {KIND_LABELS[s.kind]}: {KIND_BLURBS[s.kind].toLowerCase()}
+            {KIND_LABELS[s.kind]}: {KIND_BLURBS[s.kind].charAt(0).toLowerCase() + KIND_BLURBS[s.kind].slice(1)}
           </p>
         </div>
       </div>
@@ -176,7 +178,7 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
 
       <fieldset className="csl-bpanel__group">
         <legend className="csl-bpanel__legend">Calls</legend>
-        {!callsSomething && <p className="csl-bpanel__hint">A {KIND_LABELS[s.kind].toLowerCase()} only answers calls; it doesn't call other components.</p>}
+        {!callsSomething && <p className="csl-bpanel__hint">{aKind(s.kind, true)} only answers calls; it doesn't call other components.</p>}
         {outgoing.length > 0 && (
           <ul className="csl-bpanel__calls">
             {outgoing.map((e) => (
@@ -202,7 +204,7 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
                 <option value="">Choose a component to call</option>
                 {targets.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {displayName(t)} ({KIND_LABELS[t.settings.kind].toLowerCase()})
+                    {displayName(t)} ({KIND_NOUNS[t.settings.kind]})
                   </option>
                 ))}
               </select>

@@ -21,7 +21,7 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
   const at = (title: string) => tourStops.find((s) => s.title === title)!.atMs!;
   const step = (kind: string) => story.find((s) => s.kind === kind)!;
 
-  it('the setup: 200 requests a second; at 30 s the database slows down 8× for 5 seconds; the API waits 1 s', () => {
+  it('the setup: 200 requests a second; at 30 s the database slows down 8× for 5 seconds; the app server waits 1 s', () => {
     expect(config.client.rps).toBe(200);
     expect(config.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 8, startMs: 30_000, endMs: 35_000 }]);
     expect(config.tiers.find((t) => t.id === 'api')!.downstream).toMatchObject({ target: 'db', timeoutMs: 1000 });

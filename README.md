@@ -13,7 +13,7 @@ traffic, whether it actually helps and whether it moves the tipping point.
 
 The page opens on a **retry storm**. A database slows down 8× for just 5 seconds, at a traffic
 level it normally handles easily. Every layer retries, differently, as real systems often do:
-users' apps ask again up to 5 times, the Gateway retries the API 3 times and the API retries the
+users' apps ask again up to 5 times, the Gateway retries the app server 3 times and the app server retries the
 DB once (all editable per layer). Two other presets fail elsewhere in the stack: **Cache restarts
 empty** (the cache goes down for 5 s and comes back cold, so every lookup stampedes the DB) and
 **Gateway slows down** (the front door slows 50× for 20 s and users' retries pile onto it). Any
@@ -35,11 +35,11 @@ light unless you choose dark).
    recovers". Below it, the measured details as a row of icons in order (those during the failure
    tinted), the newest spelled out underneath; **List** shows them all as text. With numbers from
    the run:
-   - DB p99 exceeds the API's 1 s timeout, and every layer starts asking again.
+   - DB p99 exceeds the app server's 1 s timeout, and every layer starts asking again.
    - Retries push DB load past its capacity, up to 3.2× at the peak.
    - The point of no return: the failure is over, but retries keep the DB overloaded, so the
      backlog can never drain.
-   - Most DB work is for requests the API had already given up on, and the cache empties because
+   - Most DB work is for requests the app server had already given up on, and the cache empties because
      nothing refills it.
 
    After you change a setting and re-run, once the replay reaches the end a "Compared with your
@@ -68,15 +68,15 @@ light unless you choose dark).
 ### Build your own system
 
 **✎ Build your own system** (top right) opens a canvas with the current system drawn on it. Drag
-components from the palette (or use their **Add** buttons): **client, load balancer, server,
+components from the palette (or use their **Add** buttons): **client, load balancer, app server,
 cache, database, queue**. Each starts with realistic defaults, and every setting can be changed in
 the panel beside the canvas, in plain words. Connect parts by dragging from a box's handle to
 another box, or with **Calls…**; select an arrow to set its timeout and retries. Problems are
 listed in plain words ("Server has a cache but nothing to ask when the cache doesn't have the
 answer"), and **Use this topology** runs all three steps on it.
 
-- **Chains for now.** Each part calls one next part, plus one cache for a server. Branching (a
-  server calling several parts, a load balancer splitting over several pools) is next.
+- **Chains for now.** Each part calls one next part, plus one cache for a server. Branching (an
+  app server calling several parts, a load balancer splitting over several pools) is next.
 - **Scenarios are picked by what each part is:** the database slows down; the cache restarts
   empty; the front door slows down enough to serve about half the traffic; the work behind a
   queue slows down. The map's traffic range comes from the system's own capacity without cache
@@ -260,7 +260,7 @@ the first check, this fix did not help in the default scenario (0 of 5 seeds); w
 The full record is in [PLAN.md](PLAN.md): requirements, risks, scope, the decision log and the
 time log. The main calls:
 
-- **Depth over breadth.** One topology done well (Client → Gateway → API → DB, with a cache-aside
+- **Depth over breadth.** One topology done well (Client → Gateway → App server → DB, with a cache-aside
   cache) before adding more. The drag-and-drop builder, multi-region, LLM explanations and other
   scenarios are recorded as "revisit after V1".
 - **Simulate every request, not aggregated traffic.** This is what makes per-request
@@ -284,7 +284,7 @@ time log. The main calls:
     up; retrying at one layer only helps on 2 of 5 seeds. This preset's 2× longer slowdown happens
     to recover by itself, so the longer-slowdown check is skipped there (it can't tell anything).
 
-  With a single retrying layer (API → DB 3 times, the original preset; kept in the tests) the
+  With a single retrying layer (App server → DB 3 times, the original preset; kept in the tests) the
   default run is stuck on all 5 seeds, with 12,687 failed requests:
   - **Helped on 5 of 5 seeds, and still helps with a 10 s slowdown:**
     - bounding the DB queue: recovers in 2 s (242 failed);
@@ -292,17 +292,17 @@ time log. The main calls:
     - dropping expired requests at the DB: 7 s (440 failed; 5–7 s across seeds). Wasted DB work
       falls from 90% to 18% of the run's DB compute; what remains is requests that started
       computing before their caller's deadline and finished after it.
-  - **Helped on 5 of 5 seeds, but not with a 10 s slowdown:** a 3× longer API → DB timeout:
+  - **Helped on 5 of 5 seeds, but not with a 10 s slowdown:** a 3× longer App server → DB timeout:
     3 s (147 failed). It works only because this slowdown is short: with a 10 s slowdown it stays
-    stuck, with more failures (14,813) than no fix at all. It also makes the API wait longer for the DB (3 s) than the Gateway waits for the
-    API (2 s), so all 147 failures are Gateway timeouts. The app marks it ⚠.
+    stuck, with more failures (14,813) than no fix at all. It also makes the app server wait longer for the DB (3 s) than the Gateway waits for the
+    app server (2 s), so all 147 failures are Gateway timeouts. The app marks it ⚠.
   - **Helped on 1 of 5 seeds:** capping retries at 1: 13 s (841 failed). One
     retry at 200 req/s sits right on the tipping point.
   - **Did not help (0 of 5 seeds):**
     - jitter: it spreads retries out but doesn't reduce them, and this is a capacity problem, not
       a synchronisation one;
     - coalescing cache misses: it cuts DB reads by 43%, which isn't enough;
-    - more API instances: the API isn't the bottleneck.
+    - more app server instances: the app server isn't the bottleneck.
 - **The map varies how long the failure lasts.** Measured: with retries at one layer the tipping
   point steps with the retry count (1 retry tips at ~200–220 req/s, 2 at 140, 3 at 120, whichever
   layer retries), but once two or more layers retry, every mix tips at about the same traffic, so a

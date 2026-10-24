@@ -103,11 +103,11 @@ describe('chartView', { timeout: 60_000 }, () => {
     const { config, run } = retryStormRun({ retries: 3 });
     expect(chartView('throughput', config, run, labels, null).defaultScopeLabel).toBe('End to end (users)');
     expect(chartView('load', config, run, labels, null).defaultScopeLabel).toBe('DB (most overloaded)');
-    // API workers are all occupied while its CPU is idle; the DB is busy computing (both at 100%).
+    // App server workers are all occupied while its CPU is idle; the DB is busy computing (both at 100%).
     expect(waitingTier(run)).toBe('api');
     expect(busiestTier(run)).not.toBe('api');
     const workers = chartView('workers', config, run, labels, null);
-    expect([workers.scopeLabel, workers.defaultScopeLabel]).toEqual(['API', 'API (most workers waiting)']);
+    expect([workers.scopeLabel, workers.defaultScopeLabel]).toEqual(['App server', 'App server (most workers waiting)']);
   });
 
   it('measures end-to-end latency as time to an answer, errors included, so it rises when requests fail', () => {
@@ -136,10 +136,10 @@ describe('chartView', { timeout: 60_000 }, () => {
     const { config, run } = retryStormRun({ retries: 3 });
     const lat = chartView('latency', config, run, labels, 'db');
     expect(lat.scopeLabel).toBe('DB');
-    expect(lat.spec.series.map((x) => x.label)).toEqual(['Slowest 1% (p99)', 'Typical (median)', 'API gives up after 1 s']);
+    expect(lat.spec.series.map((x) => x.label)).toEqual(['Slowest 1% (p99)', 'Typical (median)', 'App server gives up after 1 s']);
     expect(chartView('latency', config, run, labels, 'client').spec.series.at(-1)!.label).toBe('User gives up after 3 s');
     expect(chartView('latency', config, run, labels, 'gateway').spec.series.at(-1)!.label).toBe('Client gives up after 3 s');
-    expect(chartView('errors', config, run, labels, 'api').scopeLabel).toBe('API');
+    expect(chartView('errors', config, run, labels, 'api').scopeLabel).toBe('App server');
     expect(chartView('load', config, run, labels, 'api').spec.series.some((x) => /capacity/.test(x.label))).toBe(false);
   });
 
@@ -217,7 +217,7 @@ describe('verdicts, maps and helpers', { timeout: 60_000 }, () => {
         ],
         labels,
       ),
-    ).toBe('Client 5×, API 1×');
+    ).toBe('Client 5×, App server 1×');
     expect(retriesPhrase([{ caller: 'api', retries: 0 }], labels)).toBeNull();
   });
 

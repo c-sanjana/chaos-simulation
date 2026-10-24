@@ -1,5 +1,5 @@
 import type { DragEvent } from 'react';
-import { KIND_BLURBS, KIND_LABELS, type ComponentKind } from '../../builder/graph';
+import { aKind, KIND_BLURBS, KIND_LABELS, KIND_NOUNS, type ComponentKind } from '../../builder/graph';
 import { KindIcon } from './KindIcon';
 
 /** Palette order: roughly the order a request meets them. */
@@ -38,7 +38,7 @@ export function Palette({ unavailable, onAdd, onDragStart, onDragEnd }: PaletteP
             key={kind}
             className={`csl-palette__item${why ? ' csl-palette__item--unavailable' : ''}`}
             draggable={!why}
-            title={why ?? `Drag onto the canvas to add a ${KIND_LABELS[kind].toLowerCase()}`}
+            title={why ?? `Drag onto the canvas to add ${aKind(kind)}`}
             data-testid={`palette-${kind}`}
             onDragStart={(e) => {
               startDrag(e, kind, 'copy');
@@ -56,7 +56,7 @@ export function Palette({ unavailable, onAdd, onDragStart, onDragEnd }: PaletteP
             <button
               type="button"
               className="csl-btn csl-btn--small csl-palette__add"
-              aria-label={`Add ${KIND_LABELS[kind].toLowerCase()}`}
+              aria-label={`Add ${KIND_NOUNS[kind]}`}
               // aria-disabled rather than disabled, so the button stays focusable and a click explains why.
               aria-disabled={why ? true : undefined}
               onClick={() => onAdd(kind)}

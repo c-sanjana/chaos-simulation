@@ -100,17 +100,35 @@ export interface BuilderGraph {
 export const KIND_LABELS: Record<ComponentKind, string> = {
   client: 'Client',
   loadBalancer: 'Load balancer',
-  server: 'Server',
+  // Runs your app's own code: it does some work, then calls what it needs. "Server" alone was
+  // vague (databases and caches run on servers too); "API service" was jargon (user decision).
+  server: 'App server',
   cache: 'Cache',
   database: 'Database',
   queue: 'Queue',
 };
 
+/** The kind in the middle of a sentence. */
+export const KIND_NOUNS: Record<ComponentKind, string> = {
+  client: 'client',
+  loadBalancer: 'load balancer',
+  server: 'app server',
+  cache: 'cache',
+  database: 'database',
+  queue: 'queue',
+};
+
+/** "a database", "an app server"; `capital` for the start of a sentence. */
+export function aKind(kind: ComponentKind, capital = false): string {
+  const a = /^[aeiou]/i.test(KIND_NOUNS[kind]) ? 'an' : 'a';
+  return `${capital ? a.charAt(0).toUpperCase() + a.slice(1) : a} ${KIND_NOUNS[kind]}`;
+}
+
 /** One line on what each component is, for the palette. */
 export const KIND_BLURBS: Record<ComponentKind, string> = {
   client: 'Users sending requests',
   loadBalancer: 'Spreads requests over the next component',
-  server: 'Does some work, then calls what it needs',
+  server: 'Runs your app’s code: does some work, then calls what it needs',
   cache: 'Remembers answers so the database is asked less',
   database: 'Stores the data; usually the slowest part',
   queue: 'Holds work for consumers to do later',

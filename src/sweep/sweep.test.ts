@@ -43,7 +43,7 @@ describe('buildSweep', () => {
     }
   });
 
-  it("maps a retries axis to its caller's retries (the API's when it names none), keeping base overrides for other callers", () => {
+  it("maps a retries axis to its caller's retries (the app server's when it names none), keeping base overrides for other callers", () => {
     const gatewayRetries: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'retries', label: 'Gateway retries', values: [4, 0], caller: 'gateway' } } };
     const cells = buildSweep(webChain, gatewayRetries, { retries: { client: 0, gateway: 9 } }).cells;
     expect(cells).toHaveLength(2 * xs.length);

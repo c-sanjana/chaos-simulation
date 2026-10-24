@@ -35,7 +35,7 @@ describe('executeJob', () => {
   });
 
   describe('retry-storm preset at 200 requests/s', { timeout: 30_000 }, () => {
-    it('is stuck with 3 API → DB retries', () => {
+    it('is stuck with 3 App server → DB retries', () => {
       expect(executeJob({ kind: 'cell', config: buildRunConfig(webChain, retryStorm, { rps: 200, retries: { client: 0, gateway: 0, api: 3 } }) }).verdict).toBe('stuck');
     });
 

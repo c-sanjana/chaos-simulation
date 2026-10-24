@@ -63,7 +63,7 @@ describe('FIX_CATALOG', () => {
   });
 });
 
-describe('on the stuck retry storm, retrying at one layer (3 API → DB retries)', { timeout: 60_000 }, () => {
+describe('on the stuck retry storm, retrying at one layer (3 App server → DB retries)', { timeout: 60_000 }, () => {
   const { config, analysis } = retryStormRun({ retries: 3 });
   const signals = analysis.signals;
   const snapshot = structuredClone(config);
@@ -101,7 +101,7 @@ describe('on the stuck retry storm, retrying at one layer (3 API → DB retries)
     const pct = (x: number) => `${Math.round(x * 100)}%`;
     expect(why['retry-budget']).toBe(`retries made up ${pct(signals.retryShare!.value)} of DB's load`);
     expect(why['cap-retries']).toBe(why['retry-budget']);
-    expect(why['bound-queue']).toBe(`requests waited in DB's queue up to ${Math.round(signals.queueWaitOverTimeout!.value)}× longer than the API's 1 s timeout`);
+    expect(why['bound-queue']).toBe(`requests waited in DB's queue up to ${Math.round(signals.queueWaitOverTimeout!.value)}× longer than the App server's 1 s timeout`);
     expect(why['drop-expired']).toBe(`${pct(signals.wastedShare!.value)} of DB work was for requests whose caller had already given up`);
     const { before, during } = signals.cacheHitDrop!.value;
     expect(why['coalesce-misses']).toBe(`Cache hit rate fell from ${pct(before)} to ${pct(during)}`);
@@ -114,28 +114,28 @@ describe('on the stuck retry storm, retrying at one layer (3 API → DB retries)
       expect(c.config).toEqual(applyFix(FIX_CATALOG.find((d) => d.id === c.id)!, config, signals));
     }
     expect(candidates.find((c) => c.id === 'bound-queue')!.title).toBe('Bound the queue (load shedding): DB, at most 93 queued per instance');
-    expect(candidates.find((c) => c.id === 'retry-budget')!.title).toBe('Retry budget of 10%: API → DB');
-    expect(candidates.find((c) => c.id === 'longer-timeout')!.title).toBe('Longer timeout (×3): API → DB, 1 s → 3 s');
-    expect(candidates.find((c) => c.id === 'add-instances')!.title).toBe('Add instances (+50%): API, 4 → 6 instances');
+    expect(candidates.find((c) => c.id === 'retry-budget')!.title).toBe('Retry budget of 10%: App server → DB');
+    expect(candidates.find((c) => c.id === 'longer-timeout')!.title).toBe('Longer timeout (×3): App server → DB, 1 s → 3 s');
+    expect(candidates.find((c) => c.id === 'add-instances')!.title).toBe('Add instances (+50%): App server, 4 → 6 instances');
     // What each one changes, in a plain sentence with this run's numbers.
     expect(Object.fromEntries(candidates.map((c) => [c.id, c.what]))).toEqual({
-      'retry-budget': 'API stops retrying DB once retries reach 10% of first attempts.',
-      'cap-retries': 'API retries a failed call to DB at most once (instead of 3 times).',
-      'jitter-backoff': 'API waits a random, growing delay before each retry to DB, so retries spread out instead of arriving together.',
+      'retry-budget': 'App server stops retrying DB once retries reach 10% of first attempts.',
+      'cap-retries': 'App server retries a failed call to DB at most once (instead of 3 times).',
+      'jitter-backoff': 'App server waits a random, growing delay before each retry to DB, so retries spread out instead of arriving together.',
       'bound-queue': 'DB lets at most 93 requests wait per instance and turns the rest away immediately.',
       'drop-expired': 'DB skips requests whose caller has already timed out, instead of doing work nobody will use.',
-      'coalesce-misses': 'When several requests miss the cache for the same key at once, API makes one read and shares the result.',
-      'longer-timeout': 'API waits up to 3 s for DB before giving up (instead of 1 s).',
-      'add-instances': 'API runs 6 instances instead of 4.',
+      'coalesce-misses': 'When several requests miss the cache for the same key at once, App server makes one read and shares the result.',
+      'longer-timeout': 'App server waits up to 3 s for DB before giving up (instead of 1 s).',
+      'add-instances': 'App server runs 6 instances instead of 4.',
     });
     // How each one breaks the loop (or why it may not), with this config's names filled in.
     const how = Object.fromEntries(candidates.map((c) => [c.id, c.how]));
     expect(how['bound-queue']).toBe(
       'The database turns requests away when its short queue is full instead of letting them wait, so it rarely works on requests nobody is waiting for, and no pile builds up.',
     );
-    expect(how['retry-budget']).toMatch(/^Once repeats reach 10% of first tries, the API stops asking the database again/);
+    expect(how['retry-budget']).toMatch(/^Once repeats reach 10% of first tries, the app server stops asking the database again/);
     expect(how['coalesce-misses']).toMatch(/one goes to the database and the rest share its answer/);
-    expect(how['add-instances']).toMatch(/^The API gets more servers, but the database can handle no more than before/);
+    expect(how['add-instances']).toMatch(/^The app server gets more servers, but the database can handle no more than before/);
     for (const c of candidates) expect(c.how).not.toMatch(/[{}]/);
     expect(config).toEqual(snapshot);
   });
@@ -161,20 +161,20 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Gate
 
   it('aims the retry fixes at the call into the DB, moving out to the Gateway to cap its 3 retries', () => {
     expect(Object.fromEntries(['retry-budget', 'cap-retries', 'jitter-backoff', 'retry-one-layer'].map((id) => [id, byId[id].title]))).toEqual({
-      'retry-budget': 'Retry budget of 10%: API → DB',
-      'cap-retries': 'Cap retries at 1: Gateway → API',
-      'jitter-backoff': 'Exponential backoff with full jitter: API → DB',
-      'retry-one-layer': 'Retry at one layer only: API → DB',
+      'retry-budget': 'Retry budget of 10%: App server → DB',
+      'cap-retries': 'Cap retries at 1: Gateway → App server',
+      'jitter-backoff': 'Exponential backoff with full jitter: App server → DB',
+      'retry-one-layer': 'Retry at one layer only: App server → DB',
     });
-    expect(byId['cap-retries'].what).toBe('Gateway retries a failed call to API at most once (instead of 3 times).');
+    expect(byId['cap-retries'].what).toBe('Gateway retries a failed call to App server at most once (instead of 3 times).');
     expect(diffPaths(config, byId['cap-retries'].config)).toEqual(['tiers.0.downstream.retries']);
   });
 
-  it('retrying at one layer keeps the API → DB retry and turns off users\' and the Gateway\'s', () => {
+  it('retrying at one layer keeps the app server → DB retry and turns off users\' and the Gateway\'s', () => {
     const fix = byId['retry-one-layer'];
-    expect(fix.what).toBe("Only the API asks the DB again (once); users' apps and the Gateway no longer retry.");
+    expect(fix.what).toBe("Only the App server asks the DB again (once); users' apps and the Gateway no longer retry.");
     expect(fix.how).toBe(
-      'The API is the only one that asks the database again; every other layer passes errors straight back. Repeats no longer multiply from layer to layer, so a slowdown adds a little extra work instead of many times more.',
+      'The app server is the only one that asks the database again; every other layer passes errors straight back. Repeats no longer multiply from layer to layer, so a slowdown adds a little extra work instead of many times more.',
     );
     expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Gateway's load`);
     expect(diffPaths(config, fix.config).sort()).toEqual(['client.call.retries', 'tiers.0.downstream.retries']);
@@ -216,7 +216,7 @@ describe('applyFix: where it applies', () => {
     // The bottleneck is the DB (queue signal), whatever tier the retries arrived at.
     const s = signalsWith({ retryShare: at('api'), queueWaitOverTimeout: at('db') });
     expect(diffPaths(chain(), applyFix(def('retryBudget'), chain(), s)!)).toEqual(['tiers.0.downstream.retryBudget']);
-    // API → DB already retries at most once, so the cap moves out to the client's call.
+    // App server → DB already retries at most once, so the cap moves out to the client's call.
     const c = chain();
     c.tiers[0].downstream!.retries = 1;
     expect(diffPaths(c, applyFix(def('capRetries'), c, s)!)).toEqual(['client.call.retries']);
@@ -295,9 +295,9 @@ describe('applyFix: where it applies', () => {
     expect(diffPaths(chain(), toApi)).toEqual(['tiers.0.downstream.retries']);
     const what = candidateFixes(chain(), signalsWith({ retryShare: at('api') }), {}).find((x) => x.id === 'retry-one-layer')!.what;
     expect(what).toBe("Only users' apps ask the api again (up to 2 times); the api no longer retries.");
-    // The bottleneck is the cache: the API's lookups don't retry, so the nearest retrying call in front is the client's.
+    // The bottleneck is the cache: the app server's lookups don't retry, so the nearest retrying call in front is the client's.
     expect(diffPaths(chain(), applyFix(def('retryOneLayer'), chain(), signalsWith({ queueWaitOverTimeout: at('cache') }))!)).toEqual(['tiers.0.downstream.retries']);
-    // Nothing on the way to the bottleneck retries: the innermost retrying call (API → DB) stays.
+    // Nothing on the way to the bottleneck retries: the innermost retrying call (App server → DB) stays.
     const orphan = { ...chain(), tiers: [...chain().tiers, tier('spare', { kind: 'fixed', ms: 1 })] };
     const kept = applyFix(def('retryOneLayer'), orphan, signalsWith({ queueWaitOverTimeout: at('spare') }))!;
     expect(diffPaths(orphan, kept)).toEqual(['client.call.retries']);
@@ -348,7 +348,7 @@ describe('queueLimitFor', () => {
 
 describe('fillNames', () => {
   it('fills in spoken names, capitalised at the start of a sentence', () => {
-    expect(fillNames('{Caller} asks {target}; {Target} answers {caller}.', 'api', 'db', { api: 'API', db: 'DB' })).toBe('The API asks the database; The database answers the API.');
+    expect(fillNames('{Caller} asks {target}; {Target} answers {caller}.', 'api', 'db', { api: 'App server', db: 'DB' })).toBe('The app server asks the database; The database answers the app server.');
   });
 });
 

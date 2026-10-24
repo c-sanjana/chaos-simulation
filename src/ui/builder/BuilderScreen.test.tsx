@@ -36,7 +36,7 @@ describe('BuilderScreen: empty canvas and toolbar', () => {
     expect(latest).toEqual(starterGraph());
     expect(screen.queryByText('Your canvas is empty')).toBeNull();
     expect(screen.getByRole('button', { name: /^Client, a client: 100 req\/s/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Server calls Database: gives up after 1 s, then tries again up to 1 time' }).textContent).toBe('1 s · 1 retry');
+    expect(screen.getByRole('button', { name: 'App server calls Database: gives up after 1 s, then tries again up to 1 time' }).textContent).toBe('1 s · 1 retry');
     expect(status().textContent).toMatch(/Loaded the example/);
   });
 
@@ -74,12 +74,12 @@ describe('BuilderScreen: empty canvas and toolbar', () => {
 describe('BuilderScreen: problems and "Use this topology"', () => {
   it('lists problems and blocks using the topology while there are any', () => {
     const onUse = vi.fn();
-    render(<Harness initial={starterGraph()} problems={['The Client calls nothing.', 'Server 2 is unreachable.']} onUse={onUse} />);
+    render(<Harness initial={starterGraph()} problems={['The Client calls nothing.', 'App server 2 is unreachable.']} onUse={onUse} />);
     const use = screen.getByRole('button', { name: 'Use this topology' }) as HTMLButtonElement;
     expect(use.disabled).toBe(true);
     expect(screen.getByText(/2 things to fix/)).toBeTruthy();
     expect(screen.getByText('The Client calls nothing.')).toBeTruthy();
-    expect(document.getElementById(use.getAttribute('aria-describedby')!)?.textContent).toMatch(/Server 2 is unreachable/);
+    expect(document.getElementById(use.getAttribute('aria-describedby')!)?.textContent).toMatch(/App server 2 is unreachable/);
   });
 
   it('words a single problem', () => {
@@ -109,14 +109,14 @@ describe('BuilderScreen: palette', () => {
 
   it('adds with the Add button on the first free cell, selects it, and numbers repeats', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add app server' }));
     expect(placed('server-1')).toEqual([1, 1]);
     expect(box('server-1').getAttribute('aria-pressed')).toBe('true');
-    expect(within(panel()).getByRole('heading', { name: 'Server' })).toBeTruthy();
-    expect(status().textContent).toBe('Added Server. Its settings are on the right.');
-    fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
+    expect(within(panel()).getByRole('heading', { name: 'App server' })).toBeTruthy();
+    expect(status().textContent).toBe('Added App server. Its settings are on the right.');
+    fireEvent.click(screen.getByRole('button', { name: 'Add app server' }));
     expect(placed('server-2')).toEqual([2, 1]);
-    expect(latest.nodes[1].label).toBe('Server 2');
+    expect(latest.nodes[1].label).toBe('App server 2');
   });
 
   it('allows one Client, and explains why when asked for another', () => {
@@ -136,7 +136,7 @@ describe('BuilderScreen: palette', () => {
     let g = emptyGraph();
     for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) g = addNode(g, 'queue', 1, 1).graph;
     render(<Harness initial={g} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add app server' }));
     expect(status().textContent).toMatch(/canvas is full/);
   });
 });
@@ -191,7 +191,7 @@ describe('BuilderScreen: drag and drop', () => {
     expect(within(node('database-1')).queryByRole('status')).toBeNull();
     // Over another box: refused, and says why.
     fireEvent.dragOver(node('server-1'));
-    expect(within(node('server-1')).getByRole('status').textContent).toBe('✕ That spot is taken by Server.');
+    expect(within(node('server-1')).getByRole('status').textContent).toBe('✕ That spot is taken by App server.');
     expect(within(node('server-1')).getByRole('status').className).not.toMatch(/--above/);
     fireEvent.drop(node('server-1'));
     expect(placed('database-1')).toEqual([7, 3]);
@@ -232,7 +232,7 @@ describe('BuilderScreen: drag and drop', () => {
     fireEvent.dragLeave(node('database-1'));
     expect(within(node('database-1')).queryByRole('status')).toBeNull();
     fireEvent.dragOver(node('cache-1'));
-    expect(within(node('cache-1')).getByRole('status').textContent).toBe('✕ Only a server looks things up in a cache.');
+    expect(within(node('cache-1')).getByRole('status').textContent).toBe('✕ Only an app server looks things up in a cache.');
     // Empty cells are not targets for a call.
     fireEvent.dragOver(cell(9, 5));
     fireEvent.drop(node('database-1'));
@@ -298,7 +298,7 @@ describe('BuilderScreen: selecting and keyboard', () => {
   it('selects an arrow by clicking its line', () => {
     render(<Harness initial={starterGraph()} />);
     fireEvent.click(screen.getByTestId('line-server-1--cache-1').querySelector('.csl-bcanvas__hit')!);
-    expect(within(panel()).getByRole('heading', { name: 'Server → Cache' })).toBeTruthy();
+    expect(within(panel()).getByRole('heading', { name: 'App server → Cache' })).toBeTruthy();
   });
 
   it('draws cache lookups double-headed, other calls single-headed', () => {
@@ -326,7 +326,7 @@ describe('BuilderScreen: selecting and keyboard', () => {
     expect(placed('database-1')).toEqual([7, 3]);
     fireEvent.keyDown(box('database-1'), { key: 'ArrowLeft' });
     fireEvent.keyDown(box('database-1'), { key: 'ArrowLeft' });
-    expect(status().textContent).toBe('Not possible: That spot is taken by Server.');
+    expect(status().textContent).toBe('Not possible: That spot is taken by App server.');
     fireEvent.keyDown(box('cache-1'), { key: 'ArrowUp' });
     expect(status().textContent).toBe('Not possible: That is outside the canvas.');
     fireEvent.keyDown(box('cache-1'), { key: 'a' }); // other keys do nothing
@@ -341,11 +341,11 @@ describe('BuilderScreen: selecting and keyboard', () => {
     expect(latest.edges.map((e) => e.id)).not.toContain('server-1--cache-1');
     expect(status().textContent).toBe('Removed Cache and its calls.');
     expect(document.activeElement).toBe(container.querySelector('.csl-bcanvas'));
-    const label = screen.getByRole('button', { name: /^Server calls Database/ });
+    const label = screen.getByRole('button', { name: /^App server calls Database/ });
     fireEvent.click(label);
     fireEvent.keyDown(label, { key: 'Backspace' });
     expect(latest.edges.map((e) => e.id)).not.toContain('server-1--database-1');
-    expect(status().textContent).toBe('Removed the call. Server no longer calls Database.');
+    expect(status().textContent).toBe('Removed the call. App server no longer calls Database.');
     // With nothing selected, Delete does nothing.
     fireEvent.keyDown(box('server-1'), { key: 'Delete' });
     expect(latest.nodes).toHaveLength(4);
@@ -369,7 +369,7 @@ describe('BuilderScreen: settings panel for a box', () => {
     expect(name.getAttribute('aria-invalid')).toBe('true');
     expect(document.getElementById(name.getAttribute('aria-describedby')!)?.textContent).toBe('Give it a name');
     // A blank name shows as the kind on the canvas.
-    expect(within(box('server-1')).getByText('Server')).toBeTruthy();
+    expect(within(box('server-1')).getByText('App server')).toBeTruthy();
   });
 
   it('shows the kind on the box when the name differs from it', () => {
@@ -377,7 +377,7 @@ describe('BuilderScreen: settings panel for a box', () => {
     expect(box('server-1').querySelector('.csl-bnode__kind')).toBeNull();
     select('server-1');
     fireEvent.change(within(panel()).getByRole('textbox', { name: /Name/ }), { target: { value: 'API' } });
-    expect(box('server-1').querySelector('.csl-bnode__kind')?.textContent).toBe('Server');
+    expect(box('server-1').querySelector('.csl-bnode__kind')?.textContent).toBe('App server');
   });
 
   it('edits the Client traffic', () => {
@@ -461,7 +461,7 @@ describe('BuilderScreen: settings panel for a box', () => {
     render(<Harness initial={starterGraph()} />);
     select('server-1');
     fireEvent.click(within(panel()).getByRole('button', { name: /→ Database/ }));
-    expect(within(panel()).getByRole('heading', { name: 'Server → Database' })).toBeTruthy();
+    expect(within(panel()).getByRole('heading', { name: 'App server → Database' })).toBeTruthy();
   });
 
   it('removes the box from the panel', () => {
@@ -480,14 +480,14 @@ describe('BuilderScreen: settings panel for a call', () => {
 
   it('edits timeout, retries, backoff and jitter in plain words', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^Server calls Database/);
-    expect(within(panel()).getByText('Server gives up after 1 s, then tries again up to 1 time.')).toBeTruthy();
+    selectCall(/^App server calls Database/);
+    expect(within(panel()).getByText('App server gives up after 1 s, then tries again up to 1 time.')).toBeTruthy();
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: /Timeout/ }), { target: { value: '500' } });
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: 'Retries' }), { target: { value: '3' } });
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: /Wait before retrying/ }), { target: { value: '20' } });
     fireEvent.click(within(panel()).getByRole('checkbox', { name: /jitter/ }));
     expect(call('server-1--database-1')).toEqual({ timeoutMs: 500, retries: 3, backoffBaseMs: 20, jitter: false });
-    expect(screen.getByRole('button', { name: /^Server calls Database/ }).textContent).toBe('500 ms · 3 retries');
+    expect(screen.getByRole('button', { name: /^App server calls Database/ }).textContent).toBe('500 ms · 3 retries');
   });
 
   it('turns the timeout off and back on at the usual value for the pair', () => {
@@ -507,22 +507,22 @@ describe('BuilderScreen: settings panel for a call', () => {
     const g = starterGraph();
     const odd = { ...g, edges: g.edges.map((e) => (e.id === 'server-1--cache-1' ? { ...e, call: { ...e.call, timeoutMs: null } } : e)) };
     render(<Harness initial={odd} />);
-    selectCall(/^Server calls Cache/);
+    selectCall(/^App server calls Cache/);
     fireEvent.click(within(panel()).getByRole('checkbox', { name: 'Give up after a timeout' }));
     expect(call('server-1--cache-1').timeoutMs).toBe(100);
   });
 
   it('removes the call from the panel', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^Server calls Cache/);
+    selectCall(/^App server calls Cache/);
     fireEvent.click(within(panel()).getByRole('button', { name: 'Remove this call' }));
     expect(latest.edges.map((e) => e.id)).not.toContain('server-1--cache-1');
-    expect(status().textContent).toBe('Removed the call. Server no longer calls Cache.');
+    expect(status().textContent).toBe('Removed the call. App server no longer calls Cache.');
   });
 
   it('shows nothing selected when the selected item disappears', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^Server calls Cache/);
+    selectCall(/^App server calls Cache/);
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(within(panel()).getByText(/Select a box or an arrow/)).toBeTruthy();
   });
