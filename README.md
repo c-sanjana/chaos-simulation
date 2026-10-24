@@ -75,7 +75,7 @@ another box, or with **Calls…**; select an arrow to set its timeout and retrie
 listed in plain words ("Server has a cache but nothing to ask when the cache doesn't have the
 answer"), and **Use this topology** runs all three steps on it.
 
-- **Chains for now.** Each part calls one next part, plus one cache for a server. Branching (an
+- **Chains for now.** Each part calls one next part, plus one cache for an app server. Branching (an
   app server calling several parts, a load balancer splitting over several pools) is next.
 - **Scenarios are picked by what each part is:** the database slows down; the cache restarts
   empty; the front door slows down enough to serve about half the traffic; the work behind a
