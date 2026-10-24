@@ -11,7 +11,7 @@ import type { BuilderEdge, BuilderGraph, BuilderNode } from '../../builder/graph
 export const CELL_W = 118;
 export const CELL_H = 100;
 /** Space between a box and the edge of its cell. */
-export const INSET_X = 6;
+export const INSET_X = 3;
 export const INSET_Y = 8;
 export const BOX_W = CELL_W - 2 * INSET_X;
 export const BOX_H = CELL_H - 2 * INSET_Y;

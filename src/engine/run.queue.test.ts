@@ -79,9 +79,10 @@ describe('message queue vs queueing theory', { timeout: 120_000 }, () => {
     for (let s = 5; s < T; s++) expect(Math.abs(q.delivered[s] - capacity)).toBeLessThanOrEqual(1);
     expect(relErr(q.totals.delivered / T, capacity)).toBeLessThan(0.002);
     // Growth = arrivals − deliveries. Arrivals are Poisson: over 500 s the backlog of ~10,000 has a
-    // standard deviation of √(60 × 500) ≈ 173 (1.7%); 5% is about 3σ.
+    // standard deviation of √(60 × 500) ≈ 173 (1.7%), so 5% is about 3σ. Over the second half alone
+    // (~5,000 messages, σ ≈ √(60 × 250) ≈ 122, 2.4%), 7.5% is about 3σ.
     expect(relErr(q.totals.backlogAtEnd / T, 60 - capacity)).toBeLessThan(0.05);
-    expect(relErr((q.backlogAvg[T - 1] - q.backlogAvg[T / 2]) / (T / 2 - 1), 60 - capacity)).toBeLessThan(0.05);
+    expect(relErr((q.backlogAvg[T - 1] - q.backlogAvg[T / 2]) / (T / 2 - 1), 60 - capacity)).toBeLessThan(0.075);
     expect(q.peaks.backlog).toBeGreaterThanOrEqual(q.totals.backlogAtEnd);
     expect(mean(q.busyConsumersAvg.slice(5))).toBeCloseTo(C, 6);
     // Producers are unaffected: every request is answered after the 1 ms store.

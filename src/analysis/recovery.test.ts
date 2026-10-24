@@ -4,6 +4,7 @@ import { webChain } from '../data/topologies';
 import { call, singleTier, tier } from '../engine/testConfigs';
 import type { Fault, RunConfig } from '../engine/config';
 import { binCenterMs, latencyBin } from '../engine/stats';
+import { runSimulation } from '../engine/run';
 import { assessRecovery, controlConfig, maxRequestMs } from './recovery';
 import { analyzed, retryStormRun } from './testRuns';
 
@@ -84,6 +85,51 @@ describe('assessRecovery', { timeout: 60_000 }, () => {
     const r = analyzed(config).analysis.recovery;
     expect(r.judgedUntilMs).toBe(20_000);
     expect(r.verdict).toBe('recovered');
+  });
+});
+
+describe('assessRecovery with a message queue', () => {
+  /**
+   * Users → queue → worker service. 30 messages/s against 4 consumers × 100 ms = 40/s. The service
+   * slows 4× from 10 s to 30 s, so ~400 messages pile up, then drain at 40 − 30 = 10/s: ~40 s.
+   * Users are answered as soon as their message is stored, so they never notice.
+   */
+  const queued = (durationMs: number): RunConfig => ({
+    seed: 4,
+    durationMs,
+    client: { rps: 30, call: call('q') },
+    tiers: [
+      tier('q', { kind: 'fixed', ms: 1 }, { workersPerInstance: 20, queue: { maxDepth: 100_000, consumers: 4 }, downstream: call('svc') }),
+      tier('svc', { kind: 'fixed', ms: 100 }, { workersPerInstance: 50 }),
+    ],
+    faults: [{ tier: 'svc', kind: 'slow', factor: 4, startMs: 10_000, endMs: 30_000 }],
+  });
+  const assess = (config: RunConfig) => {
+    const run = runSimulation(config);
+    const control = runSimulation(controlConfig(config));
+    return { run, control, recovery: assessRecovery(run, control, config) };
+  };
+
+  it('a backlog that has not drained by the end is stuck, even though every user succeeded', () => {
+    const { run, control, recovery } = assess(queued(60_000));
+    // Users saw exactly what they saw without the failure…
+    expect(run.client.requests).toEqual(control.client.requests);
+    expect(recovery.failedRequests).toBe(0);
+    // …but the work behind the queue was still piling up or draining when the run ended.
+    expect(run.tiers.q.backlogAvg[59]).toBeGreaterThan(50);
+    expect(recovery).toMatchObject({ verdict: 'stuck', recoveredAtMs: null });
+  });
+
+  it('recovers once the backlog has drained', () => {
+    const { run, control, recovery } = assess(queued(120_000));
+    expect(recovery.verdict).toBe('recovered');
+    const ceiling = Math.max(...control.tiers.q.backlogAvg);
+    const s = recovery.recoveredAtMs! / 1000;
+    expect(run.tiers.q.backlogAvg[s - 1]).toBeGreaterThan(ceiling);
+    expect(run.tiers.q.backlogAvg.slice(s).every((b) => b <= ceiling)).toBe(true);
+    // ~400 messages draining at 10/s: about 40 s after the slowdown ends.
+    expect(recovery.recoveryMs!).toBeGreaterThan(30_000);
+    expect(recovery.recoveryMs!).toBeLessThan(50_000);
   });
 });
 

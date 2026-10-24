@@ -49,9 +49,15 @@ export function maxRequestMs(config: RunConfig): number {
  *   1. every request arriving in it succeeded if and only if it succeeded in the control, and
  *   2. end-to-end p99 latency is no higher than the control's highest per-second p99, at the
  *      latency histogram's resolution (in the same bin or a lower one), and
- *   3. every tier's average queue is no higher than that tier's highest per-second queue in the control.
+ *   3. every tier's average queue is no higher than that tier's highest per-second queue in the control, and
+ *   4. every queue tier's average backlog (messages waiting) is no higher than that tier's highest
+ *      per-second backlog in the control.
  * The run has recovered at the start of the first second from which every later judged second is
- * healthy. Bounds 2 and 3 come from the control run itself, so there is no tolerance to tune.
+ * healthy. Bounds 2–4 come from the control run itself, so there is no tolerance to tune.
+ *
+ * Why the backlog (4)? A message queue answers its producers as soon as a message is stored, so
+ * users can see fast, successful answers while the work behind the queue piles up. Criteria 1–3
+ * would call that healthy; with 4, "recovered" also means "the backlog drained".
  *
  * Why compare p99 by histogram bin? p99 is read from a histogram with ~12%-wide bins. Measured on
  * the "cache restarts empty" preset at 160 req/s: one second's p99 came out 145.29 ms against the
@@ -104,10 +110,13 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   const p99CeilingBin = latencyBin(maxIgnoringNaN(control.client.latencyP99Ms));
   const tierIds = Object.keys(run.tiers);
   const queueCeiling = Object.fromEntries(tierIds.map((id) => [id, maxIgnoringNaN(control.tiers[id].queueAvg)]));
+  const queueTierIds = config.tiers.filter((t) => t.queue).map((t) => t.id);
+  const backlogCeiling = Object.fromEntries(queueTierIds.map((id) => [id, maxIgnoringNaN(control.tiers[id].backlogAvg)]));
   const healthy = (s: number) =>
     !mismatchedSeconds.has(s) &&
     !(latencyBin(run.client.latencyP99Ms[s]) > p99CeilingBin) && // NaN (no successes) is bin 0: passes only if requests matched
-    tierIds.every((id) => run.tiers[id].queueAvg[s] <= queueCeiling[id]);
+    tierIds.every((id) => run.tiers[id].queueAvg[s] <= queueCeiling[id]) &&
+    queueTierIds.every((id) => run.tiers[id].backlogAvg[s] <= backlogCeiling[id]);
 
   // A failure starting after the judged range: nothing to judge, so nothing went wrong.
   const firstJudged = Math.min(Math.floor(firstFaultStartMs / bucketMs), lastSecond + 1);

@@ -34,7 +34,8 @@ export function nodeLines(s: NodeSettings): string[] {
     case 'queue':
       return [`holds ${formatCount(s.maxDepth)}`, plural(s.consumers, 'consumer', 'consumers')];
     default:
-      return [`${formatCount(s.instances)} × ${plural(s.workersPerInstance, 'worker', 'workers')}`, `~${formatMs(s.service.medianMs)} each`];
+      // Narrow no-break spaces around "×" keep "2 × 1,024 workers" on one line in a small box.
+      return [`${formatCount(s.instances)}\u202F×\u202F${plural(s.workersPerInstance, 'worker', 'workers')}`, `~${formatMs(s.service.medianMs)} each`];
   }
 }
 

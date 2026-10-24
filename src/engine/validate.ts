@@ -62,8 +62,9 @@ export function validateConfig(config: RunConfig): void {
     if (tier.queue) {
       const q = tier.queue;
       if (tier.cache || tier.cacheAside) fail(`queue tier ${tier.id} cannot be a cache or use cacheAside`);
-      if (!tier.downstream) fail(`queue tier ${tier.id} needs a downstream for its consumers to call`);
-      if (byId.get(tier.downstream.target)!.cache) fail(`queue tier ${tier.id} cannot hand messages to cache tier "${tier.downstream.target}"`);
+      const target = tier.downstream?.target;
+      if (target === undefined) fail(`queue tier ${tier.id} needs a downstream for its consumers to call`);
+      else if (byId.get(target)!.cache) fail(`queue tier ${tier.id} cannot hand messages to cache tier "${target}"`);
       positiveInt(q.maxDepth, `${tier.id} queue maxDepth`);
       positiveInt(q.consumers, `${tier.id} queue consumers`);
     }

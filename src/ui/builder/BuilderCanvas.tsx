@@ -234,7 +234,7 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                 className={`csl-bnode__box csl-bnode__box--${node.settings.kind}`}
                 aria-pressed={selected}
                 aria-label={nodeSummary(node)}
-                title="Drag to move; click to edit"
+                title={`${nodeSummary(node)}. Drag to move; click to edit.`}
                 draggable
                 onDragStart={(e) => {
                   startDrag(e, node.id, 'move');
@@ -249,7 +249,8 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                   <KindIcon kind={node.settings.kind} size={14} />
                   <span className="csl-bnode__label">{displayName(node)}</span>
                 </span>
-                <span className="csl-bnode__kind">{KIND_LABELS[node.settings.kind]}</span>
+                {/* The kind, unless the name already says it ("Server", not "Server / Server"). */}
+                {displayName(node) !== KIND_LABELS[node.settings.kind] && <span className="csl-bnode__kind">{KIND_LABELS[node.settings.kind]}</span>}
                 {nodeLines(node.settings).map((line) => (
                   <span key={line} className="csl-bnode__line">
                     {line}
