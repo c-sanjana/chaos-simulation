@@ -28,17 +28,22 @@ describe('cell helpers', () => {
     expect(cellColor(cell({ recoverySeconds: 8 }))).toBe('var(--csl-map-slow)');
     expect(cellColor(cell({ recoverySeconds: 9 }))).toBe('var(--csl-map-barely)');
     expect(cellColor(cell({ status: 'stuck' }))).toBe('var(--csl-map-stuck)');
+    expect(cellColor(cell({ status: 'overloaded' }))).toBe('var(--csl-map-overloaded)');
     expect(cellColor(cell({ status: 'pending' }))).toBe('var(--csl-map-pending)');
   });
 
-  it('shows no text in cells except a marker on the current settings', () => {
+  it('marks stuck cells with ✕ (not colour alone) and the current settings with ◆', () => {
     expect(cellText(cell({ recoverySeconds: 12.4 }))).toBe('');
+    expect(cellText(cell({ status: 'stuck' }))).toBe('✕');
     expect(cellText(cell({ status: 'stuck', isCurrent: true }))).toBe('◆');
+    expect(cellText(cell({ status: 'overloaded' }))).toBe(''); // hatched instead
     expect(cellText(cell({ status: 'pending' }))).toBe('');
   });
 
   it('builds a spoken label from both axes and the outcome', () => {
     expect(cellAriaLabel(cell({ status: 'stuck' }), map)).toBe('200 requests per second, 3 retries: stuck');
+    expect(cellAriaLabel(cell({ status: 'stuck' }), map, true)).toBe('200 requests per second, 3 retries: stuck, the tipping point');
+    expect(cellAriaLabel(cell({ status: 'overloaded' }), map)).toBe('200 requests per second, 3 retries: too much traffic even without the failure');
     expect(cellAriaLabel(cell({ recoverySeconds: 12 }), map)).toBe('200 requests per second, 3 retries: recovers in 12 s');
     expect(cellAriaLabel(cell({ status: 'pending', isCurrent: true }), map)).toBe(
       '200 requests per second, 3 retries: not run yet (current settings)',
@@ -52,11 +57,12 @@ describe('TippingMap', () => {
   it('renders a button per cell, top row first, with row labels, x labels and named axes', () => {
     render(<TippingMap map={map} selected={null} onSelect={() => {}} />);
     const buttons = screen.getAllByRole('button');
-    expect(buttons.map((b) => b.textContent)).toEqual(['', '', '◆', '', '', '']);
+    expect(buttons.map((b) => b.textContent)).toEqual(['', '', '◆', '', '', '']); // the stuck cell is the current one
     expect(buttons[0].getAttribute('aria-label')).toBe('100 requests per second, 3 retries: recovers in 5 s');
     expect(buttons[0].getAttribute('title')).toBe('100 requests per second, 3 retries: recovers in 5 s'); // hover tooltip
     expect(buttons[4].className).toContain('csl-map__cell--pending');
-    expect(buttons[2].style.background).toBe('var(--csl-map-stuck)');
+    expect(buttons[2].style.backgroundColor).toBe('var(--csl-map-stuck)');
+    expect(buttons[2].className).toContain('csl-map__cell--stuck');
     expect(screen.getByRole('group', { name: 'Tipping-point map' })).toBeTruthy();
     expect(screen.getByText('retries →')).toBeTruthy(); // runs along the y axis
     expect(screen.getByText('traffic (requests/s) →')).toBeTruthy();
@@ -90,18 +96,40 @@ describe('TippingMap', () => {
     expect(screen.getAllByRole('img')).toHaveLength(6);
     expect(screen.getByRole('img', { name: '200 requests per second, 3 retries: stuck (current settings)' }).textContent).toBe('◆');
   });
+
+  it('draws each row’s tipping point as a line on that cell, and hatches overloaded cells', () => {
+    const withOverload: MapView = { ...map, cells: map.cells.map((c, i) => (i === 5 ? { ...c, status: 'overloaded' as const } : c)) };
+    render(<TippingMap map={withOverload} onSelect={() => {}} tips={[{ y: 3, tipsAtX: 200 }, { y: 0, tipsAtX: null }]} />);
+    const tip = screen.getByRole('button', { name: /^200 requests per second, 3 retries: stuck, the tipping point/ });
+    expect(tip.className).toContain('csl-map__cell--tip');
+    expect(document.querySelectorAll('.csl-map__cell--tip')).toHaveLength(1);
+    const over = screen.getByRole('button', { name: /^200 requests per second, 0 retries: too much traffic/ });
+    expect(over.className).toContain('csl-map__cell--overloaded');
+    expect(over.style.backgroundColor).toBe('var(--csl-map-overloaded)');
+  });
 });
 
 describe('MapLegend', () => {
-  it('explains every colour band, pending cells, the current marker and the replay ring', () => {
+  it('explains every outcome with its mark, the tipping line, the current marker and the replay ring', () => {
     render(<MapLegend />);
     const items = screen.getAllByRole('listitem');
-    expect(items.map((i) => i.textContent)).toEqual(['Recovers fast (< 4 s)', 'Recovers in 4–9 s', 'Recovers slowly (9 s+)', 'Stuck', 'Not run yet', '◆ current settings', 'replaying']);
-    expect((items[3].querySelector('span') as HTMLElement).style.background).toBe('var(--csl-map-stuck)');
+    expect(items.map((i) => i.textContent)).toEqual([
+      'Recovers in< 4 s4–9 s9 s+',
+      '✕Stuck',
+      'Too much traffic even without the failure',
+      'Not run yet',
+      'tipping point',
+      '◆ your settings',
+      'replaying',
+    ]);
+    expect((items[1].querySelector('span') as HTMLElement).style.backgroundColor).toBe('var(--csl-map-stuck)');
+    expect((items[2].querySelector('span') as HTMLElement).className).toContain('csl-map__cell--overloaded');
   });
 
-  it('can leave out the replay ring for read-only maps', () => {
-    render(<MapLegend showSelected={false} />);
+  it('can leave out the replay ring and the tipping line, and rename the marker', () => {
+    render(<MapLegend showSelected={false} showTip={false} markLabel="shown on the right" />);
     expect(screen.queryByText('replaying')).toBeNull();
+    expect(screen.queryByText('tipping point')).toBeNull();
+    expect(screen.getByText('◆ shown on the right')).toBeTruthy();
   });
 });

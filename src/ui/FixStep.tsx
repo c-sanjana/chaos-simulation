@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RunConfig } from '../engine/config';
+import type { RunResult } from '../engine/result';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { applyFix } from '../fixes/candidates';
 import { FIX_CATALOG } from '../fixes/catalog';
 import { configChanges } from '../fixes/changes';
+import { explainFix, type FixExplanation } from '../fixes/explain';
 import { isReliable, withLongerOutage, type FixOutcome, type RankedFix, type Robustness } from '../fixes/rank';
 import { buildSweep, tippingPoints, type SweepResult, type SweepSpec } from '../sweep/sweep';
 import type { AnalyzeResult } from '../worker/jobs';
 import type { SimPool } from '../worker/pool';
 import { FixTabs, type FixTab } from './components/FixTabs';
-import { TippingMap } from './components/TippingMap';
+import { MapLegend, TippingMap } from './components/TippingMap';
 import { currentCell, nearestCell, onMap } from './draft';
+import { formatCount } from './format';
 import { RunPlayer } from './RunPlayer';
 import { useFixRanking } from './useFixRanking';
 import { useAnalysis, useSweep } from './useSimulation';
@@ -37,8 +40,10 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const [chosenId, setChosenId] = useState<string | null>(null);
   useEffect(() => setChosenId(null), [config]);
   const allTested = ranking.original !== null && ranking.tested === ranking.candidates.length;
+  const finished = allTested && !ranking.checking;
   const helped = ranking.ranked.filter((f) => f.helped);
-  const best = allTested && !ranking.checking && helped.length > 0 ? helped[0].candidate.id : null;
+  // The best fix is selected once, when the checks finish, so nothing reselects under the viewer.
+  const best = finished && helped.length > 0 ? helped[0].candidate.id : null;
   const appliedId = chosenId ?? best;
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
   // The map cell shown before vs after on the right: the current settings (or the nearest cell)
@@ -59,20 +64,40 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const before = useSweep(pool, beforeSpec);
   const after = useSweep(pool, afterSpec);
   // At the current settings the original run is reused; any other cell re-runs that cell's map
-  // settings, without and with the fix.
+  // settings, without and with the fix. The fix at the viewer's settings is always run: the
+  // panel's "why it worked / didn't" is measured there, whichever cell the replay shows.
   const beforeConfig = atCurrent ? config : cellConfig(beforeSpec, cell);
   const afterConfig = !applied ? null : atCurrent ? applied.candidate.config : cellConfig(afterSpec, cell);
   const beforeOther = useAnalysis(pool, atCurrent ? null : beforeConfig, labels);
-  const fixed = useAnalysis(pool, afterConfig, labels);
+  const fixedAtYours = useAnalysis(pool, applied ? applied.candidate.config : null, labels);
+  const fixedOther = useAnalysis(pool, atCurrent ? null : afterConfig, labels);
+  const fixed = atCurrent ? fixedAtYours : fixedOther;
   const beforeRun = atCurrent ? (original ? { status: 'done' as const, value: original } : beforeOther) : beforeOther;
   const changes = useMemo(() => (beforeConfig && afterConfig ? configChanges(beforeConfig, afterConfig) : []), [beforeConfig, afterConfig]);
+  const explanation = useMemo<FixExplanation | null>(() => {
+    if (!applied || !original || fixedAtYours.status !== 'done') return null;
+    const kind = FIX_CATALOG.find((d) => d.id === applied.candidate.id)!.kind;
+    return explainFix(kind, applied.helped, { config, result: original }, { config: applied.candidate.config, result: fixedAtYours.value }, labels);
+  }, [applied, original, fixedAtYours, config, labels]);
+
+  // While the checks run, the tabs keep the order they had when testing finished, so they never
+  // reorder under the viewer (or the tour); the final order appears once, with the best selected.
+  const frozen = useRef<string[] | null>(null);
+  if (!allTested || !ranking.checking) frozen.current = null;
+  else frozen.current ??= ranking.ranked.map((f) => f.candidate.id);
+  const order = frozen.current;
+  const shownRanking = order ? [...ranking.ranked].sort((a, b) => order.indexOf(a.candidate.id) - order.indexOf(b.candidate.id)) : ranking.ranked;
 
   if (!original) return <p className="csl-status">Waiting for the original run…</p>;
   const { x: xAxis, y: yAxis } = scenario.map;
   const where = `at your settings (${current.x} req/s, ${axisPhrase(yAxis, current.y)})`;
   const longerS = ranking.longerApplies === false ? null : longerOutageSeconds(config);
-  const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.robustness[f.candidate.id], where, longerS));
+  const failure = failureWord(config);
+  const tabs = shownRanking.map((f) =>
+    fixTab(f, ranking.original!, ranking.robustness[f.candidate.id], where, longerS, f === applied ? { explanation, before: original, after: fixedAtYours.status === 'done' ? fixedAtYours.value : null } : undefined, failure),
+  );
   const cellTitle = `${cell.x} req/s · ${axisPhrase(yAxis, cell.y)}`;
+  const mapsDone = before.result !== null && after.result !== null && before.done === before.total && after.done === after.total;
   const status = ranking.error ? (
     <span className="csl-error">{ranking.error}</span>
   ) : !allTested ? (
@@ -87,16 +112,17 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
     <div className="csl-split csl-split--stretch">
       <div className="csl-split__col csl-split__side csl-split__side--wide">
         <section className="csl-card csl-card--compact" aria-label="Fixes">
-          <div className="csl-fix-maps__panel" aria-label="Did the tipping point move?" data-tour="fix-maps">
+          <div className="csl-fix-maps__panel" aria-label="Did the tipping point move?" data-tour="fix-maps" data-tour-ready={(mapsDone && applied !== null) || (finished && helped.length === 0) || undefined}>
             <div className="csl-fix-maps__head">
               <h2 className="csl-section-title" style={{ margin: 0 }}>
                 Did the tipping point move?
               </h2>
               {/* Once everything is tested, the corner explains the map instead of the progress. */}
-              <span className="csl-status">{allTested && !ranking.checking && !ranking.error && applied ? '◆ = shown on the right; click any cell' : status}</span>
+              <span className="csl-status">{finished && !ranking.error && applied ? '◆ = shown on the right; click any cell' : status}</span>
             </div>
             {applied && before.result && after.result ? (
               <>
+                <MapLegend markLabel="shown on the right" showSelected={false} />
                 <div className="csl-fix-maps csl-map--medium">
                   {[
                     { title: 'Before', sweep: before.result },
@@ -104,13 +130,18 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                   ].map((m) => (
                     <div key={m.title}>
                       <span className="csl-status">{m.title}</span>
-                      <TippingMap map={{ ...mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), cell), markLabel: 'shown on the right' }} selected={cell} onSelect={(c) => setCell({ x: c.x, y: c.y })} />
+                      <TippingMap
+                        map={{ ...mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), cell), markLabel: 'shown on the right' }}
+                        selected={cell}
+                        onSelect={(c) => setCell({ x: c.x, y: c.y })}
+                        tips={m.sweep.done === m.sweep.total ? tippingPoints(m.sweep) : []}
+                      />
                     </div>
                   ))}
                 </div>
                 {/* Here the ◆ follows the clicked cell (it marks what the replay shows), so it moves with every click. */}
                 <span style={{ fontSize: 13 }}>
-                  {before.done === before.total && after.done === after.total ? moveSummary(scenario, before.result, after.result) : `${before.done + after.done} of ${before.total + after.total} runs done`}
+                  {mapsDone ? moveSummary(scenario, before.result, after.result) : `${before.done + after.done} of ${before.total + after.total} runs done`}
                   {!atCurrent && onMap(scenario) && (
                     <>
                       {' '}
@@ -127,17 +158,19 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                   ? 'Testing fixes; the most reliable one is shown automatically.'
                   : ranking.candidates.length === 0
                     ? noFixesMessage(original)
-                    : helped.length === 0
-                      ? original.analysis.recovery.verdict === 'recovered' || original.analysis.recovery.verdict === 'unaffected'
-                        ? 'This run already recovers on its own, and none of the fixes made it recover faster.'
-                        : 'None of the fixes tried made this run recover.'
-                      : ranking.checking
-                        ? 'Checking which fixes hold up: other random runs and a longer slowdown…'
+                    : ranking.checking
+                      ? `Checking which fixes hold up: other random runs and a longer ${failure}…`
+                      : helped.length === 0
+                        ? original.analysis.recovery.verdict === 'recovered' || original.analysis.recovery.verdict === 'unaffected'
+                          ? 'This run already recovers on its own, and none of the fixes made it recover faster.'
+                          : 'None of the fixes tried made this run recover.'
                         : 'Choose a fix to see whether it moves the tipping point.'}
               </span>
             )}
           </div>
-          <div data-tour="fix-tabs">{allTested && <FixTabs tabs={tabs} selectedId={appliedId} onSelect={setChosenId} />}</div>
+          <div data-tour="fix-tabs" data-tour-ready={finished || undefined}>
+            {allTested && <FixTabs tabs={tabs} selectedId={appliedId} onSelect={setChosenId} />}
+          </div>
         </section>
       </div>
       <div className="csl-split__main" data-tour="replay">
@@ -154,6 +187,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             compact
             chartHeight={155}
             sideTimeline
+            compactStory
           />
         )}
         {applied && (fixed.status === 'running' || beforeRun.status === 'running') && (
@@ -164,7 +198,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         {!applied && (
           <section className="csl-card csl-card--compact">
             <p className="csl-status">
-              {!allTested || ranking.checking ? 'Testing fixes…' : helped.length > 0 ? 'Choose a fix to see it side by side with the original run.' : 'No fix helped, so there is nothing to compare.'}
+              {!finished ? 'Testing fixes…' : helped.length > 0 ? 'Choose a fix to see it side by side with the original run.' : 'No fix helped, so there is nothing to compare.'}
             </p>
           </section>
         )}
@@ -192,29 +226,72 @@ function cellConfig(spec: SweepSpec | null, cell: { x: number; y: number }): Run
   return spec?.cells.find((c) => c.x === cell.x && c.y === cell.y)?.config ?? null;
 }
 
+/** "slowdown" when every failure is a slowdown, otherwise "failure" (a part going down is not a slowdown). */
+export function failureWord(config: RunConfig): 'slowdown' | 'failure' {
+  const faults = config.faults ?? [];
+  return faults.length > 0 && faults.every((f) => f.kind === 'slow') ? 'slowdown' : 'failure';
+}
+
+/** A tier's queue messages dropped after their retries (dead-lettered), over the whole run. */
+export function droppedMessages(run: RunResult): number {
+  return Object.values(run.tiers).reduce((n, t) => n + t.deadLettered.reduce((a, b) => a + b, 0), 0);
+}
+
+/** A run's config has a message queue (only then can messages be dropped). */
+const hasQueue = (run: RunResult) => Object.values(run.tiers).some((t) => t.consumers > 0);
+
+/** A rare helper: helped in at most this many of the random runs checked, i.e. luck, not a fix. */
+const RARE_SEEDS = 1;
+
+/**
+ * What the run with the fix at the viewer's settings showed (only for the fix shown): why it
+ * worked or didn't, which pros and cons it contradicts, and the two runs (for dropped messages).
+ */
+export interface FixMeasured {
+  explanation: FixExplanation | null;
+  before: AnalyzeResult;
+  after: AnalyzeResult | null;
+}
+
 /**
  * The tab and panel for one tested fix, measured at the viewer's settings (`where`). Drawbacks
  * measured in this run (more failures, helping only sometimes, not holding up with a longer
- * slowdown) come before the catalogue's general cons.
+ * failure) come before the catalogue's general cons. A pro or con the run can contradict is shown
+ * only once the run with the fix is measured (`measured`), and only if it didn't contradict it.
  */
-export function fixTab(f: RankedFix, original: FixOutcome, robustness: Robustness | undefined, where: string, longerS: number | null): FixTab {
+export function fixTab(
+  f: RankedFix,
+  original: FixOutcome,
+  robustness: Robustness | undefined,
+  where: string,
+  longerS: number | null,
+  measured?: FixMeasured,
+  failure: 'slowdown' | 'failure' = 'slowdown',
+): FixTab {
   const o = f.outcome;
   const seeds = robustness?.seeds;
   const reliable = isReliable(robustness);
-  const status: FixTab['status'] = !f.helped ? 'no' : reliable === null ? 'checking' : reliable ? 'reliable' : 'unreliable';
-  const measured: string[] = [];
+  // ASSUMPTION: helping in at most 1 of 5 random runs is luck: marked like a fix that didn't help (REVIEW2 3.2).
+  const rare = f.helped && seeds !== undefined && seeds.of > 1 && seeds.helped <= RARE_SEEDS;
+  const status: FixTab['status'] = !f.helped ? 'no' : rare ? 'rare' : reliable === null ? 'checking' : reliable ? 'reliable' : 'unreliable';
+  const cons: string[] = [];
   if (o.failedRequests > original.failedRequests) {
-    measured.push(`In this run more requests failed with it than without (${o.failedRequests.toLocaleString()} vs ${original.failedRequests.toLocaleString()})`);
+    cons.push(`In this run more requests failed with it than without (${formatCount(o.failedRequests)} vs ${formatCount(original.failedRequests)})`);
   }
-  if (f.helped && seeds && seeds.helped < seeds.of) measured.push(`Helped in only ${seeds.helped} of ${seeds.of} random runs, so the result depends on luck`);
-  if (f.helped && robustness?.longer === false && longerS !== null) measured.push(`Didn't help when the slowdown lasted ${longerS} s`);
+  if (f.helped && seeds && seeds.helped < seeds.of) cons.push(`Helped in only ${seeds.helped} of ${seeds.of} random runs, so the result depends on luck`);
+  if (f.helped && robustness?.longer === false && longerS !== null) cons.push(`Didn't help when the ${failure} lasted ${longerS} s`);
   const checks: string[] = [];
   if (f.helped) {
     if (seeds) checks.push(`helped in ${seeds.helped} of ${seeds.of} random runs`);
-    if (robustness?.longer !== undefined && longerS !== null) checks.push(robustness.longer ? `still helps if the slowdown lasts ${longerS} s` : `doesn't help if it lasts ${longerS} s`);
+    if (robustness?.longer !== undefined && longerS !== null) checks.push(robustness.longer ? `still helps if the ${failure} lasts ${longerS} s` : `doesn't help if it lasts ${longerS} s`);
     if (!seeds || (robustness?.longer === undefined && longerS !== null)) checks.push('checking whether it holds up…');
   }
   const unchanged = o.verdict === original.verdict && o.recoveryMs === original.recoveryMs;
+  const refuted = measured?.explanation?.refuted ?? null;
+  const shows = (claim: string) => {
+    const by = f.candidate.refutable?.[claim];
+    return by === undefined || (refuted !== null && !refuted.includes(by));
+  };
   return {
     id: f.candidate.id,
     short: f.candidate.short,
@@ -222,19 +299,36 @@ export function fixTab(f: RankedFix, original: FixOutcome, robustness: Robustnes
     what: f.candidate.what,
     how: f.candidate.how,
     why: `${capitalise(f.candidate.why)}.`,
+    ...(measured?.explanation ? { verdict: { title: measured.explanation.title, text: measured.explanation.text } } : {}),
     result: unchanged && !f.helped ? `No improvement: still ${shortVerdict(o)}` : `${capitalise(shortVerdict(original))} → ${shortVerdict(o)}`,
     where,
-    failed:
-      o.failedRequests === original.failedRequests
-        ? `no change: ${o.failedRequests.toLocaleString()} failed requests`
-        : `${o.failedRequests.toLocaleString()} failed requests instead of ${original.failedRequests.toLocaleString()}`,
+    failed: [failedText(o, original), ...(measured ? droppedText(measured) : [])].join(' · '),
     checks,
     // Only fixes that helped get a badge: the time back to normal after the failure ended.
     badge: f.helped && o.verdict === 'recovered' ? `${Math.round((o.recoveryMs ?? 0) / 1000)} s` : f.helped && o.verdict === 'unaffected' ? '0 s' : '',
     status,
-    pros: f.candidate.pros,
-    cons: [...measured, ...f.candidate.cons],
+    recoverySeconds: o.verdict === 'unaffected' ? 0 : o.verdict === 'recovered' ? Math.round((o.recoveryMs ?? 0) / 1000) : null,
+    failedCount: o.failedRequests,
+    pros: f.candidate.pros.filter(shows),
+    cons: [...cons, ...f.candidate.cons.filter(shows)],
   };
+}
+
+function failedText(o: FixOutcome, original: FixOutcome): string {
+  return o.failedRequests === original.failedRequests
+    ? `no change: ${formatCount(o.failedRequests)} failed requests`
+    : `${formatCount(o.failedRequests)} failed requests instead of ${formatCount(original.failedRequests)}`;
+}
+
+/**
+ * Behind a queue, a message that keeps failing is dropped (dead-lettered): users never see it, but
+ * it is work lost, so a queue fix's result counts it too (REVIEW2 1.12).
+ */
+function droppedText(m: FixMeasured): string[] {
+  if (!m.after || !(hasQueue(m.before.run) || hasQueue(m.after.run))) return [];
+  const [b, a] = [droppedMessages(m.before.run), droppedMessages(m.after.run)];
+  if (a === 0 && b === 0) return [];
+  return [a === b ? `no change: ${formatCount(a)} messages dropped` : `${formatCount(a)} messages dropped instead of ${formatCount(b)}`];
 }
 
 /**
@@ -244,13 +338,16 @@ export function fixTab(f: RankedFix, original: FixOutcome, robustness: Robustnes
 export function moveSummary(scenario: ScenarioPreset, before: SweepResult, after: SweepResult): string {
   const y = currentCell(scenario).y;
   const rowY = nearestCell(scenario).y;
-  const tip = (r: SweepResult) => tippingPoints(r).find((t) => t.y === rowY)?.tipsAtX ?? null;
-  const [b, a] = [tip(before), tip(after)];
+  const row = (r: SweepResult) => tippingPoints(r).find((t) => t.y === rowY);
+  const [rb, ra] = [row(before), row(after)];
+  const [b, a] = [rb?.tipsAtX ?? null, ra?.tipsAtX ?? null];
   const fmt = (v: number) => axisPhrase(scenario.map.y, v);
   const at = rowY === y ? `With ${fmt(y)}` : `Your setting (${fmt(y)}) isn't on the map; with ${fmt(rowY)}`;
-  if (b === null && a === null) return `${at}, the system recovered at every traffic level shown, before and after.`;
-  if (a === null) return `${at}, the system used to tip at ${b} req/s; with the fix it recovers at every traffic level shown.`;
-  if (b === null) return `${at}, the fix makes it tip at ${a} req/s, where it used to recover everywhere shown.`;
+  // Overload (too much traffic even without the failure) is not recovering, but not a tipping point either.
+  const overload = (rb?.overloadedFromX ?? null) !== null || (ra?.overloadedFromX ?? null) !== null;
+  if (b === null && a === null) return overload ? `${at}, the failure never left the system stuck at the traffic shown, before or after.` : `${at}, the system recovered at every traffic level shown, before and after.`;
+  if (a === null) return `${at}, the system used to tip at ${b} req/s; with the fix it ${overload ? 'never gets stuck at the traffic shown' : 'recovers at every traffic level shown'}.`;
+  if (b === null) return `${at}, the fix makes it tip at ${a} req/s, where it used to ${overload ? 'never get stuck' : 'recover everywhere shown'}.`;
   if (a > b) return `${at}, the tipping point moves from ${b} to ${a} req/s.`;
   if (a < b) return `${at}, the tipping point moves down from ${b} to ${a} req/s: the fix makes this worse.`;
   return `${at}, the tipping point stays at ${b} req/s.`;

@@ -40,12 +40,13 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(scope.options[0].text).toBe('DB (most overloaded)');
     fireEvent.click(screen.getByRole('button', { name: 'Latency' }));
     expect(scope.options[0].text).toBe('End to end (users)');
-    expect(screen.getByText('User gives up after 3 s')).toBeTruthy();
+    expect(screen.getByText("Users' apps give up on one try after 3 s")).toBeTruthy();
+    expect(screen.getByText(/The wait includes every retry/)).toBeTruthy(); // the note under the legend
     fireEvent.change(scope, { target: { value: 'db' } });
     expect(scope.value).toBe('db');
     expect(screen.getByText('App server gives up after 1 s')).toBeTruthy();
     fireEvent.change(scope, { target: { value: 'client' } });
-    expect(screen.getByText('User gives up after 3 s')).toBeTruthy();
+    expect(screen.getByText("Users' apps give up on one try after 3 s")).toBeTruthy();
   });
 
   it('opens settings for a clicked box, or all settings, when editing is enabled', () => {
@@ -85,10 +86,10 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     seek(120_000);
     fireEvent.click(screen.getByRole('button', { name: 'List' }));
     expect(screen.getByText(/^Stuck → recovers in \d+ s$/)).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Why: live timeline (after the fix)' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Details: what was measured (after the fix)' })).toBeTruthy();
     expect(screen.getByText(/Back to normal: recovered/)).toBeTruthy();
     fireEvent.click(within(screen.getByRole('group', { name: 'Show run' })).getByRole('button', { name: 'Before' }));
-    expect(screen.getByRole('heading', { name: 'Why: live timeline (before the fix)' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Details: what was measured (before the fix)' })).toBeTruthy();
     expect(screen.getByText(/Point of no return/)).toBeTruthy();
     expect(screen.getByText(/before the fix\./)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'After' }));

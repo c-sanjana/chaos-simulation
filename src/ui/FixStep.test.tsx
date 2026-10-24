@@ -6,7 +6,9 @@ import type { RunConfig } from '../engine/config';
 import { buildSweep, SweepResult } from '../sweep/sweep';
 import { executeJob } from '../worker/jobs';
 import type { CellSummary } from '../worker/jobs';
-import { FixStep, fixTab, moveSummary } from './FixStep';
+import { chainGraph } from '../builder/testGraphs';
+import { droppedMessages, failureWord, FixStep, fixTab, moveSummary } from './FixStep';
+import { customSystem } from './system';
 import { FakePool } from './testing/fakePool';
 import { labelsOf } from './viewModels';
 
@@ -49,7 +51,11 @@ describe('FixStep', { timeout: 60_000 }, () => {
     expect(screen.getByText('at your settings (200 req/s, a 5 s failure)')).toBeTruthy();
     // Checked on other random runs and with a slowdown twice as long (canned physics: both hold).
     expect(screen.getByText(/helped in 5 of 5 random runs · still helps if the slowdown lasts 10 s/)).toBeTruthy();
-    expect(screen.getByText('How it helps')).toBeTruthy();
+    expect(screen.getByText('How it works')).toBeTruthy();
+    // Measured in the run with the fix at your settings: why it worked, and why it is first.
+    await screen.findByText('Why it worked', undefined, SLOW);
+    expect(screen.getByText("Why it's ranked first")).toBeTruthy();
+    expect(screen.getByText(/= time to recover after the failure ended/)).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Cons' }).textContent).toMatch(/^Cons \(\d\)/);
     await screen.findByRole('heading', { name: /^Before vs after: Retry budget/ }, SLOW);
     await screen.findByText(/the system used to tip at 120 req\/s; with the fix it recovers at every traffic level shown/, undefined, SLOW);
@@ -67,7 +73,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
       expect(b.textContent).toBe('◆');
       expect(b.getAttribute('aria-label')).toMatch(/\(shown on the right\)$/);
     }
-    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).toBe('');
+    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).not.toBe('◆');
     expect(screen.getByText('Simulating 80 req/s · a 2 s failure without and with the fix…')).toBeTruthy();
     await screen.findByText(/^80 req\/s · a 2 s failure · only the fix differs$/, undefined, SLOW);
     const reruns = pool.analyzed.slice(analyzedBefore);
@@ -81,7 +87,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     // Choosing another tab shows that fix in the panel, the maps and the replay.
     fireEvent.click(tabs[1]);
     expect(tabs[1].getAttribute('aria-selected')).toBe('true');
-    const name = tabs[1].textContent!.replace(/^✓|\d+ s$/g, '');
+    const name = tabs[1].getAttribute('aria-label')!.split(':')[0];
     await screen.findByText(new RegExp(`^After: ${name}$`), undefined, SLOW);
     await screen.findByRole('heading', { name: /^Before vs after: Cap retries/ }, SLOW);
   });
@@ -99,9 +105,10 @@ describe('FixStep', { timeout: 60_000 }, () => {
     render(<FixStep pool={new FakePool(luck)} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText('◆ = shown on the right; click any cell', undefined, SLOW);
     const tabs = screen.getAllByRole('tab');
-    expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries: helped/);
-    const budget = screen.getByRole('tab', { name: /^Retry budget: helped only sometimes/ });
-    expect(budget.textContent).toMatch(/^⚠/);
+    expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries at 1: helped/);
+    // Helping in 1 of 5 random runs is luck: marked like a fix that did not help.
+    const budget = screen.getByRole('tab', { name: /^Retry budget 10%: helped only by luck/ });
+    expect(budget.textContent).toMatch(/^✕/);
     fireEvent.click(budget);
     expect(screen.getByText('Helped in only 1 of 5 random runs, so the result depends on luck')).toBeTruthy();
     expect(screen.getByText("Didn't help when the slowdown lasted 10 s")).toBeTruthy();
@@ -201,5 +208,55 @@ describe('fixTab', () => {
     expect([stuck.badge, stuck.status, stuck.checks, stuck.result, stuck.failed]).toEqual(['', 'no', [], 'No improvement: still stuck', 'no change: 1,000 failed requests']);
     const unaffected = fixTab({ candidate, outcome: { verdict: 'unaffected', recoveryMs: null, failedRequests: 0 }, helped: true }, original, { seeds: { helped: 5, of: 5 } }, where, null);
     expect([unaffected.badge, unaffected.checks]).toEqual(['0 s', ['helped in 5 of 5 random runs']]);
+  });
+
+  it('helping in at most one random run is luck: marked like no help', () => {
+    const t = fixTab({ candidate, outcome: recovered, helped: true }, original, { seeds: { helped: 1, of: 5 } }, where, null);
+    expect([t.status, t.recoverySeconds, t.failedCount]).toEqual(['rare', 2, 200]);
+  });
+
+  it('shows a contradictable pro or con only once measured, and only if the run did not contradict it', () => {
+    const claim = { ...candidate, pros: ['p1', 'at most double'], cons: ['c1', 'users still get errors'], refutable: { 'at most double': 'loadOverDouble' as const, 'users still get errors': 'noFailures' as const } };
+    const f = { candidate: claim, outcome: recovered, helped: true };
+    const unmeasured = fixTab(f, original, undefined, where, null);
+    expect([unmeasured.pros, unmeasured.cons, unmeasured.verdict]).toEqual([['p1'], ['c1'], undefined]);
+    const before = executeJob({ kind: 'analyze', config, labels });
+    const explanation = { title: 'Why it worked', text: 'Repeats fell.', refuted: ['noFailures' as const] };
+    const measured = fixTab(f, original, undefined, where, null, { explanation, before, after: before });
+    expect([measured.pros, measured.cons, measured.verdict]).toEqual([['p1', 'at most double'], ['c1'], { title: 'Why it worked', text: 'Repeats fell.' }]);
+  });
+
+  it('says "failure" rather than "slowdown" when a part goes down', () => {
+    const t = fixTab({ candidate, outcome: recovered, helped: true }, original, { seeds: { helped: 5, of: 5 }, longer: false }, where, 10, undefined, 'failure');
+    expect(t.checks).toContain("doesn't help if it lasts 10 s");
+    expect(t.cons).toContain("Didn't help when the failure lasted 10 s");
+    expect(failureWord(config)).toBe('slowdown');
+    expect(failureWord({ ...config, faults: [{ tier: 'db', kind: 'dead', startMs: 1000, endMs: 2000 }] })).toBe('failure');
+    expect(failureWord({ ...config, faults: [] })).toBe('failure');
+  });
+});
+
+describe('dropped messages behind a queue', { timeout: 60_000 }, () => {
+  const where = 'at your settings';
+  const original = { verdict: 'stuck' as const, recoveryMs: null, failedRequests: 0 };
+  it('counts dead-lettered messages in the result of a fix for a system with a queue', () => {
+    const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
+    if (system.kind !== 'custom') throw new Error('expected a built system');
+    const queueLabels = labelsOf(system.topology);
+    const scenario = system.scenarios.find((s) => s.id === 'custom-db-slow')!;
+    // The database goes down: messages that still fail after their retries are dropped.
+    const run = (seconds: number) =>
+      executeJob({ kind: 'analyze', config: buildRunConfig(system.topology, { ...scenario, faults: [{ tier: 'n4', kind: 'dead', startMs: 30_000, endMs: 30_000 + seconds * 1000 }] }, { rps: 100 }), labels: queueLabels });
+    const [calm, busy] = [run(5), run(10)];
+    expect(droppedMessages(busy.run)).toBeGreaterThan(droppedMessages(calm.run));
+    const candidate = { id: 'more-consumers', title: 't', name: 'Twice as many consumers', short: 'More consumers', what: 'w', how: 'h', why: 'y', pros: [], cons: [], config };
+    const f = { candidate, outcome: { verdict: 'stuck' as const, recoveryMs: null, failedRequests: 0 }, helped: false };
+    const t = fixTab(f, original, undefined, where, null, { explanation: null, before: calm, after: busy });
+    const [a, b] = [droppedMessages(busy.run), droppedMessages(calm.run)];
+    expect(t.failed).toBe(`no change: 0 failed requests · ${a.toLocaleString('en-US')} messages dropped instead of ${b.toLocaleString('en-US')}`);
+    expect(fixTab(f, original, undefined, where, null, { explanation: null, before: busy, after: busy }).failed).toBe(`no change: 0 failed requests · no change: ${a.toLocaleString('en-US')} messages dropped`);
+    // Without a queue there is nothing to drop, so nothing is said.
+    const plain = executeJob({ kind: 'analyze', config, labels });
+    expect(fixTab(f, original, undefined, where, null, { explanation: null, before: plain, after: plain }).failed).toBe('no change: 0 failed requests');
   });
 });

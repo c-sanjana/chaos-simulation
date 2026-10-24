@@ -67,7 +67,7 @@ export function EventTrack({ entries, nowMs, failureWindows }: EventTrackProps) 
                   <span aria-hidden="true">{MARK[e.kind]}</span>
                 </button>
                 <span className="csl-track__time" aria-hidden="true">
-                  {Math.round(e.tMs / 1000)} s
+                  {e.atEnd ? 'end' : `${Math.round(e.tMs / 1000)} s`}
                 </span>
               </li>
             ))}

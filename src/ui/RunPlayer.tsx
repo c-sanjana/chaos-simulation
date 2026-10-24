@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { spokenName } from '../analysis/helpers';
+import { buildStory } from '../analysis/story';
 import type { Fault, RunConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
 import type { AnalyzeResult } from '../worker/jobs';
@@ -52,6 +53,19 @@ export interface RunPlayerProps {
    * there (a moment behind the replay is jumped to). The guided pause is off meanwhile.
    */
   demoAtMs?: number | null;
+  /**
+   * Tell the run in plain words in a compact story (newest step only), built here from the run
+   * shown (step 2 and 3 replays). Ignored when `story` is given.
+   */
+  compactStory?: boolean;
+  /**
+   * Open the replay paused at this moment instead of playing from the start, e.g. the end of the
+   * run after the guided tour, so the verdict it led up to stays on screen. Read when a new run
+   * arrives or the replay is released (see `holdPlayback`).
+   */
+  openAtMs?: number | null;
+  /** Changing this replays the same run from the start (e.g. "Replay from the start" with no edits). */
+  restartKey?: number;
 }
 
 const COMPACT_CHART_HEIGHT = 175;
@@ -80,6 +94,9 @@ export function RunPlayer({
   changes = [],
   endPanel,
   demoAtMs = null,
+  compactStory = false,
+  openAtMs = null,
+  restartKey = 0,
 }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
@@ -96,12 +113,19 @@ export function RunPlayer({
   const guideSlowMs = guidePauseMs === null ? null : Math.min(...faults.map((f) => f.startMs)) - 3000;
   const [guide, setGuide] = useState<'pending' | 'slowed' | 'paused' | 'done'>('pending');
   useEffect(() => {
-    playback.seek(0);
     playback.setSpeed(16);
+    if (openAtMs !== null && !holdPlayback) {
+      // Opened at a given moment (the end, after the tour): stay there, past the guided pause.
+      playback.seek(Math.min(openAtMs, result.run.durationMs));
+      playback.pause();
+      setGuide('done');
+      return;
+    }
+    playback.seek(0);
     setGuide('pending');
     if (autoPlay && !holdPlayback) playback.play();
     else playback.pause();
-  }, [result, after?.result, holdPlayback]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [result, after?.result, holdPlayback, restartKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The demo: play forward to its moment (briskly over long stretches), or jump back to it.
   useEffect(() => {
@@ -158,10 +182,16 @@ export function RunPlayer({
       ? verdictView(recovery)
       : { text: 'Replaying… the verdict comes when the replay gets there', tone: 'neutral' as const };
   const failureWindowsMs = (config.faults ?? []).map((f) => [f.startMs, f.endMs] as [number, number]);
+  // Step 2 and 3 replays tell the run shown (before or after the fix) in a compact story.
+  const builtStory = useMemo(
+    () => (compactStory && !story ? buildStory(shown.result.run, shown.config, shown.result.analysis, labels) : null),
+    [compactStory, story, shown.result, shown.config, labels],
+  );
   const timelineWindow = (
-    <section className="csl-timeline-window" data-tour="timeline" aria-label="Live timeline">
+    <section className="csl-timeline-window" data-tour="timeline" aria-label="Details: what was measured">
+      {/* One name on every step (REVIEW2 3.8). */}
       <h3 className="csl-timeline-title">
-        {story ? 'Details: what was measured' : 'Why: live timeline'}
+        Details: what was measured
         {after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}
       </h3>
       <div className="csl-timeline-window__body">
@@ -173,6 +203,7 @@ export function RunPlayer({
     <>
       {ended && endPanel}
       {story && <StoryCard steps={story} nowMs={playback.tMs} />}
+      {builtStory && <StoryCard steps={builtStory} nowMs={playback.tMs} compact />}
       {timelineWindow}
     </>
   );
@@ -256,6 +287,7 @@ export function RunPlayer({
                 </div>
               )}
               <ChartLegend series={chart.spec.series} />
+              {chart.note && <p className="csl-chart-note">{chart.note}</p>}
               <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
             </div>
             {sideTimeline && <div className="csl-player__timeline csl-player__timeline--side">{timeline}</div>}

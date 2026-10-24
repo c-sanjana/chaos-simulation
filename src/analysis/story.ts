@@ -481,7 +481,7 @@ function verdictStep(ctx: Context, pressure: string | null, hadPile: boolean): S
         text: `It never recovered: still failing at the end of the run${peakAfter(ctx, pressure)}.`,
         tone: 'bad',
         kind: 'stuck',
-        headline: 'Never recovered',
+        headline: 'Still stuck',
         ...(peak > 1 ? { meter: peak, figure: `${peak.toFixed(1)}× peak` } : {}),
       };
     }

@@ -1,7 +1,7 @@
 import { formatMs, leafCapacityRps, nameOf, percent, spokenName } from '../analysis/helpers';
 import type { Signals } from '../analysis/signals';
 import type { CallPolicy, RunConfig, TierConfig } from '../engine/config';
-import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition } from './catalog';
+import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition, type Refutation } from './catalog';
 
 export interface FixCandidate {
   id: string;
@@ -18,6 +18,8 @@ export interface FixCandidate {
   why: string;
   pros: string[];
   cons: string[];
+  /** Pros and cons a run can contradict (from the catalogue): shown only once measured, and only if not contradicted. */
+  refutable?: Record<string, Refutation>;
   config: RunConfig;
 }
 
@@ -48,6 +50,7 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
       why: def.signal === null ? COMMON_INSTINCT : describeSignal(def.signal, signals, config, name),
       pros: def.pros,
       cons: def.cons,
+      ...(def.refutable ? { refutable: def.refutable } : {}),
       config: plan.config,
     });
   }
@@ -222,7 +225,7 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
         caller: target,
         target: id,
         // Scaling the overloaded tier itself does add room for the work.
-        how: target === id ? '{Target} gets more servers, so it can handle more work. That helps only if the extra room keeps up with the repeats as well.' : undefined,
+        how: target === id ? '{Target} gets more servers, so it can handle more work at once.' : undefined,
         where: `${name(target)}, ${before} → ${instances} instances`,
         what: `${name(target)} runs ${instances} instances instead of ${before}.`,
       };

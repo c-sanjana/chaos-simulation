@@ -3,11 +3,13 @@ import { buildRunConfig } from '../data/buildConfig';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { buildSweep, tippingPoints } from '../sweep/sweep';
 import type { SimPool } from '../worker/pool';
-import { MapLegend, TippingMap } from './components/TippingMap';
+import { MapLegend, OVERLOADED_TEXT, TippingMap } from './components/TippingMap';
 import { currentCell, nearestCell, onMap, retryCalls } from './draft';
+import { formatCount } from './format';
 import { RunPlayer } from './RunPlayer';
+import { cascadeSentence, tippingSentence } from './tipping';
 import { useAnalysis, useSweep } from './useSimulation';
-import { axisPhrase, formatAxisValue, mapView, retriesPhrase, shortVerdict } from './viewModels';
+import { axisPhrase, formatAxisValue, mapView, shortVerdict } from './viewModels';
 
 /** Step 2: the tipping-point map, with any cell replayable inline. */
 export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool: SimPool; topology: TopologyPreset; scenario: ScenarioPreset; labels: Record<string, string>; onEdit?: (tierId: string | null) => void }) {
@@ -23,15 +25,19 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
 
   const map = mapView('Tipping-point map', xAxis, yAxis, (x, y) => sweep.result?.get(x, y), current);
   const summary = sweep.result?.get(selected.x, selected.y);
-  const tips = sweep.result && sweep.done === sweep.total ? tippingPoints(sweep.result) : [];
-  const currentTip = tips.find((t) => t.y === current.y);
+  const finished = sweep.result !== null && sweep.total > 0 && sweep.done === sweep.total;
+  const tips = finished ? tippingPoints(sweep.result!) : [];
+  // The sentence follows the clicked cell's row; the viewer's own traffic is mentioned on their row.
+  const rowTip = tips.find((t) => t.y === selected.y);
+  const currentVerdict = onMap(scenario) ? sweep.result?.get(current.x, current.y)?.verdict : undefined;
   const cellTitle = `${selected.x} req/s · ${formatAxisValue(yAxis, selected.y)} ${yAxis.label}`;
-  const cascade = retriesPhrase(retryCalls(topology), labels);
+  const cascade = cascadeSentence(retryCalls(topology), labels);
+  const verdictText = summary ? (summary.verdict === 'overloaded' ? OVERLOADED_TEXT : capitalise(shortVerdict(summary))) : finished ? 'Not on the map' : 'Running…';
 
   return (
     <div className="csl-split csl-split--stretch">
       <div className="csl-split__col csl-split__side">
-        <section className="csl-card csl-card--compact" aria-label="Tipping point" data-tour="map">
+        <section className="csl-card csl-card--compact" aria-label="Tipping point" data-tour="map" data-tour-ready={finished || undefined}>
           <div className="csl-card__head">
             <h2 className="csl-card__title">Where's the tipping point?</h2>
             <span className="csl-status" aria-live="polite">
@@ -42,23 +48,20 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             Each cell re-runs the same failure at another traffic level and {yAxis.label}. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Click a cell to replay it.
           </p>
           <MapLegend />
-          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
+          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} tips={tips} />
           <div className="csl-selected-line" aria-label="Selected cell">
             <span className="csl-mono">{cellTitle}</span>
-            <strong style={{ fontWeight: 600 }}>{summary ? capitalise(shortVerdict(summary)) : sweep.done === sweep.total && sweep.total > 0 ? 'Not on the map' : 'Running…'}</strong>
-            {summary && summary.failedRequests > 0 && <span className="csl-status">{summary.failedRequests.toLocaleString()} failed requests</span>}
+            <strong style={{ fontWeight: 600 }}>{verdictText}</strong>
+            {summary && summary.failedRequests > 0 && <span className="csl-status">{formatCount(summary.failedRequests)} failed requests</span>}
           </div>
           {!onMap(scenario) && (
             <p className="csl-status" style={{ margin: 0 }}>
               Your settings ({current.x} req/s, {axisPhrase(yAxis, current.y)}) aren't one of the map's cells; the nearest is selected.
             </p>
           )}
-          {currentTip && (
+          {rowTip && (
             <p style={{ margin: 0, fontSize: 13, color: 'var(--csl-ink-2)' }}>
-              {currentTip.tipsAtX === null
-                ? `With ${axisPhrase(yAxis, current.y)}, the system recovers at every traffic level shown.`
-                : `With ${axisPhrase(yAxis, current.y)}, the system tips at ${currentTip.tipsAtX} req/s.${current.x >= currentTip.tipsAtX ? ` Your ${current.x} req/s is past it: everything looks healthy until a failure like this happens.` : ''}`}{' '}
-              {cascade && `Every layer asks again when it gives up (${cascade}), so one failed answer can come back as many requests.`}
+              {tippingSentence({ tip: rowTip, yAxis, current, currentVerdict })} {cascade}
             </p>
           )}
         </section>
@@ -75,6 +78,7 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             compact
             chartHeight={200}
             sideTimeline
+            compactStory
           />
         )}
         {replay.status === 'running' && (

@@ -10,6 +10,11 @@ export interface TimelineEntry {
   endMs?: number;
   text: string;
   kind: 'fault' | 'tip' | 'bad' | 'good' | 'info';
+  /**
+   * Known only once the run has ended (a "still stuck" verdict): `tMs` is when the replay has shown
+   * it, not an event, so it is labelled "end of run" rather than with a time.
+   */
+  atEnd?: boolean;
 }
 
 const MAX_ENTRIES = 10;
@@ -54,28 +59,31 @@ export function buildTimeline(
   // Retries push a leaf tier past what it can serve; if that outlasts the failure, the backlog can
   // never drain: the point of no return into a stuck state. (Not called a "tipping point": step 2
   // uses that for the traffic level at which runs start getting stuck.)
+  // Each entry quotes the load in the second it is shown at, never a peak still to come: the
+  // replay reveals an entry at its time, and a later peak would be a number from the future
+  // (REVIEW2 1.10). The same second's load is what the story's overload step quotes.
   for (const t of Object.values(run.tiers)) {
     const capacity = leafCapacityRps(config.tiers.find((c) => c.id === t.id)!);
     if (capacity === null) continue;
     const load = (s: number) => ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / run.bucketMs;
     let first = -1;
-    let peak = 0;
-    for (let s = startSecond; s < endSecond; s++) {
-      if (t.arrivalsRetry[s] > 0 && load(s) > capacity && first < 0) first = s;
-      if (first >= 0) peak = Math.max(peak, load(s) / capacity);
+    for (let s = startSecond; s < endSecond && first < 0; s++) {
+      if (t.arrivalsRetry[s] > 0 && load(s) > capacity) first = s;
     }
     if (first < 0) continue;
-    entries.push({ tMs: at(first), text: `Retries push ${name(t.id)} load past its capacity (peak ${peak.toFixed(1)}×)`, kind: 'info' });
+    entries.push({ tMs: at(first), text: `Retries push ${name(t.id)} load past its capacity: ${(load(first) / capacity).toFixed(1)}× in this second`, kind: 'info' });
     const afterFault = Math.ceil(recovery.lastFaultEndMs / run.bucketMs);
     let afterLoad = 0;
     for (let s = afterFault; s < endSecond; s++) afterLoad += load(s);
     afterLoad /= Math.max(1, endSecond - afterFault);
     if (recovery.verdict === 'stuck' && afterLoad > capacity) {
+      // Not before the load first went over (a failure in front of this tier, such as a slow
+      // Gateway, can pass the pile on only once it ends).
+      const tMs = Math.max(recovery.lastFaultEndMs, at(first));
+      const now = load(Math.min(Math.floor(tMs / run.bucketMs), t.arrivalsFirst.length - 1)) / capacity;
       entries.push({
-        // Not before the load first went over (a failure in front of this tier, such as a slow
-        // Gateway, can pass the pile on only once it ends).
-        tMs: Math.max(recovery.lastFaultEndMs, at(first)),
-        text: `Point of no return: the failure is over, but retries keep ${name(t.id)} load at ${(afterLoad / capacity).toFixed(1)}× its capacity, so the backlog can never drain`,
+        tMs,
+        text: `Point of no return: the failure is over, but retries keep ${name(t.id)} load at ${now.toFixed(1)}× its capacity, so the backlog can never drain`,
         kind: 'tip',
       });
     }
@@ -140,8 +148,9 @@ export function buildTimeline(
     }
   }
 
-  entries.push(verdictEntry(recovery, signals, name, run.durationMs));
-  return entries.sort((x, y) => x.tMs - y.tMs).slice(0, MAX_ENTRIES);
+  // The verdict is always kept, even when it comes last (a "still stuck" verdict does).
+  const verdict = verdictEntry(recovery, signals, name, run.durationMs);
+  return [...entries.sort((x, y) => x.tMs - y.tMs).slice(0, MAX_ENTRIES - 1), verdict].sort((x, y) => x.tMs - y.tMs);
 }
 
 const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
@@ -176,18 +185,21 @@ function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) =>
     case 'overloaded':
       return { tMs: 0, text: 'Too much traffic for this system even without the failure', kind: 'bad' };
     case 'stuck': {
+      // Shown when the judged range ends, labelled "end of run" (atEnd): the same moment and the
+      // same words as the story's verdict (REVIEW2 1.11).
       if (r.lastFaultEndMs >= r.judgedUntilMs) {
-        return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' };
+        return { tMs: r.judgedUntilMs, atEnd: true, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' };
       }
       const wasted = signals.wastedShare;
       const backlog = signals.queueBacklog;
+      // The wasted share is measured over the whole incident (signals), and said so.
       const detail =
         wasted && wasted.value >= 0.5
-          ? `: ${percent(wasted.value)} of ${name(wasted.tier)} work is for requests already given up on`
+          ? `; over the incident, ${percent(wasted.value)} of ${name(wasted.tier)} work was for requests already given up on`
           : backlog && backlog.value.atEnd >= 1
             ? `: ${count(backlog.value.atEnd)} messages still waiting in ${name(backlog.tier)}`
             : '';
-      return { tMs: failureEndMs, endMs: r.judgedUntilMs, text: `Never returned to normal after the failure ended${detail}`, kind: 'bad' };
+      return { tMs: r.judgedUntilMs, atEnd: true, text: `Still stuck at the end of the run${detail}`, kind: 'bad' };
     }
   }
 }

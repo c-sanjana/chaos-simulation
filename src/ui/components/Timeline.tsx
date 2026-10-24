@@ -13,7 +13,8 @@ export function formatSeconds(ms: number): string {
   return String(Math.round(ms / 100) / 10);
 }
 
-export function timeLabel(e: Pick<TimelineEntryView, 'tMs' | 'endMs'>): string {
+export function timeLabel(e: Pick<TimelineEntryView, 'tMs' | 'endMs' | 'atEnd'>): string {
+  if (e.atEnd) return 'end of run';
   return e.endMs === undefined ? `${formatSeconds(e.tMs)} s` : `${formatSeconds(e.tMs)}–${formatSeconds(e.endMs)} s`;
 }
 

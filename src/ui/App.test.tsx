@@ -129,8 +129,9 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
     await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    // Side by side: map on the left; the replay on the right, with its live timeline beside the chart.
-    const timeline = screen.getByRole('region', { name: 'Live timeline' });
+    // Side by side: map on the left; the replay on the right, with its compact story and details beside the chart.
+    expect(screen.getByRole('region', { name: 'What is happening, in plain words' }).closest('.csl-player__timeline--side')).not.toBeNull();
+    const timeline = screen.getByRole('region', { name: 'Details: what was measured' });
     expect(timeline.closest('.csl-player__timeline--side')).not.toBeNull();
     expect(screen.getByRole('region', { name: 'Tipping point' }).contains(timeline)).toBe(false);
   });

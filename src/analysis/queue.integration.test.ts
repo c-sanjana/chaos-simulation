@@ -43,7 +43,7 @@ describe('a built topology with a message queue', { timeout: 120_000 }, () => {
   it('work behind the queue slowed: still catching up at the end counts as not recovered, though no user failed', () => {
     const { analysis, story } = analyse(scenario('custom-queue-backlog'), 140);
     expect(analysis.recovery).toMatchObject({ verdict: 'stuck', failedRequests: 0 });
-    expect(analysis.timeline.at(-1)!.text).toMatch(/^Never returned to normal after the failure ended: [\d,]+ messages still waiting in queue 2$/);
+    expect(analysis.timeline.at(-1)!.text).toMatch(/^Still stuck at the end of the run: [\d,]+ messages still waiting in queue 2$/);
     expect(story.at(-1)).toMatchObject({ kind: 'stuck', headline: 'Never caught up', text: expect.stringMatching(/^It never caught up: [\d,]+ messages were still waiting in the queue 2 at the end of the run\.$/) });
     // At lower traffic the same slowdown drains in time.
     expect(analyse(scenario('custom-queue-backlog'), 100).analysis.recovery.verdict).toBe('recovered');
