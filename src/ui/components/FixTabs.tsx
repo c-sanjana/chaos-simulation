@@ -107,14 +107,12 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
           <b className="csl-fixtabs__good">✓</b> held up in the checks
         </span>
         <span>
-          <b className="csl-fixtabs__warn">⚠</b> helped only sometimes
+          <b className="csl-fixtabs__warn">⚠</b> only sometimes
         </span>
         <span>
           <b>✕</b> didn't help (or only by luck)
         </span>
-        <span>
-          <span className="csl-mono">12 s</span> = time to recover after the failure ended
-        </span>
+        <span>12 s = time to recover after the failure ended</span>
       </p>
       <div className="csl-fixtabs__list" role="tablist" aria-label="Fixes" aria-describedby="fix-tabs-key">
         {tabs.map((t) => (
@@ -146,11 +144,8 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
           </div>
           <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown on the right</span>
         </div>
+        {/* What happened first (result, then why), then how the fix works in general. */}
         <dl className="csl-fixtabs__facts">
-          <dt>How it works</dt>
-          <dd>{selected.how}</dd>
-          <dt>Why try it</dt>
-          <dd>{selected.why}</dd>
           <dt>Result</dt>
           <dd>
             <b className={selected.status === 'no' || selected.status === 'rare' ? 'csl-fixtabs__bad' : selected.status === 'unreliable' ? 'csl-fixtabs__warn' : 'csl-fixtabs__good'}>{selected.result}</b>{' '}
@@ -169,6 +164,10 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
               <dd>{reason}</dd>
             </>
           )}
+          <dt>How it works</dt>
+          <dd>{selected.how}</dd>
+          <dt>Why try it</dt>
+          <dd>{selected.why}</dd>
         </dl>
         <div className="csl-fixtabs__procon">
           <ProCon title="Pros" sign="+" items={selected.pros} tone="good" />

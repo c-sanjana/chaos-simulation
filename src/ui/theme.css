@@ -1796,6 +1796,36 @@ button.csl-map__cell {
   }
 }
 
+/*
+ * Step 3 on a wide screen: the fixes card is at most as tall as the screen below the steps, and
+ * the selected fix's panel scrolls inside it, so the page never grows past the viewport.
+ * ASSUMPTION: 194px is the top bar and step tabs above the card plus the page's bottom margin at
+ * ≥ 1101px (measured: the card starts at 146px and the page ends 48px below it).
+ */
+@media (min-width: 1101px) and (min-height: 640px) {
+  .csl-split__side--wide > .csl-card {
+    box-sizing: border-box;
+    max-height: calc(100vh - 194px);
+    display: flex;
+    flex-direction: column;
+  }
+  .csl-split__side--wide [data-tour='fix-tabs'] {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .csl-split__side--wide .csl-fixtabs {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .csl-split__side--wide .csl-fixtabs__panel {
+    flex: 1 1 auto;
+    min-height: 140px;
+    overflow-y: auto;
+  }
+}
+
 /* Step 3: before and after maps side by side, small enough to leave room for the fixes. */
 .csl-fix-maps {
   display: flex;
@@ -1880,11 +1910,23 @@ button.csl-map__cell {
   position: relative;
   min-height: 200px;
 }
-.csl-player__timeline--side .csl-timeline-window {
+/* Beside the chart: the compact story on top, the details filling the rest, scrolling inside. */
+.csl-player__sidestack {
   position: absolute;
   inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.csl-player__sidestack > .csl-timeline-window {
+  flex: 1 0 150px;
   height: auto;
-  min-height: 0;
+  min-height: 150px;
+}
+.csl-story--compact {
+  padding: 8px 10px;
+  gap: 4px;
 }
 /* On step 3 the ◆ marks the replayed cell, so the selection ring would only repeat it. */
 .csl-fix-maps .csl-map__cell[aria-pressed='true'] {

@@ -25,7 +25,7 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
     const verdict = t.at(-1)!;
     expect(verdict).toMatchObject({ kind: 'bad', tMs: analysis.recovery.judgedUntilMs, atEnd: true });
     expect(verdict.endMs).toBeUndefined();
-    expect(verdict.text).toMatch(/^Still stuck at the end of the run; over the incident, \d+% of DB work was for requests already given up on$/);
+    expect(verdict.text).toMatch(/^Still stuck: over the incident, \d+% of DB work was for requests already given up on$/);
 
     // Every load quoted is the load in the second the entry is shown at, never a peak still to come.
     const db = run.tiers.db;

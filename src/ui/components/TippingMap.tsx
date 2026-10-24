@@ -134,13 +134,17 @@ export interface MapLegendProps {
   showTip?: boolean;
   /** What the ◆ marks (default "your settings"). */
   markLabel?: string;
+  /** Show the ◆ entry (default true; off where the panel already explains it). */
+  showMark?: boolean;
+  /** Show the "not run yet" entry (default true; off once every cell has run). */
+  showPending?: boolean;
 }
 
 /**
  * Key for TippingMap. Every failing outcome has a mark besides its colour (✕ stuck, hatching for
  * overloaded), and the key shows the mark in its swatch too.
  */
-export function MapLegend({ showSelected = true, showTip = true, markLabel = 'your settings' }: MapLegendProps) {
+export function MapLegend({ showSelected = true, showTip = true, markLabel = 'your settings', showMark = true, showPending = true }: MapLegendProps) {
   return (
     <ul className="csl-map-legend" aria-label="Map legend">
       <li className="csl-map-legend__group">
@@ -162,17 +166,19 @@ export function MapLegend({ showSelected = true, showTip = true, markLabel = 'yo
         <span className="csl-map-legend__swatch csl-map__cell--overloaded" style={{ backgroundColor: 'var(--csl-map-overloaded)' }} />
         {OVERLOADED_TEXT}
       </li>
-      <li className="csl-map-legend__item">
-        <span className="csl-map-legend__swatch" style={{ background: 'var(--csl-map-pending)' }} />
-        Not run yet
-      </li>
+      {showPending && (
+        <li className="csl-map-legend__item">
+          <span className="csl-map-legend__swatch" style={{ background: 'var(--csl-map-pending)' }} />
+          Not run yet
+        </li>
+      )}
       {showTip && (
         <li className="csl-map-legend__item">
           <span className="csl-map-legend__tip" />
           tipping point
         </li>
       )}
-      <li className="csl-map-legend__item">◆ {markLabel}</li>
+      {showMark && <li className="csl-map-legend__item">◆ {markLabel}</li>}
       {showSelected && (
         <li className="csl-map-legend__item">
           <span className="csl-map-legend__swatch" style={{ boxShadow: '0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink)', width: 10, height: 10, margin: '0 2px' }} />

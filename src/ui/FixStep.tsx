@@ -53,6 +53,9 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   useEffect(() => setCell(nearestCell(scenario)), [scenario]);
   const atCurrent = onMap(scenario) && cell.x === current.x && cell.y === current.y;
 
+  // Requested before the maps' cells, so the panel's "why" and the replay at your settings don't
+  // wait behind 120 map runs (the pool takes jobs in order).
+  const fixedAtYours = useAnalysis(pool, applied ? applied.candidate.config : null, labels);
   const signals = original?.analysis.signals ?? null;
   const beforeSpec = useMemo(() => (applied ? buildSweep(topology, scenario) : null), [applied, topology, scenario]);
   const afterSpec = useMemo(() => {
@@ -69,7 +72,6 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const beforeConfig = atCurrent ? config : cellConfig(beforeSpec, cell);
   const afterConfig = !applied ? null : atCurrent ? applied.candidate.config : cellConfig(afterSpec, cell);
   const beforeOther = useAnalysis(pool, atCurrent ? null : beforeConfig, labels);
-  const fixedAtYours = useAnalysis(pool, applied ? applied.candidate.config : null, labels);
   const fixedOther = useAnalysis(pool, atCurrent ? null : afterConfig, labels);
   const fixed = atCurrent ? fixedAtYours : fixedOther;
   const beforeRun = atCurrent ? (original ? { status: 'done' as const, value: original } : beforeOther) : beforeOther;
@@ -122,7 +124,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             </div>
             {applied && before.result && after.result ? (
               <>
-                <MapLegend markLabel="shown on the right" showSelected={false} />
+                <MapLegend showSelected={false} showMark={false} showPending={!mapsDone} />
                 <div className="csl-fix-maps csl-map--medium">
                   {[
                     { title: 'Before', sweep: before.result },

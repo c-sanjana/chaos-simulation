@@ -85,7 +85,7 @@ describe('FixTabs', () => {
 
   it('explains its marks and numbers on screen, and why the first fix is first', () => {
     render(<FixTabs tabs={tabs} selectedId={null} onSelect={() => {}} />);
-    expect(document.getElementById('fix-tabs-key')!.textContent).toBe("✓ held up in the checks⚠ helped only sometimes✕ didn't help (or only by luck)12 s = time to recover after the failure ended");
+    expect(document.getElementById('fix-tabs-key')!.textContent).toBe("✓ held up in the checks⚠ only sometimes✕ didn't help (or only by luck)12 s = time to recover after the failure ended");
     expect(screen.getByRole('tablist').getAttribute('aria-describedby')).toBe('fix-tabs-key');
     const panel = screen.getByRole('tabpanel');
     expect(within(panel).getByText("Why it's ranked first").nextElementSibling!.textContent).toBe('It held up in the checks; Cap retries helped only sometimes.');

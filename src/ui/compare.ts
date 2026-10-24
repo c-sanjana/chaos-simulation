@@ -8,6 +8,7 @@ import type { RunConfig, TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { AnalyzeResult } from '../worker/jobs';
 import { describeFault, retryCalls, type Draft } from './draft';
+import { formatCount } from './format';
 import { bottleneckTier, shortVerdict, waitingTier } from './viewModels';
 
 /** A finished run with the settings that produced it. */
@@ -70,8 +71,55 @@ export function compareRuns(prev: RunSnapshot, next: RunSnapshot, labels: Record
   }, null);
   const workersTier = moved && moved.diff >= 0.03 ? moved.id : waitingTier(next.result.run);
   if (prev.result.run.tiers[workersTier]) rows.push(shareRow(`${name(workersTier)} workers busy after the failure`, busy(prev, workersTier), busy(next, workersTier)));
-  return { changes: settingsChanges(prev.draft, next.draft), rows, takeaway: takeaway(pv.verdict, nv.verdict, rows) };
+  // Behind a queue, messages that keep failing are dropped: users never see it, but it is work lost.
+  const dropped = (r: RunResult) => Object.values(r.tiers).reduce((n, t) => n + t.deadLettered.reduce((a, b) => a + b, 0), 0);
+  const queued = (r: RunResult) => Object.values(r.tiers).some((t) => t.consumers > 0);
+  if ((queued(prev.result.run) || queued(next.result.run)) && dropped(prev.result.run) + dropped(next.result.run) > 0) {
+    rows.push(countRow('Messages dropped behind the queue', dropped(prev.result.run), dropped(next.result.run)));
+  }
+  const changes = settingsChanges(prev.draft, next.draft);
+  return { changes, rows, takeaway: retryTakeaway(prev.draft, next.draft, changes, pv.verdict, nv.verdict, rows) ?? takeaway(pv.verdict, nv.verdict, rows) };
 }
+
+/**
+ * The takeaway after changing only how many times layers ask again, told as cause and effect from
+ * the two runs (REVIEW2 3.4), e.g. "Users retried less, so more failures reached them directly. It
+ * was still stuck because the Gateway (3×) and the App server (1×) still multiply the load." Null
+ * when something else changed too, or when there is no clear story (then `takeaway` speaks).
+ */
+export function retryTakeaway(prev: Draft, next: Draft, changes: string[], before: Verdict, now: Verdict, rows: ComparisonRow[]): string | null {
+  if (changes.length === 0 || !changes.every((c) => /retries \d+ → \d+$/.test(c))) return null;
+  const label = (id: string) => next.topology.layout[id]?.label ?? id;
+  const was = new Map(retryCalls(prev.topology).map((c) => [c.caller, c.retries]));
+  const calls = retryCalls(next.topology);
+  const fewer = calls.filter((c) => (was.get(c.caller) ?? c.retries) > c.retries).map((c) => c.caller);
+  const more = calls.filter((c) => (was.get(c.caller) ?? c.retries) < c.retries).map((c) => c.caller);
+  if (fewer.length > 0 && more.length > 0) return null;
+  const users = (ids: string[]) => ids.length === 1 && ids[0] === 'client';
+  const names = (ids: string[]) => listed(ids.map((id) => (id === 'client' ? "users' apps" : `the ${label(id)}`)));
+  const who = (ids: string[]) => cap(names(ids));
+  const still = calls.filter((c) => c.retries > 0).map((c) => `${c.caller === 'client' ? "users' apps" : `the ${label(c.caller)}`} (${c.retries}×)`);
+  const multiply = still.length === 0 ? '' : ` because ${listed(still)} still ${still.length === 1 && !still[0].startsWith("users'") ? 'multiplies' : 'multiply'} the load`;
+  const order = VERDICT_ORDER[now] - VERDICT_ORDER[before];
+  const failed = rows.find((r) => r.label === 'Failed requests')!.tone;
+  if (order < 0) return fewer.length > 0 ? `With fewer repeats from ${names(fewer)}, the load fell enough for the system to recover.` : null;
+  if (order > 0) return more.length > 0 ? `${who(more)} retried more, and the extra repeats kept the system from recovering.` : null;
+  const stuck = now === 'stuck' || now === 'overloaded';
+  if (fewer.length > 0) {
+    const first = users(fewer)
+      ? failed === 'worse' ? 'Users retried less, so more failures reached them directly' : failed === 'better' ? 'Users retried less, so fewer repeats piled up and fewer requests failed' : 'Users retried less'
+      : `${who(fewer)} retried less${failed === 'worse' ? ', so more failures reached users directly' : failed === 'better' ? ', so fewer repeats piled up and fewer requests failed' : ''}`;
+    return stuck ? `${first}. It was still stuck${multiply}.` : `${first}. It recovered either way.`;
+  }
+  if (more.length > 0) {
+    const first = `${users(more) ? 'Users' : who(more)} retried more, adding repeats${failed === 'worse' ? ', and more requests failed' : failed === 'better' ? ', yet fewer requests failed' : ''}`;
+    return stuck ? `${first}. It was stuck either way${multiply.replace(' still ', ' ')}.` : `${first}. It recovered either way.`;
+  }
+  return null;
+}
+
+/** "a", "a and b", "a, b and c". */
+const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 const VERDICT_ORDER: Record<Verdict, number> = { unaffected: 0, recovered: 1, stuck: 2, overloaded: 3 };
 
@@ -86,7 +134,7 @@ function relative(before: number, now: number): number {
 function countRow(label: string, before: number, now: number): ComparisonRow {
   const r = relative(before, now);
   const same = Math.abs(r) < SAME_SHARE;
-  return { label, before: before.toLocaleString(), now: now.toLocaleString(), change: same ? 'same' : percent(r), tone: same ? 'same' : toneOf(r), values: { before, now, max: Math.max(before, now) } };
+  return { label, before: formatCount(before), now: formatCount(now), change: same ? 'same' : percent(r), tone: same ? 'same' : toneOf(r), values: { before, now, max: Math.max(before, now) } };
 }
 
 function ratioRow(label: string, before: number, now: number, fmt: (v: number) => string): ComparisonRow {

@@ -193,13 +193,14 @@ function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) =>
       const wasted = signals.wastedShare;
       const backlog = signals.queueBacklog;
       // The wasted share is measured over the whole incident (signals), and said so.
+      // "end of run" is the label, so the text doesn't repeat it.
       const detail =
         wasted && wasted.value >= 0.5
-          ? `; over the incident, ${percent(wasted.value)} of ${name(wasted.tier)} work was for requests already given up on`
+          ? `over the incident, ${percent(wasted.value)} of ${name(wasted.tier)} work was for requests already given up on`
           : backlog && backlog.value.atEnd >= 1
-            ? `: ${count(backlog.value.atEnd)} messages still waiting in ${name(backlog.tier)}`
-            : '';
-      return { tMs: r.judgedUntilMs, atEnd: true, text: `Still stuck at the end of the run${detail}`, kind: 'bad' };
+            ? `${count(backlog.value.atEnd)} messages still waiting in ${name(backlog.tier)}`
+            : 'never returned to normal after the failure ended';
+      return { tMs: r.judgedUntilMs, atEnd: true, text: `Still stuck: ${detail}`, kind: 'bad' };
     }
   }
 }

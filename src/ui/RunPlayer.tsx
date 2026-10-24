@@ -290,7 +290,11 @@ export function RunPlayer({
               {chart.note && <p className="csl-chart-note">{chart.note}</p>}
               <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
             </div>
-            {sideTimeline && <div className="csl-player__timeline csl-player__timeline--side">{timeline}</div>}
+            {sideTimeline && (
+              <div className="csl-player__timeline csl-player__timeline--side">
+                <div className="csl-player__sidestack">{timeline}</div>
+              </div>
+            )}
           </div>
         </div>
         {!sideTimeline && timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}

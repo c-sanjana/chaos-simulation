@@ -86,7 +86,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: '120000' } });
     const panel = await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
     expect(within(panel).getByText('App server → DB retries 1 → 5')).toBeTruthy();
-    expect(within(panel).getByText(/^A lot changed inside the system, but users see about the same/)).toBeTruthy();
+    expect(within(panel).getByText(/^The App server retried more, adding repeats\. It was stuck either way because/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
     // A different preset isn't comparable.
