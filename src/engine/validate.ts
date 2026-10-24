@@ -1,4 +1,4 @@
-import type { CallPolicy, RunConfig, ServiceTime, TierConfig } from './config';
+import { callsOf, type CallPolicy, type RunConfig, type ServiceTime, type TierConfig } from './config';
 
 /** Throws a descriptive error if the config cannot be simulated. */
 export function validateConfig(config: RunConfig): void {
@@ -30,6 +30,7 @@ export function validateConfig(config: RunConfig): void {
     if (!(Number.isInteger(call.retries) && call.retries >= 0)) fail(`${owner} retries must be a non-negative integer`);
     if (!(call.backoffBaseMs >= 0)) fail(`${owner} backoffBaseMs must be >= 0`);
     if (call.retryBudget !== undefined) positive(call.retryBudget, `${owner} retryBudget`);
+    if (call.share !== undefined) positive(call.share, `${owner} share`);
   };
   const checkService = (s: ServiceTime, owner: string) => {
     if (s.kind === 'exponential') positive(s.meanMs, `${owner} service meanMs`);
@@ -50,10 +51,22 @@ export function validateConfig(config: RunConfig): void {
       fail(`${tier.id} queueLimit must be null or a non-negative integer`);
     }
     checkService(tier.service, tier.id);
-    if (tier.downstream) checkCall(tier.downstream, tier.id);
+    const calls = callsOf(tier);
+    if (!tier.downstream && (tier.moreDownstream?.length ?? 0) > 0) fail(`${tier.id} has further calls (moreDownstream) but no first call (downstream)`);
+    if (tier.fanOut !== undefined && !['sequence', 'parallel', 'split'].includes(tier.fanOut)) fail(`${tier.id} fanOut must be sequence, parallel or split (got ${tier.fanOut})`);
+    const targets = new Set<string>();
+    for (const call of calls) {
+      checkCall(call, tier.id);
+      if (targets.has(call.target)) fail(`${tier.id} calls "${call.target}" more than once`);
+      targets.add(call.target);
+      // (A queue's own message, below, explains its case better.)
+      if (byId.get(call.target)!.cache && !tier.cache && !tier.queue) fail(`${tier.id} calls cache tier "${call.target}" as a downstream; use cacheAside`);
+    }
+    // ASSUMPTION: fanOut 'split' with a single call is simply that call (a chain), not an error:
+    // a load balancer whose other arrows were deleted still works.
     if (tier.cache) {
       const c = tier.cache;
-      if (tier.downstream || tier.cacheAside) fail(`cache tier ${tier.id} cannot call other tiers`);
+      if (calls.length > 0 || tier.cacheAside) fail(`cache tier ${tier.id} cannot call other tiers`);
       positiveInt(c.capacity, `${tier.id} cache capacity`);
       positiveInt(c.keys, `${tier.id} cache keys`);
       if (!(c.skew >= 0)) fail(`${tier.id} cache skew must be >= 0`);
@@ -65,6 +78,7 @@ export function validateConfig(config: RunConfig): void {
       const target = tier.downstream?.target;
       if (target === undefined) fail(`queue tier ${tier.id} needs a downstream for its consumers to call`);
       else if (byId.get(target)!.cache) fail(`queue tier ${tier.id} cannot hand messages to cache tier "${target}"`);
+      if (calls.length > 1) fail(`queue tier ${tier.id} must hand its messages to exactly one tier (it has ${calls.length} calls)`);
       positiveInt(q.maxDepth, `${tier.id} queue maxDepth`);
       positiveInt(q.consumers, `${tier.id} queue consumers`);
     }
@@ -74,8 +88,6 @@ export function validateConfig(config: RunConfig): void {
       if (!tier.downstream) fail(`${tier.id} uses cacheAside but has no downstream to read from on a miss`);
     } else if (tier.coalesceMisses) {
       fail(`${tier.id} coalesceMisses needs cacheAside`);
-    } else if (tier.downstream && byId.get(tier.downstream.target)!.cache) {
-      fail(`${tier.id} calls cache tier "${tier.downstream.target}" as a downstream; use cacheAside`);
     }
   }
 
@@ -89,14 +101,16 @@ export function validateConfig(config: RunConfig): void {
     }
   }
 
-  // Calls must form a chain without cycles, or a single request would recurse forever.
-  for (const start of config.tiers) {
-    const seen = new Set<string>();
-    let current: TierConfig | undefined = start;
-    while (current?.downstream) {
-      if (seen.has(current.id)) fail(`call cycle through tier "${current.id}"`);
-      seen.add(current.id);
-      current = byId.get(current.downstream.target);
-    }
-  }
+  // The calls must form a directed acyclic graph (fan-out and fan-in are fine), or a single request
+  // would recurse forever. Depth-first search over every call; cache lookups lead to cache tiers,
+  // which call nothing, so they cannot close a cycle.
+  const state = new Map<string, 'visiting' | 'done'>();
+  const visit = (id: string): void => {
+    if (state.get(id) === 'done') return;
+    if (state.get(id) === 'visiting') fail(`call cycle through tier "${id}"`);
+    state.set(id, 'visiting');
+    for (const call of callsOf(byId.get(id)!)) visit(call.target);
+    state.set(id, 'done');
+  };
+  for (const tier of config.tiers) visit(tier.id);
 }

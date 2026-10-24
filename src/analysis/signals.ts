@@ -1,6 +1,6 @@
 import type { RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
-import { callerOf, sumRange } from './helpers';
+import { strictestCallerInto, sumRange } from './helpers';
 import { queuedWaitMs } from './timeline';
 import type { RecoveryResult } from './recovery';
 
@@ -64,7 +64,8 @@ export function computeSignals(run: RunResult, config: RunConfig, recovery: Reco
 
   const queueWaitOverTimeout = worst(
     tiers.map((t) => {
-      const timeoutMs = callerOf(config, t.id)?.timeoutMs ?? null;
+      // With several callers, the least patient one: it is the first to give up on the queue.
+      const timeoutMs = strictestCallerInto(config, t.id)?.policy.timeoutMs ?? null;
       let ratio = 0;
       if (timeoutMs !== null) {
         for (let s = from; s < to; s++) ratio = Math.max(ratio, queuedWaitMs(run, t.id, s) / timeoutMs);

@@ -1,5 +1,5 @@
 import { Client } from './client';
-import type { RunConfig } from './config';
+import { callsOf, type RunConfig } from './config';
 import { Buckets, ClientMetrics, TierMetrics } from './metrics';
 import type { RunResult } from './result';
 import { Simulation } from './simulation';
@@ -15,8 +15,8 @@ export function runSimulation(config: RunConfig): RunResult {
   const tiers = new Map<string, Tier>();
   config.tiers.forEach((tc, i) => tiers.set(tc.id, new Tier(sim, tc, i, new TierMetrics(buckets))));
   for (const tier of tiers.values()) {
-    const { downstream, cacheAside } = tier.config;
-    tier.connect(downstream ? tiers.get(downstream.target)! : null, cacheAside ? tiers.get(cacheAside.target)! : null);
+    const { cacheAside } = tier.config;
+    tier.connect(callsOf(tier.config).map((c) => tiers.get(c.target)!), cacheAside ? tiers.get(cacheAside.target)! : null);
   }
   for (const fault of config.faults ?? []) {
     const tier = tiers.get(fault.tier)!;
