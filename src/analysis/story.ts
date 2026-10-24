@@ -162,10 +162,35 @@ function pressureTier(ctx: Context, fault: Fault): string | null {
     if (behind.length <= 1) return behind[0] ?? null;
     return behind.map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) })).sort((a, b) => b.peak - a.peak)[0].id;
   }
-  if (leafCapacityRps(tier) !== null) return fault.tier;
+  if (leafCapacityRps(tier) !== null) {
+    // When a load balancer splits traffic over the failed part and others, repeats split afresh
+    // and can land on the others, overloading them instead: tell the one that got the most work
+    // for what it can handle, if it got more than the failed part and more than it can handle.
+    const own = peakLoad(ctx, fault.tier, fault.startMs);
+    const others = splitSiblings(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
+    const worst = others.sort((a, b) => b.peak - a.peak)[0];
+    return worst !== undefined && worst.peak > 1 && worst.peak > own ? worst.id : fault.tier;
+  }
   const peaks = reachableLeaves(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
   const worst = peaks.sort((a, b) => b.peak - a.peak)[0];
   return worst !== undefined && worst.peak > 1 ? worst.id : null;
+}
+
+/**
+ * The tiers doing the work themselves behind the other branches of every split that includes
+ * `id` (a load balancer's other pools), not `id` itself. Empty in a chain.
+ */
+function splitSiblings(config: RunConfig, id: string): string[] {
+  const out = new Set<string>();
+  for (const caller of config.tiers) {
+    const calls = callsOf(caller);
+    if (caller.fanOut !== 'split' || calls.length < 2 || !calls.some((c) => c.target === id)) continue;
+    for (const c of calls) {
+      if (c.target === id) continue;
+      for (const leaf of [c.target, ...reachableFrom(config, c.target)]) if (leaf !== id && leafCapacityRps(tierOf(config, leaf)) !== null) out.add(leaf);
+    }
+  }
+  return [...out];
 }
 
 /** The tiers a miss in `cacheId` is read from: every downstream call of every tier that looks things up in it. */

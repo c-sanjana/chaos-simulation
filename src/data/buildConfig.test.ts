@@ -29,6 +29,23 @@ describe('buildRunConfig', () => {
     expect(buildRunConfig(webChain, retryStorm, { retries: { db: 7, nobody: 2 } })).toEqual(buildRunConfig(webChain, retryStorm));
   });
 
+  it("applies a caller's retry override to every one of its downstream calls (branching)", () => {
+    const api = webChain.tiers.find((t) => t.id === 'api')!;
+    const branched = {
+      ...webChain,
+      tiers: [...webChain.tiers.map((t) => (t.id === 'api' ? { ...api, moreDownstream: [{ ...api.downstream!, target: 'search', retries: 2 }], fanOut: 'parallel' as const } : t)), { ...webChain.tiers[3], id: 'search' }],
+    };
+    const own = buildRunConfig(branched, retryStorm).tiers.find((t) => t.id === 'api')!;
+    expect([own.downstream!.retries, own.moreDownstream![0].retries]).toEqual([1, 2]);
+    const c = buildRunConfig(branched, retryStorm, { retries: { api: 4 } });
+    const overridden = c.tiers.find((t) => t.id === 'api')!;
+    expect([overridden.downstream!.retries, overridden.moreDownstream![0].retries, overridden.cacheAside!.retries]).toEqual([4, 4, 0]);
+    expect(overridden.fanOut).toBe('parallel');
+    expect(() => validateConfig(c)).not.toThrow();
+    // Tiers without further calls get no moreDownstream field.
+    expect('moreDownstream' in c.tiers.find((t) => t.id === 'gateway')!).toBe(false);
+  });
+
   it('overrides traffic, outage length and seed without mutating the presets', () => {
     const c = buildRunConfig(webChain, retryStorm, { rps: 80, outageMs: 12_000, seed: 3 });
     expect(c.client.rps).toBe(80);
