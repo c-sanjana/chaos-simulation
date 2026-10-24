@@ -3,11 +3,27 @@ import type { RunResult } from '../engine/result';
 import type { Analysis } from './analyze';
 import { callPolicyInto, formatMs, formatSeconds, leafCapacityRps, percent, spokenName, sumRange } from './helpers';
 
-/** One sentence (or two) of a run's story, shown once the replay reaches `tMs`. */
+/** What kind of moment a story step is, for its picture in the infographic. */
+export type StoryKind = 'fault' | 'giveup' | 'back' | 'overload' | 'waste' | 'cache' | 'recovered' | 'stuck' | 'info';
+
+/**
+ * One step of a run's story, shown once the replay reaches `tMs`: a full sentence (`text`, for
+ * reading and screen readers) and the same moment as a picture: a headline of a few words, its key
+ * number, and optionally a meter (load against capacity) or the retry cascade.
+ */
 export interface StoryStep {
   tMs: number;
   text: string;
   tone: 'fault' | 'bad' | 'good' | 'info';
+  kind: StoryKind;
+  /** Two to four words, e.g. "Database 8× slower". */
+  headline: string;
+  /** The key number, e.g. "5 s", "1 s", "98%". */
+  figure?: string;
+  /** Load as a multiple of capacity (1 = exactly full), drawn as a meter. */
+  meter?: number;
+  /** Each retrying caller's retries, front to back, e.g. users' apps 5, gateway 3, API 1. */
+  cascade?: Array<{ who: string; retries: number }>;
 }
 
 /** Above this, the wasted-work and cache steps are told as one. */
@@ -27,7 +43,7 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
   const r = analysis.recovery;
   const say = (id: string) => spokenName(id, labels);
   const faults = (config.faults ?? []).filter((f) => f.startMs < run.durationMs).sort((a, b) => a.startMs - b.startMs);
-  if (faults.length === 0) return [notInRunStep(config, run), { tMs: 0, text: 'Nothing went wrong.', tone: 'good' }];
+  if (faults.length === 0) return [notInRunStep(config, run), { tMs: 0, text: 'Nothing went wrong.', tone: 'good', kind: 'recovered', headline: 'Nothing went wrong' }];
 
   const ctx: Context = { run, config, analysis, say, bucketMs: run.bucketMs };
   const main = faults[0];
@@ -38,14 +54,20 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
   const hadPile = [pressure, main.tier].some((id) => id !== null && queueAtEnd(ctx, id, r.lastFaultEndMs) >= 1);
 
   const steps: StoryStep[] = [];
-  for (const f of faults) steps.push({ tMs: f.startMs, text: faultStartText(f, ctx), tone: 'fault' });
+  for (const f of faults) {
+    const what = f.kind === 'slow' ? `${f.factor}× slower` : f.flushAtEnd ? 'down, then empty' : 'down';
+    const figure = f.endMs >= run.durationMs ? 'to the end' : formatSeconds(f.endMs - f.startMs);
+    steps.push({ tMs: f.startMs, text: faultStartText(f, ctx), tone: 'fault', kind: 'fault', headline: `${partName(f, ctx)} ${what}`, figure });
+  }
   const cause = causeStep(main, ctx);
   if (cause) steps.push(cause);
   for (const f of faults) {
     if (f.endMs >= run.durationMs) continue; // still going on at the end: nothing to tell
     // Only the last failure to end leads into how it all ended.
     const suffix = f.endMs === r.lastFaultEndMs ? afterTheFailure(f, ctx, retries, hadPile) : '.';
-    steps.push({ tMs: f.endMs, text: faultEndText(f, ctx) + suffix, tone: 'info' });
+    const back = f.kind === 'slow' ? 'back to speed' : f.flushAtEnd ? 'back, empty' : 'back up';
+    const pile = r.verdict === 'stuck' && f.endMs === r.lastFaultEndMs ? 'pile remains' : undefined;
+    steps.push({ tMs: f.endMs, text: faultEndText(f, ctx) + suffix, tone: 'info', kind: 'back', headline: `${partName(f, ctx)} ${back}`, figure: pile });
   }
   // After the end steps, so that an overload starting as the failure ends is told after it ends.
   const overload = pressure === null ? null : overloadStep(pressure, main, ctx, retries > 0);
@@ -58,9 +80,13 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
   if (wasteS !== null && cache !== null && count > MAX_STEPS) {
     // Told together, once the replay has shown both.
     const tMs = Math.max(wasteS * ctx.bucketMs, cache.tMs);
-    steps.push({ tMs, text: `${wasteText(pressure!, wasteS, tMs / ctx.bucketMs, retries, ctx)} ${cache.text}`, tone: 'bad' });
+    const share = wastedShare(pressure!, wasteS, tMs / ctx.bucketMs, ctx);
+    steps.push({ tMs, text: `${wasteText(pressure!, wasteS, tMs / ctx.bucketMs, retries, ctx)} ${cache.text}`, tone: 'bad', kind: 'waste', headline: 'Wasted work, cache empty', figure: wasteFigure(share) });
   } else {
-    if (wasteS !== null) steps.push({ tMs: wasteS * ctx.bucketMs, text: wasteText(pressure!, wasteS, wasteS, retries, ctx), tone: 'bad' });
+    if (wasteS !== null) {
+      const share = wastedShare(pressure!, wasteS, wasteS, ctx);
+      steps.push({ tMs: wasteS * ctx.bucketMs, text: wasteText(pressure!, wasteS, wasteS, retries, ctx), tone: 'bad', kind: 'waste', headline: 'Work for nobody', figure: wasteFigure(share) });
+    }
     if (cache) steps.push(cache);
   }
   steps.push(verdict);
@@ -246,20 +272,25 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
     return null;
   };
   const cascade = cascadeText(f, call.id, ctx);
-  const step = (tMs: number | null, text: string): StoryStep | null => (tMs === null ? null : { tMs, text: text + cascade, tone: 'info' });
+  const layers = cascade === '' ? undefined : retryingCalls(ctx.config).map(({ id, policy }) => ({ who: shortCaller(id, ctx), retries: policy.retries }));
+  const headline = `${capitalise(shortCaller(call.id, ctx))} ${verb('gives', 'give')} up`;
+  const figure = call.policy.timeoutMs === null ? undefined : formatMs(call.policy.timeoutMs);
+  const step = (tMs: number | null, text: string, head = headline, fig = figure): StoryStep | null =>
+    tMs === null ? null : { tMs, text: text + cascade, tone: 'info', kind: 'giveup', headline: layers ? `${head}, everyone asks again` : head, figure: fig, ...(layers ? { cascade: layers } : {}) };
 
   const callerTier = call.id === 'client' ? null : tierOf(ctx.config, call.id);
   if (tierOf(ctx.config, f.tier).cache && callerTier?.cacheAside?.target === f.tier && callerTier.downstream) {
     const behind = ctx.say(callerTier.downstream.target);
-    if (f.kind === 'dead') return step(f.startMs, `Without ${ctx.say(f.tier)}, ${caller} sent every lookup to ${behind} instead.`);
-    return step(firstSlow(), `${capitalise(caller)} gives up on ${ctx.say(f.tier)} after ${formatMs(call.policy.timeoutMs!)} and asks ${behind} instead.`);
+    const toBehind = `Lookups go to ${noun(behind)}`;
+    if (f.kind === 'dead') return step(f.startMs, `Without ${ctx.say(f.tier)}, ${caller} sent every lookup to ${behind} instead.`, toBehind, undefined);
+    return step(firstSlow(), `${capitalise(caller)} gives up on ${ctx.say(f.tier)} after ${formatMs(call.policy.timeoutMs!)} and asks ${behind} instead.`, toBehind);
   }
 
   // When other layers ask again, the cascade says what each one does.
   const again = cascade === '' ? ` and ${askAgain(call.policy, call.id, ctx)}` : '';
   if (f.kind === 'dead') {
     const from = f.instance === undefined ? `from ${ctx.say(f.tier)}` : 'for requests sent to that instance';
-    return step(f.startMs, `${capitalise(caller)} ${verb('gets', 'get')} an error ${from} straight away${again}.`);
+    return step(f.startMs, `${capitalise(caller)} ${verb('gets', 'get')} an error ${from} straight away${again}.`, `${capitalise(shortCaller(call.id, ctx))} ${verb('gets', 'get')} errors`, undefined);
   }
   const article = /^[aeiou]/i.test(target) ? 'an' : 'a';
   return step(firstSlow(), `${capitalise(caller)} ${verb('gives', 'give')} up on ${article} ${target} answer after ${formatMs(call.policy.timeoutMs!)}${again}.`);
@@ -300,7 +331,7 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
           : retries
             ? `Then the requests asked again pushed ${name} past what it can handle, ${full}.`
             : `Then ${name} got more requests than it can handle, ${full}.`;
-      return { tMs: s * ctx.bucketMs, text, tone: 'bad' };
+      return { tMs: s * ctx.bucketMs, text, tone: 'bad', kind: 'overload', headline: `${capitalise(noun(name))} overloaded`, meter: load(s) / capacity, figure: `${(load(s) / capacity).toFixed(1)}×` };
     }
   }
 
@@ -311,7 +342,15 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
   const end = Math.min(Math.ceil(main.endMs / ctx.bucketMs), to);
   for (let s = from; s < end; s++) {
     if (load(s) > reduced) {
-      return { tMs: s * ctx.bucketMs, text: `${how}, ${name} could serve only ${about(reduced)} requests a second, but it got ${Math.round(load(s))}.`, tone: 'bad' };
+      return {
+        tMs: s * ctx.bucketMs,
+        text: `${how}, ${name} could serve only ${about(reduced)} requests a second, but it got ${Math.round(load(s))}.`,
+        tone: 'bad',
+        kind: 'overload',
+        headline: `${capitalise(noun(name))} swamped`,
+        meter: load(s) / reduced,
+        figure: `${(load(s) / reduced).toFixed(1)}×`,
+      };
     }
   }
   return null;
@@ -366,7 +405,7 @@ function cacheStep(faults: Fault[], ctx: Context): StoryStep | null {
     const rate = t.hits[s] / Math.max(1, t.arrivalsFirst[s] + t.arrivalsRetry[s]);
     if (rate < drop.value.before / 2) {
       const text = `${capitalise(noun(ctx.say(drop.tier)))} entries ran out and weren't refilled, sending even more requests to ${ctx.say(owner.downstream.target)}.`;
-      return { tMs: s * ctx.bucketMs, text, tone: 'bad' };
+      return { tMs: s * ctx.bucketMs, text, tone: 'bad', kind: 'cache', headline: `${capitalise(noun(ctx.say(drop.tier)))} emptied`, figure: `${percent(rate)} hits` };
     }
   }
   return null;
@@ -374,8 +413,14 @@ function cacheStep(faults: Fault[], ctx: Context): StoryStep | null {
 
 function notInRunStep(config: RunConfig, run: RunResult): StoryStep {
   const starts = (config.faults ?? []).map((f) => f.startMs);
-  if (starts.length === 0) return { tMs: 0, text: 'Nothing is set to fail in this run.', tone: 'info' };
-  return { tMs: 0, text: `The failure is set to start at ${formatSeconds(Math.min(...starts))}, but this run ends at ${formatSeconds(run.durationMs)}, so it never happens.`, tone: 'info' };
+  if (starts.length === 0) return { tMs: 0, text: 'Nothing is set to fail in this run.', tone: 'info', kind: 'info', headline: 'No failure set' };
+  return {
+    tMs: 0,
+    text: `The failure is set to start at ${formatSeconds(Math.min(...starts))}, but this run ends at ${formatSeconds(run.durationMs)}, so it never happens.`,
+    tone: 'info',
+    kind: 'info',
+    headline: 'Failure never happens',
+  };
 }
 
 /** How it ended, at the moment that became known. */
@@ -386,15 +431,25 @@ function verdictStep(ctx: Context, pressure: string | null, hadPile: boolean): S
       const text = r.recoveryMs === 0
         ? 'It was back to normal as soon as the failure ended.'
         : `${hadPile ? 'It worked through the backlog and was' : 'It was'} back to normal ${formatSeconds(r.recoveryMs!)} after the failure ended.`;
-      return { tMs: r.recoveredAtMs!, text, tone: 'good' };
+      return { tMs: r.recoveredAtMs!, text, tone: 'good', kind: 'recovered', headline: 'Back to normal', figure: r.recoveryMs === 0 ? 'at once' : `in ${formatSeconds(r.recoveryMs!)}` };
     }
     case 'unaffected':
-      return { tMs: Math.min(r.lastFaultEndMs, ctx.run.durationMs), text: 'It coped: requests did just as well as they would have without the failure.', tone: 'good' };
+      return { tMs: Math.min(r.lastFaultEndMs, ctx.run.durationMs), text: 'It coped: requests did just as well as they would have without the failure.', tone: 'good', kind: 'recovered', headline: 'Coped fine' };
     case 'overloaded':
-      return { tMs: 0, text: 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.', tone: 'bad' };
+      return { tMs: 0, text: 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.', tone: 'bad', kind: 'stuck', headline: 'Too much traffic anyway' };
     case 'stuck': {
-      if (r.lastFaultEndMs >= r.judgedUntilMs) return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover.', tone: 'bad' };
-      return { tMs: r.judgedUntilMs, text: `It never recovered: still failing at the end of the run${peakAfter(ctx, pressure)}.`, tone: 'bad' };
+      if (r.lastFaultEndMs >= r.judgedUntilMs) {
+        return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover.', tone: 'bad', kind: 'stuck', headline: 'Still failing at the end' };
+      }
+      const peak = pressure === null ? 0 : peakLoad(ctx, pressure, r.lastFaultEndMs);
+      return {
+        tMs: r.judgedUntilMs,
+        text: `It never recovered: still failing at the end of the run${peakAfter(ctx, pressure)}.`,
+        tone: 'bad',
+        kind: 'stuck',
+        headline: 'Never recovered',
+        ...(peak > 1 ? { meter: peak, figure: `${peak.toFixed(1)}× peak` } : {}),
+      };
     }
   }
 }
@@ -405,3 +460,21 @@ function peakAfter(ctx: Context, id: string | null): string {
   const peak = peakLoad(ctx, id, ctx.analysis.recovery.lastFaultEndMs);
   return peak > 1 ? `, with ${ctx.say(id)} getting up to ${peak.toFixed(1)}× the work it can handle` : '';
 }
+
+/** "Database", "API", "One of 4 API servers": the failed part, for a headline. */
+function partName(f: Fault, ctx: Context): string {
+  const instances = tierOf(ctx.config, f.tier).instances;
+  const name = capitalise(noun(ctx.say(f.tier)));
+  return f.instance === undefined || instances === 1 ? name : `1 of ${instances} ${name} servers`;
+}
+
+/** A caller in a headline: "users' apps" for the client, else "the API". */
+function shortCaller(id: string, ctx: Context): string {
+  return id === 'client' ? "users' apps" : ctx.say(id);
+}
+
+/** Wasted share as a figure; "almost all" above 95% (see wasteText). */
+function wasteFigure(share: number): string {
+  return share >= 0.95 ? '~100%' : percent(share);
+}
+

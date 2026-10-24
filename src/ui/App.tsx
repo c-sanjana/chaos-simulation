@@ -156,13 +156,13 @@ export function App({ pool: injected }: AppProps) {
                 holdPlayback={tour.open}
                 guided
                 story={story}
+                endPanel={comparison && comparison.changes.length > 0 ? <RunComparison comparison={comparison} onDismiss={() => setPreviousRun(null)} /> : undefined}
               />
             )}
             {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
             {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} />}
           </div>
           <aside className="csl-split__col csl-split__side--narrow">
-            {comparison && comparison.changes.length > 0 && <RunComparison comparison={comparison} onDismiss={() => setPreviousRun(null)} />}
             <div className="csl-split__slot" ref={setTimelineEl} />
           </aside>
         </div>

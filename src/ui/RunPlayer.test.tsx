@@ -19,6 +19,10 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(screen.getByRole('button', { name: /^DB \(/ })).toBeTruthy();
     expect(screen.getByText('Events appear here as the replay reaches them.')).toBeTruthy();
     seek(32_000);
+    // The track has a marker for each event reached, and spells out the newest.
+    expect(document.querySelector('.csl-track__detail')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /DB slows 8× \(injected failure\)/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
     expect(screen.getByText('DB slows 8× (injected failure)')).toBeTruthy();
     expect(screen.queryByText(/Point of no return/)).toBeNull();
     expect(screen.getByText(/^\d+ more events ahead$/)).toBeTruthy();
@@ -79,6 +83,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
       />,
     );
     seek(120_000);
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
     expect(screen.getByText(/^Stuck → recovers in \d+ s$/)).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Why: live timeline (after the fix)' })).toBeTruthy();
     expect(screen.getByText(/Back to normal: recovered/)).toBeTruthy();
@@ -156,11 +161,24 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
       { tMs: 117_000, text: 'It never recovered.', tone: 'bad' as const },
     ];
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} story={story} />);
-    expect(screen.getByRole('heading', { name: "What's happening, in plain words" })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: "What's happening" })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Details: what was measured' })).toBeTruthy();
     seek(31_000);
-    expect(screen.getByText(story[0].text)).toBeTruthy();
-    expect(screen.queryByText(story[1].text)).toBeNull();
+    expect(screen.getByTitle(story[0].text)).toBeTruthy();
+    expect(screen.queryByTitle(story[1].text)).toBeNull();
+  });
+
+  it('shows the end panel only once the replay reaches the end, and hides it again for a new run', () => {
+    const end = <p>Compared with your last run</p>;
+    const { rerender } = render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} endPanel={end} />);
+    seek(60_000);
+    expect(screen.queryByText('Compared with your last run')).toBeNull();
+    seek(stuck.run.durationMs);
+    expect(screen.getByText('Compared with your last run')).toBeTruthy();
+    seek(60_000); // looking back keeps it
+    expect(screen.getByText('Compared with your last run')).toBeTruthy();
+    rerender(<RunPlayer title="t" subtitle="s" topology={webChain} config={recovered.config} result={result(recovered)} autoPlay={false} endPanel={end} />);
+    expect(screen.queryByText('Compared with your last run')).toBeNull();
   });
 
   it('reveals a recovered verdict when the system gets back to normal', () => {

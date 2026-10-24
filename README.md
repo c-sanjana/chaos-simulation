@@ -22,11 +22,15 @@ failures can be combined. On a first visit a 30-second guided tour points out ea
 of the page (skip it, or replay it any time with **?** at the top right; ☾ beside it switches to
 dark mode, and the page stays light unless you choose dark).
 
-1. **What happened.** The system never recovers, even though the failure is over. A plain-words
-   story builds up step by step as the replay reaches each moment (the verdict is revealed only
-   when the replay gets there), and the first replay pauses just after the failure ends: "the
-   database is back to normal speed; watch whether the system recovers". Below it, the measured
-   details, with numbers from the run:
+1. **What happened.** The system never recovers, even though the failure is over. The side panel
+   builds up as the replay reaches each moment, as pictures more than text: one row per step with
+   an icon, a few words and the key number ("Database 8× slower · 5 s"), a meter of load against
+   capacity, and blocks showing how many times each layer asks again (hover a row for the full
+   sentence). The verdict is revealed only when the replay gets there, and the first replay pauses
+   just after the failure ends: "the database is back to normal speed; watch whether the system
+   recovers". Below it, the measured details as a row of icons in order (those during the failure
+   tinted), the newest spelled out underneath; **List** shows them all as text. With numbers from
+   the run:
    - DB p99 exceeds the API's 1 s timeout, and every layer starts asking again.
    - Retries push DB load past its capacity, up to 3.2× at the peak.
    - The point of no return: the failure is over, but retries keep the DB overloaded, so the
@@ -34,10 +38,11 @@ dark mode, and the page stays light unless you choose dark).
    - Most DB work is for requests the API had already given up on, and the cache empties because
      nothing refills it.
 
-   After you change a setting and re-run, a "Compared with your last run" panel lists what you
-   changed and how the results moved (failed requests, retries sent, peak load on the most
-   overloaded part, busy workers) with a plain takeaway, e.g. "A lot changed inside the system,
-   but users see about the same: it was stuck either way."
+   After you change a setting and re-run, once the replay reaches the end a "Compared with your
+   last run" panel shows what you changed (chips) and how the results moved, each as a dot moving
+   from before (grey) to now (blue) with a ▲/▼ change (failed requests, retries sent, peak load on
+   the most overloaded part, busy workers), and a plain takeaway, e.g. "A lot changed inside the
+   system, but users see about the same: it was stuck either way."
 
    The diagram marks the injected slowdown (⚡), overloaded parts (⚠) and failing calls (✕), with
    a key. End-to-end latency is measured as how long users waited for an answer, errors

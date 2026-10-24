@@ -24,6 +24,8 @@ export interface ComparisonRow {
   /** e.g. "+115%", "+37 pts", "same". */
   change: string;
   tone: 'better' | 'worse' | 'same';
+  /** The raw values, for drawing (absent for the outcome, which has no scale). */
+  values?: { before: number; now: number; /** top of the scale: 1 for shares */ max: number };
 }
 
 export interface Comparison {
@@ -84,20 +86,27 @@ function relative(before: number, now: number): number {
 function countRow(label: string, before: number, now: number): ComparisonRow {
   const r = relative(before, now);
   const same = Math.abs(r) < SAME_SHARE;
-  return { label, before: before.toLocaleString(), now: now.toLocaleString(), change: same ? 'same' : percent(r), tone: same ? 'same' : toneOf(r) };
+  return { label, before: before.toLocaleString(), now: now.toLocaleString(), change: same ? 'same' : percent(r), tone: same ? 'same' : toneOf(r), values: { before, now, max: Math.max(before, now) } };
 }
 
 function ratioRow(label: string, before: number, now: number, fmt: (v: number) => string): ComparisonRow {
   const r = relative(before, now);
   const same = Math.abs(r) < SAME_SHARE;
-  return { label, before: fmt(before), now: fmt(now), change: same ? 'same' : percent(r), tone: same ? 'same' : toneOf(r) };
+  return { label, before: fmt(before), now: fmt(now), change: same ? 'same' : percent(r), tone: same ? 'same' : toneOf(r), values: { before, now, max: Math.max(before, now) } };
 }
 
 /** Shares (0..1) change by percentage points. */
 function shareRow(label: string, before: number, now: number): ComparisonRow {
   const pts = Math.round(100 * now) - Math.round(100 * before);
   const same = Math.abs(pts) < 3;
-  return { label, before: `${Math.round(100 * before)}%`, now: `${Math.round(100 * now)}%`, change: same ? 'same' : `${pts > 0 ? '+' : ''}${pts} pts`, tone: same ? 'same' : toneOf(pts) };
+  return {
+    label,
+    before: `${Math.round(100 * before)}%`,
+    now: `${Math.round(100 * now)}%`,
+    change: same ? 'same' : `${pts > 0 ? '+' : ''}${pts} pts`,
+    tone: same ? 'same' : toneOf(pts),
+    values: { before, now, max: 1 },
+  };
 }
 
 const percent = (r: number) => `${r > 0 ? '+' : ''}${Math.round(100 * r)}%`;

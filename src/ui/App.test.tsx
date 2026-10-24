@@ -20,7 +20,7 @@ describe('App', { timeout: 60_000 }, () => {
     // The verdict isn't given away up front: the replay reveals it when it gets there.
     expect(screen.queryByText('Stuck: did not recover after the failure ended')).toBeNull();
     expect(screen.getByText('A short failure, replayed')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: "What's happening, in plain words" })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: "What's happening" })).toBeTruthy();
     expect(pool.analyzed).toHaveLength(1);
     expect(pool.analyzed[0].client.rps).toBe(200);
   });
@@ -79,8 +79,13 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     fireEvent.change(screen.getByLabelText('API → DB'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await waitFor(() => expect(pool.analyzed).toHaveLength(2), SLOW);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    // Not while the new run is replaying: only once the replay reaches the end.
+    expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: '120000' } });
     const panel = await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
-    expect(within(panel).getByText('You changed: API → DB retries 1 → 5')).toBeTruthy();
+    expect(within(panel).getByText('API → DB retries 1 → 5')).toBeTruthy();
     expect(within(panel).getByText(/^A lot changed inside the system, but users see about the same/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();

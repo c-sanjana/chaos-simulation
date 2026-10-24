@@ -34,7 +34,7 @@ export const tourStops: TourStop[] = [
     target: 'story',
     screen: 0,
     title: 'What’s happening',
-    body: 'The story in plain words, revealed as the replay reaches each step.',
+    body: 'The story, step by step. Hover a step for the full sentence.',
   },
   {
     target: 'map',

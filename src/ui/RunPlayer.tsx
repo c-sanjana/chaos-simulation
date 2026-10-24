@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { spokenName } from '../analysis/helpers';
 import type { Fault, RunConfig } from '../engine/config';
@@ -8,8 +8,8 @@ import { ChartLegend } from './components/ChartLegend';
 import { MetricTabs } from './components/MetricTabs';
 import { PlaybackBar } from './components/PlaybackBar';
 import { TimeSeriesChart } from './components/TimeSeriesChart';
+import { EventTrack } from './components/EventTrack';
 import { StoryCard, type StoryStepView } from './components/StoryCard';
-import { Timeline } from './components/Timeline';
 import { TopologyDiagram } from './components/TopologyDiagram';
 import { usePlayback } from './components/usePlayback';
 import { chartView, labelsOf, METRIC_TABS, shortVerdict, timelineView, topologyView, verdictView, type ChangeLabel, type MetricTab } from './viewModels';
@@ -45,6 +45,8 @@ export interface RunPlayerProps {
   story?: StoryStepView[];
   /** What the fix changed (compare mode), labelled on the "after" diagram. */
   changes?: ChangeLabel[];
+  /** Shown above the story once the replay has reached the end (e.g. the comparison with the last run). */
+  endPanel?: ReactNode;
 }
 
 const COMPACT_CHART_HEIGHT = 175;
@@ -71,6 +73,7 @@ export function RunPlayer({
   guided = false,
   story,
   changes = [],
+  endPanel,
 }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
@@ -105,6 +108,12 @@ export function RunPlayer({
       setGuide('slowed');
     }
   }, [playback.tMs, playback.playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Once the replay has reached the end (for this run), the end panel stays.
+  const [ended, setEnded] = useState(false);
+  useEffect(() => setEnded(false), [result, after?.result]);
+  useEffect(() => {
+    if (playback.tMs >= result.run.durationMs) setEnded(true);
+  }, [playback.tMs, result.run.durationMs]);
   const keepWatching = () => {
     setGuide('done');
     playback.setSpeed(16);
@@ -131,17 +140,16 @@ export function RunPlayer({
         {after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}
       </h3>
       <div className="csl-timeline-window__body">
-        <Timeline entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} />
+        <EventTrack entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} failureWindows={failureWindowsMs} />
       </div>
     </section>
   );
-  const timeline = story ? (
+  const timeline = (
     <>
-      <StoryCard steps={story} nowMs={playback.tMs} />
+      {ended && endPanel}
+      {story && <StoryCard steps={story} nowMs={playback.tMs} />}
       {timelineWindow}
     </>
-  ) : (
-    timelineWindow
   );
 
   return (

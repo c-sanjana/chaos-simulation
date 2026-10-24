@@ -13,6 +13,8 @@ const storyOf = (config: RunConfig) => {
   return buildStory(run, config, analysis, labels);
 };
 const texts = (steps: StoryStep[]) => steps.map((s) => s.text);
+/** Just the sentences, times and tones (the picture fields are tested on their own). */
+const plain = (steps: StoryStep[]) => steps.map(({ tMs, tone, text }) => ({ tMs, tone, text }));
 /**
  * The retry storm with other failures, and optionally a different length, retrying at one layer
  * only: the API retries the DB `retries` times (3 by default), nothing else retries.
@@ -38,7 +40,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
   it('tells the default stuck run step by step, revealed as the replay shows each part', () => {
     const { config, run, analysis } = retryStormRun({ retries: 3 });
     const story = buildStory(run, config, analysis, labels);
-    expect(story).toEqual([
+    expect(plain(story)).toEqual([
       { tMs: 30_000, tone: 'fault', text: 'At 30 s the database became 8× slower for 5 seconds.' },
       { tMs: 31_000, tone: 'info', text: 'The API gives up on a database answer after 1 s and asks again, up to 3 more times.' },
       { tMs: 33_000, tone: 'bad', text: 'So the database got more requests than it can handle, even at full speed (about 160 a second).' },
@@ -69,7 +71,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
   it('tells a recovered run (no retries) and says the slowed database could serve less', () => {
     const { config, run, analysis } = retryStormRun({ retries: 0 });
     const story = buildStory(run, config, analysis, labels);
-    expect(story).toEqual([
+    expect(plain(story)).toEqual([
       { tMs: 30_000, tone: 'fault', text: 'At 30 s the database became 8× slower for 5 seconds.' },
       { tMs: 30_000, tone: 'bad', text: `Slowed down, the database could serve only about 20 requests a second, but it got ${run.tiers.db.arrivalsFirst[30]}.` },
       { tMs: 31_000, tone: 'info', text: 'The API gives up on a database answer after 1 s and does not ask again, so those users got an error.' },
@@ -98,7 +100,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
     ]);
     const noRetries = storyOf(storm([{ tier: 'db', kind: 'dead', startMs: 30_000, endMs: 35_000 }], { retries: 0 }));
     expect(texts(noRetries)).toContain('The API gets an error from the database straight away and does not ask again, so those users got an error.');
-    expect(noRetries.at(-1)).toEqual({ tMs: 35_000, tone: 'good', text: 'It was back to normal as soon as the failure ended.' });
+    expect(noRetries.at(-1)).toMatchObject({ tMs: 35_000, tone: 'good', text: 'It was back to normal as soon as the failure ended.' });
     expectPlain(story);
   });
 
@@ -143,7 +145,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
   it('a failure after the end of the run never happens', () => {
     for (const config of [storm([slowDb(40_000, 45_000)], { durationMs: 30_000 }), storm([slowDb(30_000, 35_000)], { durationMs: 30_000 })]) {
       const start = config.faults![0].startMs / 1000;
-      expect(storyOf(config)).toEqual([
+      expect(plain(storyOf(config))).toEqual([
         { tMs: 0, tone: 'info', text: `The failure is set to start at ${start} s, but this run ends at 30 s, so it never happens.` },
         { tMs: 0, tone: 'good', text: 'Nothing went wrong.' },
       ]);
@@ -156,7 +158,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
       const story = storyOf(storm([slowDb(30_000, endMs)], { durationMs: 40_000 }));
       expect(story[0].text).toBe('At 30 s the database became 8× slower and stayed that way until the run ended.');
       expect(texts(story).some((t) => /back to normal speed/.test(t))).toBe(false);
-      expect(story.at(-1)).toEqual({ tMs: 40_000, tone: 'bad', text: 'The failure was still going on when the run ended, so there was no time to recover.' });
+      expect(story.at(-1)).toMatchObject({ tMs: 40_000, tone: 'bad', text: 'The failure was still going on when the run ended, so there was no time to recover.' });
       expectPlain(story);
     }
   });
@@ -171,12 +173,12 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
   it('an unaffected run says it coped; an overloaded one says so first', () => {
     const mild = storyOf(storm([slowDb(30_000, 31_500, 1.1)]));
     expect(mild[0].text).toBe('At 30 s the database became 1.1× slower for 1.5 s.');
-    expect(mild.at(-1)).toEqual({ tMs: 31_500, tone: 'good', text: 'It coped: requests did just as well as they would have without the failure.' });
+    expect(mild.at(-1)).toMatchObject({ tMs: 31_500, tone: 'good', text: 'It coped: requests did just as well as they would have without the failure.' });
     expect(storyOf(storm([slowDb(30_000, 31_000, 1.1)]))[0].text).toBe('At 30 s the database became 1.1× slower for 1 second.');
 
     const config = storm([slowDb(30_000, 35_000)]);
     const overloaded = storyOf({ ...config, tiers: config.tiers.map((t) => (t.id === 'db' ? { ...t, coresPerInstance: 1 } : t)) });
-    expect(overloaded[0]).toEqual({ tMs: 0, tone: 'bad', text: 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.' });
+    expect(overloaded[0]).toMatchObject({ tMs: 0, tone: 'bad', text: 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.' });
   });
 
   it('mentions a retry budget in plain words', () => {
@@ -292,6 +294,35 @@ describe('buildStory on the presets, with the default retries at every layer (5 
         'One failed answer can come back as many requests.',
     );
     expectPlain(story);
+  });
+});
+
+describe('buildStory pictures: a few words, a number, a meter or the cascade per step', { timeout: 60_000 }, () => {
+  it('the retry storm with the default retries', () => {
+    const story = storyOf(buildRunConfig(webChain, retryStorm));
+    expect(story.map(({ kind, headline, figure }) => ({ kind, headline, figure }))).toEqual([
+      { kind: 'fault', headline: 'Database 8× slower', figure: '5 s' },
+      { kind: 'giveup', headline: 'The API gives up, everyone asks again', figure: '1 s' },
+      { kind: 'overload', headline: expect.any(String), figure: expect.stringMatching(/^\d+\.\d×$/) },
+      { kind: 'back', headline: expect.any(String), figure: 'pile remains' },
+      { kind: 'waste', headline: expect.any(String), figure: expect.any(String) },
+      { kind: 'stuck', headline: 'Never recovered', figure: '3.2× peak' },
+    ]);
+    expect(story[1].cascade).toEqual([
+      { who: "users' apps", retries: 5 },
+      { who: 'the gateway', retries: 3 },
+      { who: 'the API', retries: 1 },
+    ]);
+    expect(story[2].meter).toBeGreaterThan(1);
+    expect(story[5].meter).toBeCloseTo(3.2, 1);
+    for (const s of story) expect(s.headline.split(/\s+/).length).toBeLessThanOrEqual(7);
+  });
+
+  it('a recovered run says how fast; the cascade is left out when only one layer asks again', () => {
+    const { config, run, analysis } = retryStormRun({ retries: 3 });
+    expect(buildStory(run, config, analysis, labels)[1]).not.toHaveProperty('cascade');
+    const ok = storyOf(storm([slowDb(30_000, 35_000)], { retries: 0 }));
+    expect(ok.at(-1)).toMatchObject({ kind: 'recovered', figure: expect.stringMatching(/^in \d+ s$/) });
   });
 });
 
