@@ -32,6 +32,12 @@ export interface PoolSettings {
   queueLimit: number | null;
   /** Skip requests whose caller has already given up. */
   dropExpired: boolean;
+  /**
+   * App servers that call several parts: one after another ('sequence', the default: each call once
+   * the previous one answered, and the first failure fails the request) or all at once ('parallel').
+   * Load balancers always split instead (see `CallSettings.share`); databases call nothing.
+   */
+  fanOut?: 'sequence' | 'parallel';
 }
 
 export interface CacheSettings {
@@ -83,6 +89,11 @@ export interface CallSettings {
   retries: number;
   backoffBaseMs: number;
   jitter: boolean;
+  /**
+   * A load balancer calling several parts sends each request to one of them, at random, in
+   * proportion to these shares (relative weights; absent = 1, so traffic is split evenly).
+   */
+  share?: number;
 }
 
 /** A call from one component to another. */
@@ -128,7 +139,7 @@ export function aKind(kind: ComponentKind, capital = false): string {
 /** One line on what each component is, for the palette. */
 export const KIND_BLURBS: Record<ComponentKind, string> = {
   client: 'Users sending requests',
-  loadBalancer: 'Spreads requests over the next component',
+  loadBalancer: 'Spreads requests over the components behind it',
   server: 'Runs your app’s code: does some work, then calls what it needs',
   cache: 'Remembers answers so the database is asked less',
   database: 'Stores the data; usually the slowest part',

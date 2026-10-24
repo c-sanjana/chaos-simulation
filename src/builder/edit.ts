@@ -24,6 +24,7 @@ import {
   type ServiceSettings,
   aKind,
 } from './graph';
+import { flowCalls } from './graphWalk';
 
 /** Size of the builder's canvas grid. Positions are 1-based, like the topology diagram's. */
 export const GRID_COLS = 9;
@@ -233,9 +234,57 @@ export function updateNode(graph: BuilderGraph, id: string, patch: NodePatch): B
   };
 }
 
-/** Changes how a caller calls: timeout, retries, backoff, jitter. */
+/** Changes how a caller calls: timeout, retries, backoff, jitter, share. */
 export function updateCall(graph: BuilderGraph, edgeId: string, patch: Partial<CallSettings>): BuilderGraph {
   return { ...graph, edges: graph.edges.map((e) => (e.id === edgeId ? { ...e, call: { ...e.call, ...patch } } : e)) };
+}
+
+/** A split weight as used: its share, or 1 when it has none (or a nonsensical one). */
+export const shareWeight = (share: number | undefined): number => (share !== undefined && Number.isFinite(share) && share >= 0 ? share : 1);
+
+/** Each weight as a fraction of all of them (even when they add up to nothing). */
+export function shareFractions(shares: Array<number | undefined>): number[] {
+  const w = shares.map(shareWeight);
+  const total = w.reduce((a, b) => a + b, 0);
+  return w.map((x) => (total > 0 ? x / total : 1 / w.length));
+}
+
+/**
+ * The shares after one of them is set to `percent` of the traffic: the others keep their
+ * proportions between themselves and share what is left. Returned as fractions adding up to 1.
+ * E.g. three even shares, the first set to 50% → 0.5, 0.25, 0.25.
+ * ASSUMPTION: people think of a split in percent of the traffic, and expect the other arrows to make
+ * up the rest rather than to have to balance every arrow by hand.
+ */
+export function sharesWith(shares: Array<number | undefined>, index: number, percent: number): number[] {
+  const f = shareFractions(shares);
+  const p = Math.min(1, Math.max(0, percent / 100));
+  const rest = 1 - f[index];
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  return f.map((x, i) => round(i === index ? p : rest > 0 ? (x * (1 - p)) / rest : (1 - p) / (f.length - 1)));
+}
+
+/**
+ * Sets the share of traffic a load balancer sends along one of its arrows (in percent); its other
+ * arrows share the rest in their current proportions (see `sharesWith`).
+ */
+export function setShare(graph: BuilderGraph, edgeId: string, percent: number): BuilderGraph {
+  const edge = graph.edges.find((e) => e.id === edgeId);
+  if (!edge) return graph;
+  const siblings = flowCalls(graph, edge.from);
+  const index = siblings.findIndex((e) => e.id === edgeId);
+  if (index < 0 || siblings.length < 2) return graph;
+  const next = sharesWith(siblings.map((e) => e.call.share), index, percent);
+  const byId = new Map(siblings.map((e, i) => [e.id, next[i]]));
+  return { ...graph, edges: graph.edges.map((e) => (byId.has(e.id) ? { ...e, call: { ...e.call, share: byId.get(e.id) } } : e)) };
+}
+
+/** Whether an app server calls its parts one after another ('sequence') or all at once ('parallel'). */
+export function setFanOut(graph: BuilderGraph, id: string, fanOut: 'sequence' | 'parallel'): BuilderGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) => (n.id === id && n.settings.kind === 'server' ? { ...n, settings: { ...n.settings, fanOut } } : n)),
+  };
 }
 
 /** An empty canvas. */

@@ -2,6 +2,7 @@ import type { TierConfig } from '../engine/config';
 import { lognormalMoments } from '../engine/theory';
 import { LIMITS } from '../data/limits';
 import type { Axis, ScenarioPreset, TopologyPreset } from '../data/types';
+import { trafficShares } from './graphWalk';
 
 const START_MS = 30_000;
 const DURATION_MS = 120_000;
@@ -14,8 +15,10 @@ export function tierCapacityRps(t: TierConfig): number {
 }
 
 /**
- * Roughly how much user traffic the chain handles when its caches don't help: each tier's capacity
- * (a queue's consumers capped by how fast the next tier answers), the smallest wins.
+ * Roughly how much user traffic the system handles when its caches don't help: each tier's capacity
+ * (a queue's consumers capped by how fast the next tier answers) divided by its share of the users'
+ * requests (`trafficShares`: a load balancer splitting over three servers sends each about a
+ * third; a server calling two databases sends each all of its requests), the smallest wins.
  * Why ignore cache hits? During a failure caches drain (nothing refills expired entries), so the
  * traffic a system can survive a failure at is close to what it handles without them. On the
  * preset this gives the DB's ~160 req/s and the preset's own 60–240 map range.
@@ -24,11 +27,13 @@ export function tierCapacityRps(t: TierConfig): number {
  */
 export function estimateCapacityRps(topology: TopologyPreset): number {
   const byId = new Map(topology.tiers.map((t) => [t.id, t]));
+  const shares = trafficShares(topology);
   let best = Infinity;
-  for (let t = byId.get(topology.clientCall.target); t; t = t.downstream ? byId.get(t.downstream.target) : undefined) {
-    best = Math.min(best, tierCapacityRps(t));
-    if (t.cacheAside) best = Math.min(best, tierCapacityRps(byId.get(t.cacheAside.target)!));
-    if (t.queue && t.downstream) best = Math.min(best, (t.queue.consumers * 1000) / meanMs(byId.get(t.downstream.target)!));
+  for (const t of topology.tiers) {
+    const share = shares[t.id] ?? 0;
+    if (!(share > 0)) continue;
+    best = Math.min(best, tierCapacityRps(t) / share);
+    if (t.queue && t.downstream) best = Math.min(best, (t.queue.consumers * 1000) / meanMs(byId.get(t.downstream.target)!) / share);
   }
   return best;
 }
@@ -103,53 +108,65 @@ const medianMs = (t: TierConfig) => (t.service.kind === 'lognormal' ? t.service.
 
 const lengths = (seconds: number[]): Axis => ({ param: 'outageMs', label: 'failure length', values: seconds.map((s) => s * 1000) });
 
+/** At most this many scenarios of one kind (databases, caches, queues), the busiest first, so the list stays short. */
+export const MAX_PER_KIND = 3;
+
 /**
  * The scenarios a built topology offers, each aimed at the part it names (by what the part is,
- * not its id): the database slows down; the cache restarts empty; the front door slows down; the
- * work behind a queue slows down. Only those that apply are offered.
+ * not its id): each database slows down; each cache restarts empty; the front door slows down; the
+ * work behind each queue slows down. Only those that apply are offered. With several parts of a
+ * kind, the busiest (largest share of the users' requests) come first, up to `MAX_PER_KIND`; the
+ * first of each kind keeps the plain id ('custom-db-slow'), the others add the part's id.
  * `kinds` says what each tier is, by tier id ('loadBalancer', 'server', 'database', 'cache', 'queue').
  */
 export function builtScenarios(topology: TopologyPreset, kinds: Record<string, string>, rps: number): ScenarioPreset[] {
   const byId = new Map(topology.tiers.map((t) => [t.id, t]));
-  const chain: TierConfig[] = [];
-  for (let t = byId.get(topology.clientCall.target); t; t = t.downstream ? byId.get(t.downstream.target) : undefined) chain.push(t);
+  const shares = trafficShares(topology);
+  const share = (t: TierConfig) => shares[t.id] ?? 0;
+  const position = (t: TierConfig) => topology.tiers.indexOf(t);
+  /** Busiest first; among equally busy, front to back (databases back to front: the last one first, as in a chain). */
+  const busiest = (list: TierConfig[], lastFirst = false) =>
+    list
+      .filter((t) => share(t) > 0)
+      .sort((a, b) => share(b) - share(a) || (lastFirst ? position(b) - position(a) : position(a) - position(b)))
+      .slice(0, MAX_PER_KIND);
+  const idFor = (base: string, i: number, t: TierConfig) => (i === 0 ? base : `${base}-${t.id}`);
   const label = (id: string) => topology.layout[id]?.label ?? id;
   const x = builtTrafficAxis(topology, rps);
   const base = { topology: topology.id, rps, durationMs: DURATION_MS };
   const out: ScenarioPreset[] = [];
 
-  const db = [...chain].reverse().find((t) => kinds[t.id] === 'database');
-  if (db) {
+  busiest(topology.tiers.filter((t) => kinds[t.id] === 'database'), true).forEach((db, i) => {
     out.push({
       ...base,
-      id: 'custom-db-slow',
+      id: idFor('custom-db-slow', i, db),
       title: `${label(db.id)} slows down`,
       blurb: `${label(db.id)} is 8× slower for 5 s; everything that retries piles on.`,
       faults: [{ tier: db.id, kind: 'slow', factor: 8, startMs: START_MS, endMs: START_MS + 5_000 }],
       map: { x, y: lengths([12, 8, 5, 3, 2, 1]) },
     });
-  }
-  const cache = topology.tiers.find((t) => t.cache);
-  if (cache) {
+  });
+  busiest(topology.tiers.filter((t) => t.cache)).forEach((cache, i) => {
     out.push({
       ...base,
-      id: 'custom-cache-restart',
+      id: idFor('custom-cache-restart', i, cache),
       title: `${label(cache.id)} restarts empty`,
       blurb: `${label(cache.id)} goes down for 5 s and comes back empty; every lookup falls through.`,
       faults: [{ tier: cache.id, kind: 'dead', startMs: START_MS, endMs: START_MS + 5_000, flushAtEnd: true }],
       map: { x, y: lengths([20, 10, 5, 3, 1]) },
     });
-  }
-  const front = chain[0];
+  });
+  const front = byId.get(topology.clientCall.target);
   if (front && kinds[front.id] !== 'database' && kinds[front.id] !== 'queue') {
     // ASSUMPTION: slow it down enough that it can serve only about half of the users' traffic; a
     // front door usually has lots of spare capacity, so a fixed factor would often go unnoticed.
-    // Sized for the client's traffic: on the map's other traffic levels the same slowdown is
-    // relatively milder or harsher, which is part of what the map shows. It stays a slowdown, not
-    // an outage: a typical request still finishes within half of the users' timeout.
+    // Sized for the traffic reaching it at the client's traffic (all of it: the front door's share
+    // is 1): on the map's other traffic levels the same slowdown is relatively milder or harsher,
+    // which is part of what the map shows. It stays a slowdown, not an outage: a typical request
+    // still finishes within half of the users' timeout.
     const median = medianMs(front);
     const byTimeout = topology.clientCall.timeoutMs === null ? 1000 : Math.max(2, Math.floor(topology.clientCall.timeoutMs / 2 / median));
-    const factor = Math.min(1000, byTimeout, Math.max(2, Math.round((2 * tierCapacityRps(front)) / rps)));
+    const factor = Math.min(1000, byTimeout, Math.max(2, Math.round((2 * tierCapacityRps(front)) / (rps * (share(front) || 1)))));
     out.push({
       ...base,
       id: 'custom-front-slow',
@@ -159,21 +176,21 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
       map: { x, y: lengths([30, 20, 10, 5, 2]) },
     });
   }
-  const queue = chain.find((t) => t.queue && t.downstream);
-  if (queue) {
-    const worker = queue.downstream!.target;
+  busiest(topology.tiers.filter((t) => t.queue && t.downstream && byId.has(t.downstream.target))).forEach((queue, i) => {
+    const worker = byId.get(queue.downstream!.target)!;
     // ASSUMPTION: slow it until each piece of work takes long enough that the consumers get through
-    // only about half the messages arriving (consumers ÷ time per message = rps ÷ 2). A part with
-    // room to spare barely notices a fixed 8×, and the backlog never builds.
-    const factor = Math.min(1000, Math.max(2, Math.round((2 * queue.queue!.consumers * 1000) / rps / meanMs(byId.get(worker)!))));
+    // only about half the messages arriving (consumers ÷ time per message = the queue's traffic ÷ 2).
+    // A part with room to spare barely notices a fixed 8×, and the backlog never builds. The queue's
+    // traffic is its share of the users' requests (all of them in a chain).
+    const factor = Math.min(1000, Math.max(2, Math.round((2 * queue.queue!.consumers * 1000) / (rps * share(queue)) / meanMs(worker))));
     out.push({
       ...base,
-      id: 'custom-queue-backlog',
+      id: idFor('custom-queue-backlog', i, queue),
       title: `Work behind ${label(queue.id)} slows down`,
-      blurb: `${label(worker)} takes ~${formatTime(medianMs(byId.get(worker)!) * factor)} a request instead of ~${formatTime(medianMs(byId.get(worker)!))} (${factor}× slower) for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
-      faults: [{ tier: worker, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
+      blurb: `${label(worker.id)} takes ~${formatTime(medianMs(worker) * factor)} a request instead of ~${formatTime(medianMs(worker))} (${factor}× slower) for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
+      faults: [{ tier: worker.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
       map: { x, y: lengths([40, 20, 10, 5, 2]) },
     });
-  }
+  });
   return out;
 }

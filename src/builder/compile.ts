@@ -1,6 +1,7 @@
-import type { CallPolicy, TierConfig } from '../engine/config';
+import type { CallPolicy, FanOut, TierConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
 import type { BuilderGraph, BuilderNode, CallSettings } from './graph';
+import { cacheCall, canvasOrder, flowCallers, flowCalls, longestDepths } from './graphWalk';
 
 /** The id a built topology gets (scenarios and saved drafts refer to it). */
 export const CUSTOM_TOPOLOGY_ID = 'custom';
@@ -9,50 +10,167 @@ export const CUSTOM_TOPOLOGY_ID = 'custom';
  * Turns a drawn topology into the same data the presets use, so every screen (replay, tipping
  * point, fixes) works on it unchanged. Call only when `validateGraph` finds no problems.
  *
- * Layout: the diagram draws a chain left to right on one row with an arrow between neighbours,
- * and a cache above the server that uses it. The canvas positions are the user's sketch; the
- * diagram is laid out afresh from the chain, the way the presets are.
+ * - Tier order: front to back (by how far each part is from the Client along its longest chain of
+ *   calls, then canvas order), with each cache right after the first app server that uses it. A
+ *   tier's position keys its random values, so the same system gives the same run whichever way it
+ *   was made (the example drawn on the canvas compiles to exactly the preset).
+ * - Calls: a part's calls are made in canvas order of their targets (top to bottom, then left to
+ *   right; see `flowCalls`). The first becomes `downstream`, the rest `moreDownstream`. A load
+ *   balancer with several calls splits ('split', with each arrow's share); an app server calls them
+ *   one after another ('sequence', the default) or all at once ('parallel'), as set on the server.
+ *   A chain gets neither `moreDownstream` nor `fanOut`, exactly as before branching.
+ * - Layout: see `layoutGraph`. The canvas positions are the user's sketch; the diagram is laid out
+ *   afresh, the way the presets are.
  */
 export function compileGraph(graph: BuilderGraph, name = 'Your topology'): TopologyPreset {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const client = graph.nodes.find((n) => n.settings.kind === 'client')!;
-  const outOf = (id: string) => graph.edges.filter((e) => e.from === id).map((e) => ({ edge: e, to: byId.get(e.to)! }));
-  const nextOf = (id: string) => outOf(id).find((o) => o.to.settings.kind !== 'cache');
-  const cacheOf = (id: string) => outOf(id).find((o) => o.to.settings.kind === 'cache');
+  const depth = longestDepths(graph, client.id);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const cacheOf = (id: string) => {
+    const e = cacheCall(graph, id);
+    return e && byId.get(e.to);
+  };
+  const flow = graph.nodes.filter((n) => n.id !== client.id && depth.has(n.id)).sort((a, b) => depth.get(a.id)! - depth.get(b.id)! || canvasOrder(a, b));
+  /** The first part (in tier order) that looks things up in cache `id`: the cache is placed with it. */
+  const firstUser = (id: string) => flow.find((m) => cacheOf(m.id)?.id === id);
 
-  // Walk the chain from the client.
-  const chain: BuilderNode[] = [];
-  for (let next = nextOf(client.id); next; next = nextOf(next.to.id)) chain.push(next.to);
-  const caches = [...new Set(chain.map((n) => cacheOf(n.id)?.to).filter((c): c is BuilderNode => c !== undefined))];
-
-  const layout: TopologyPreset['layout'] = { client: { label: client.label, col: 1, row: 3 } };
-  chain.forEach((n, i) => (layout[n.id] = { label: n.label, col: 3 + 2 * i, row: 3 }));
-  for (const c of caches) {
-    const user = chain.find((n) => cacheOf(n.id)?.to.id === c.id)!;
-    layout[c.id] = { label: c.label, col: layout[user.id].col, row: 1 };
-  }
-
-  // Each cache right after the first server that uses it (the presets' order; a tier's position
-  // keys its random values, so the same system gives the same run whichever way it was made).
-  const ordered = chain.flatMap((n) => {
-    const c = cacheOf(n.id)?.to;
-    return c && chain.find((m) => cacheOf(m.id)?.to.id === c.id) === n ? [n, c] : [n];
+  const ordered = flow.flatMap((n) => {
+    const c = cacheOf(n.id);
+    return c && firstUser(c.id) === n ? [n, c] : [n];
   });
   const tiers = ordered.map((n): TierConfig => {
-    const next = nextOf(n.id);
-    const cache = cacheOf(n.id);
+    const calls = flowCalls(graph, n.id);
+    const cache = cacheCall(graph, n.id);
+    const split = n.settings.kind === 'loadBalancer' && calls.length > 1;
+    const policies = calls.map((e) => policy(e.to, e.call, split));
+    const fanOut: FanOut = split ? 'split' : n.settings.kind === 'server' && n.settings.fanOut === 'parallel' ? 'parallel' : 'sequence';
     return {
       ...tierSettings(n),
-      downstream: next ? policy(next.to.id, next.edge.call) : null,
-      ...(cache ? { cacheAside: policy(cache.to.id, cache.edge.call) } : {}),
+      downstream: policies[0] ?? null,
+      ...(policies.length > 1 ? { moreDownstream: policies.slice(1), fanOut } : {}),
+      ...(cache ? { cacheAside: policy(cache.to, cache.call, false) } : {}),
     };
   });
-  const entry = nextOf(client.id)!;
-  return { id: CUSTOM_TOPOLOGY_ID, name, clientCall: policy(entry.to.id, entry.edge.call), tiers, layout };
+  const entry = flowCalls(graph, client.id)[0];
+  return { id: CUSTOM_TOPOLOGY_ID, name, clientCall: policy(entry.to, entry.call, false), tiers, layout: layoutGraph(graph, client, depth, flow, cacheOf, firstUser) };
 }
 
-function policy(target: string, call: CallSettings): CallPolicy {
-  return { target, timeoutMs: call.timeoutMs, retries: call.retries, backoffBaseMs: call.backoffBaseMs, jitter: call.jitter };
+/**
+ * Where the diagram draws each part: on a grid of boxes with a column (or row) for arrows between
+ * them, boxes on odd columns and rows.
+ *
+ * - Columns: by how far a part is from the Client along its longest chain of calls (Client in
+ *   column 1, then 3, 5, …), so every call goes left to right.
+ * - Rows ("lanes"): a tidy tree. Each part sits in a band of lanes with everything it was the first
+ *   to call (depth-first from the Client, calls in call order); the bands of its calls are stacked
+ *   top to bottom, and the part itself sits level with the middle one (with two, the first): so a
+ *   chain is one straight row, and a load balancer's servers fan out above and below it.
+ * - A cache sits straight above the app server that uses it (its first user), in the lane above,
+ *   which the server's band keeps free.
+ * - A part called by several parts (a shared database) then moves, with what it calls, level with
+ *   the middle of its callers when that spot is free, so the arrows meet it from both sides.
+ * - Rows: lane l is grid row 1 + 2 × (l − top), with a cache row always kept above the top lane of
+ *   boxes (as the presets have), so a chain sits on row 3 with its cache on row 1.
+ */
+function layoutGraph(
+  graph: BuilderGraph,
+  client: BuilderNode,
+  depth: Map<string, number>,
+  flow: BuilderNode[],
+  cacheOf: (id: string) => BuilderNode | undefined,
+  firstUser: (cacheId: string) => BuilderNode | undefined,
+): TopologyPreset['layout'] {
+  const col = (id: string) => 1 + 2 * depth.get(id)!;
+  const ownsCache = (id: string) => {
+    const c = cacheOf(id);
+    return c !== undefined && firstUser(c.id)?.id === id;
+  };
+
+  // Depth-first from the Client: each part's tree parent is the first part found calling it.
+  const children = new Map<string, string[]>();
+  const seen = new Set([client.id]);
+  const visit = (id: string) => {
+    for (const e of flowCalls(graph, id)) {
+      if (seen.has(e.to)) continue;
+      seen.add(e.to);
+      children.set(id, [...(children.get(id) ?? []), e.to]);
+      visit(e.to);
+    }
+  };
+  visit(client.id);
+
+  /** A part's band: its height in lanes, its own lane and every lane in it, relative to the band's top. */
+  const band = (id: string): { height: number; at: number; lanes: Map<string, number> } => {
+    const lanes = new Map<string, number>();
+    const anchors: number[] = [];
+    let top = 0;
+    for (const kid of children.get(id) ?? []) {
+      const b = band(kid);
+      for (const [n, l] of b.lanes) lanes.set(n, l + top);
+      anchors.push(top + b.at);
+      top += b.height;
+    }
+    let at = anchors.length > 0 ? anchors[Math.floor((anchors.length - 1) / 2)] : 0;
+    let height = Math.max(1, top);
+    if (ownsCache(id) && at === 0) {
+      // Room for the cache above: everything in the band moves down one lane.
+      for (const [n, l] of lanes) lanes.set(n, l + 1);
+      at = 1;
+      height += 1;
+    }
+    lanes.set(id, at);
+    return { height, at, lanes };
+  };
+  const lane = band(client.id).lanes;
+
+  // A part called by several: level with the middle of its callers, when there is room.
+  const subtree = (id: string): string[] => [id, ...(children.get(id) ?? []).flatMap(subtree)];
+  for (const n of flow) {
+    const callers = flowCallers(graph, n.id).filter((c) => lane.has(c));
+    if (callers.length < 2 || !lane.has(n.id)) continue;
+    const lanes = callers.map((c) => lane.get(c)!).sort((a, b) => a - b);
+    const lo = lanes[Math.floor((lanes.length - 1) / 2)];
+    const hi = lanes[Math.floor(lanes.length / 2)];
+    const now = lane.get(n.id)!;
+    // The middle caller's lane; with two in the middle, the one nearer to where it is (it stays on a tie).
+    const nearer = Math.abs(lo - now) - Math.abs(hi - now);
+    const target = lo === hi ? lo : nearer < 0 ? lo : nearer > 0 ? hi : now;
+    const delta = target - now;
+    if (delta === 0) continue;
+    const moving = new Set(subtree(n.id));
+    const used = new Map<string, string>();
+    for (const [id, l] of lane) {
+      if (moving.has(id)) continue;
+      used.set(`${col(id)}:${l}`, id);
+      if (ownsCache(id)) used.set(`${col(id)}:${l - 1}`, cacheOf(id)!.id);
+    }
+    const free = [...moving].every((id) => !used.has(`${col(id)}:${lane.get(id)! + delta}`) && (!ownsCache(id) || !used.has(`${col(id)}:${lane.get(id)! + delta - 1}`)));
+    if (free) for (const id of moving) lane.set(id, lane.get(id)! + delta);
+  }
+
+  const cacheLanes = [...lane].filter(([id]) => ownsCache(id)).map(([, l]) => l - 1);
+  const base = Math.min(Math.min(...lane.values()) - 1, ...cacheLanes);
+  const row = (l: number) => 1 + 2 * (l - base);
+  const layout: TopologyPreset['layout'] = { client: { label: client.label, col: 1, row: row(lane.get(client.id)!) } };
+  for (const n of flow) if (lane.has(n.id)) layout[n.id] = { label: n.label, col: col(n.id), row: row(lane.get(n.id)!) };
+  for (const n of flow) {
+    if (!ownsCache(n.id)) continue;
+    const c = cacheOf(n.id)!;
+    layout[c.id] = { label: c.label, col: col(n.id), row: row(lane.get(n.id)! - 1) };
+  }
+  return layout;
+}
+
+/** A call's policy; `split` keeps its share of traffic (only a splitting load balancer's calls have one). */
+function policy(target: string, call: CallSettings, split: boolean): CallPolicy {
+  return {
+    target,
+    timeoutMs: call.timeoutMs,
+    retries: call.retries,
+    backoffBaseMs: call.backoffBaseMs,
+    jitter: call.jitter,
+    ...(split && call.share !== undefined ? { share: call.share } : {}),
+  };
 }
 
 /** A component's own settings as a tier, without its calls. */

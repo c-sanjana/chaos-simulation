@@ -1,4 +1,4 @@
-import { chainGraph } from './testGraphs';
+import { branchedGraph, chainGraph } from './testGraphs';
 import { defaultCall, defaultSettings, type BuilderGraph } from './graph';
 import { validateGraph } from './validate';
 
@@ -22,9 +22,34 @@ describe('validateGraph', () => {
     expect(validateGraph(two)).toContain('Use one Client: it stands for all your users.');
   });
 
-  it('branching is not supported yet, and says it is coming', () => {
+  it('branching: a server calls several parts, a load balancer splits, several parts share one', () => {
     const g = withEdge(withNode(chainGraph(['client', 'server', 'database']), 'db2', 'database'), 'n1', 'db2');
-    expect(validateGraph(g)).toEqual(['server 1 calls database 2 and db2, but for now each part calls one next part (plus a cache). Remove one of these calls: select its arrow and press Remove this call.']);
+    expect(validateGraph(g)).toEqual([]);
+    expect(validateGraph(branchedGraph())).toEqual([]);
+  });
+
+  it('the Client and a queue each send to one part, and say how to spread', () => {
+    const client = withEdge(withNode(chainGraph(['client', 'server']), 's2', 'server'), 'n0', 's2');
+    expect(validateGraph(client)).toEqual([
+      'The Client sends to server 1 and s2, but it stands for users calling one front door. Remove all but one of these calls, and put a load balancer in front to spread users over several parts.',
+    ]);
+    const queue = withEdge(withNode(chainGraph(['client', 'queue', 'server']), 's2', 'server'), 'n1', 's2');
+    expect(validateGraph(queue)).toEqual(["queue 1 hands its messages to server 2 and s2, but a queue's consumers pass each message to one part. Remove all but one of these calls, or add a queue for each."]);
+  });
+
+  it("a load balancer's arrows each need a share of traffic above 0%", () => {
+    const g = branchedGraph();
+    const zero = { ...g, edges: g.edges.map((e) => (e.id === 'lb--s2' ? { ...e, call: { ...e.call, share: 0 } } : e)) };
+    expect(validateGraph(zero)).toEqual(['lb sends no traffic to s2: give that arrow a share of traffic above 0%, or remove it.']);
+    const nan = { ...g, edges: g.edges.map((e) => (e.id === 'lb--s2' ? { ...e, call: { ...e.call, share: NaN } } : e)) };
+    expect(validateGraph(nan)).toHaveLength(1);
+  });
+
+  it('the same call drawn twice, and a server set to call its parts some other way', () => {
+    const g = chainGraph(['client', 'server', 'database']);
+    expect(validateGraph({ ...g, edges: [...g.edges, { ...g.edges[1], id: 'again' }] })).toEqual(['server 1 calls database 2 twice: select one of the two arrows and press Remove this call.']);
+    const odd = { ...g, nodes: g.nodes.map((n) => (n.id === 'n1' ? { ...n, settings: { ...n.settings, fanOut: 'split' } } : n)) } as BuilderGraph;
+    expect(validateGraph(odd)).toEqual(['server 1: choose whether it calls its parts one after another or all at once.']);
   });
 
   it('caches: one per server, and a server with a cache needs something to fall back on', () => {
@@ -48,8 +73,6 @@ describe('validateGraph', () => {
     // Blank names are shown as their kind, never as an empty word.
     const blank = { ...loop, nodes: loop.nodes.map((n) => (n.id === 's2' ? { ...n, label: ' ' } : n)) };
     expect(validateGraph(blank)).toContain('These call each other in a loop: server 1 → App server → server 1. A request would go round forever: remove one of these calls.');
-    const threeWay = withEdge(withEdge(withNode(withNode(chainGraph(['client', 'server', 'database']), 'd2', 'database'), 'd3', 'database'), 'n1', 'd2'), 'n1', 'd3');
-    expect(validateGraph(threeWay)[0]).toMatch(/Remove all but one of these calls/);
     expect(validateGraph(loop)).toContain('These call each other in a loop: server 1 → s2 → server 1. A request would go round forever: remove one of these calls.');
     expect(validateGraph(withEdge(g, 'n2', 'ghost'))).toContain('A connection points at a component that no longer exists.');
     expect(validateGraph(withNode(g, 'spare', 'server'))).toEqual(["spare isn't reached from the Client: connect it or remove it."]);

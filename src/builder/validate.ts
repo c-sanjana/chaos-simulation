@@ -6,9 +6,11 @@ const nameOf = (n: BuilderNode) => n.label.trim() || KIND_LABELS[n.settings.kind
 /**
  * What stops a drawn topology from being simulated, in plain words (empty = it can run).
  *
- * The first version supports chains (user decision, 2026-10-24): users → one component → the next…,
- * each component calling at most one next component, plus one cache for an app server. Branching (a
- * server calling several components, a load balancer splitting over several pools) comes next.
+ * Branching is allowed (user decision, 2026-10-24): a load balancer may spread requests over
+ * several parts, and an app server may call several parts (one after another, or all at once),
+ * plus at most one cache. Several parts may call the same part (two app servers sharing a
+ * database). The Client sends to one part, a queue hands its messages to one part, and calls may
+ * not go round in a loop.
  */
 export function validateGraph(graph: BuilderGraph): string[] {
   const problems: string[] = [];
@@ -26,21 +28,41 @@ export function validateGraph(graph: BuilderGraph): string[] {
     else if (!canConnect(from.settings.kind, to.settings.kind)) problems.push(`${name(from)} can't call ${name(to)}: ${aKind(from.settings.kind)} doesn't call ${aKind(to.settings.kind)}. Select that arrow and press Remove this call.`);
   }
 
+  // The same call drawn twice (the canvas refuses it; a loaded graph might not).
+  const seen = new Set<string>();
+  for (const e of graph.edges) {
+    const key = `${e.from}>${e.to}`;
+    const from = byId.get(e.from);
+    const to = byId.get(e.to);
+    if (seen.has(key) && from && to) problems.push(`${name(from)} calls ${name(to)} twice: select one of the two arrows and press Remove this call.`);
+    seen.add(key);
+  }
+
   for (const n of graph.nodes) {
-    const out = graph.edges.filter((e) => e.from === n.id).map((e) => byId.get(e.to)).filter((t): t is BuilderNode => t !== undefined);
+    const outEdges = graph.edges.filter((e) => e.from === n.id && byId.has(e.to));
+    const out = outEdges.map((e) => byId.get(e.to)!);
     const caches = out.filter((t) => t.settings.kind === 'cache');
     const calls = out.filter((t) => t.settings.kind !== 'cache');
-    if (calls.length > 1) {
-      problems.push(
-        `${name(n)} calls ${calls.map(name).join(' and ')}, but for now each part calls one next part (plus a cache). Remove ${calls.length === 2 ? 'one of these calls' : `all but one of these calls`}: select its arrow and press Remove this call.`,
-      );
+    const kind = n.settings.kind;
+    if (kind === 'client' && calls.length > 1) {
+      problems.push(`The Client sends to ${calls.map(name).join(' and ')}, but it stands for users calling one front door. Remove all but one of these calls, and put a load balancer in front to spread users over several parts.`);
+    }
+    if (kind === 'queue' && calls.length > 1) {
+      problems.push(`${name(n)} hands its messages to ${calls.map(name).join(' and ')}, but a queue's consumers pass each message to one part. Remove all but one of these calls, or add a queue for each.`);
     }
     if (caches.length > 1) problems.push(`${name(n)} uses ${caches.length} caches; use one. Select the arrow to each extra cache and press Remove this call.`);
     if (caches.length > 0 && calls.length === 0) problems.push(`${name(n)} has a cache but nothing to ask when the cache doesn't have the answer: connect it to a database or another component.`);
-    const kind = n.settings.kind;
     if (kind === 'client' && out.length === 0) problems.push('Connect the Client to the component users call first.');
     if (kind === 'queue' && calls.length === 0) problems.push(`${name(n)} holds work, but nothing does it: connect it to the component its consumers call.`);
     if (kind === 'loadBalancer' && calls.length === 0) problems.push(`${name(n)} spreads requests, but over nothing: connect it to the servers behind it.`);
+    if (kind === 'loadBalancer' && calls.length > 1) {
+      for (const e of outEdges) {
+        const share = e.call.share;
+        if (share !== undefined && !(Number.isFinite(share) && share > 0)) {
+          problems.push(`${name(n)} sends no traffic to ${name(byId.get(e.to)!)}: give that arrow a share of traffic above 0%, or remove it.`);
+        }
+      }
+    }
     problems.push(...settingsProblems(n));
   }
 
@@ -79,6 +101,9 @@ function settingsProblems(n: BuilderNode): string[] {
   }
   if (!(s.service.medianMs > 0)) bad.push(`${who}: the typical (median) time must be above 0.`);
   else if (!(s.service.p99Ms > s.service.medianMs)) bad.push(`${who}: the slowest 1% (p99) must take longer than the typical (median) request. Raise "Slowest 1% take" above ${s.service.medianMs} ms.`);
+  if ((s.kind === 'server' || s.kind === 'loadBalancer' || s.kind === 'database') && s.fanOut !== undefined && s.fanOut !== 'sequence' && s.fanOut !== 'parallel') {
+    bad.push(`${who}: choose whether it calls its parts one after another or all at once.`);
+  }
   if (s.kind === 'queue') {
     whole(s.maxDepth, 'the number of messages it holds');
     whole(s.consumers, 'consumers');

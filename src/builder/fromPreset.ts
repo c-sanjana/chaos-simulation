@@ -1,16 +1,26 @@
-import type { CallPolicy, TierConfig } from '../engine/config';
+import { callsOf, type CallPolicy, type TierConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
 import type { BuilderEdge, BuilderGraph, BuilderNode, CallSettings, ComponentKind, NodeSettings, PoolSettings } from './graph';
 
-/** What a preset tier is, read off its config: a cache, a queue, a leaf (database), the first tier (load balancer) or a server. */
+/**
+ * What a preset tier is, read off its config: a cache, a queue, a leaf (database), one that splits
+ * its traffic or the first tier (load balancer), or a server.
+ */
 export function kindOfTier(topology: TopologyPreset, t: TierConfig): ComponentKind {
   if (t.cache) return 'cache';
   if (t.queue) return 'queue';
   if (!t.downstream) return 'database';
-  return t.id === topology.clientCall.target ? 'loadBalancer' : 'server';
+  if (t.fanOut === 'split' && (t.moreDownstream?.length ?? 0) > 0) return 'loadBalancer';
+  return t.id === topology.clientCall.target && t.fanOut !== 'parallel' && !t.cacheAside ? 'loadBalancer' : 'server';
 }
 
-const call = (p: CallPolicy): CallSettings => ({ timeoutMs: p.timeoutMs, retries: p.retries, backoffBaseMs: p.backoffBaseMs, jitter: p.jitter });
+const call = (p: CallPolicy): CallSettings => ({
+  timeoutMs: p.timeoutMs,
+  retries: p.retries,
+  backoffBaseMs: p.backoffBaseMs,
+  jitter: p.jitter,
+  ...(p.share !== undefined ? { share: p.share } : {}),
+});
 
 const service = (t: TierConfig) =>
   t.service.kind === 'lognormal' ? { medianMs: t.service.medianMs, p99Ms: t.service.p99Ms } : { medianMs: 1, p99Ms: 5 }; // presets use lognormal
@@ -33,19 +43,21 @@ export function graphFromPreset(topology: TopologyPreset, rps: number): BuilderG
       settings = { kind, maxDepth: t.queue!.maxDepth, consumers: t.queue!.consumers, service: s };
     } else {
       settings = { kind: kind as PoolSettings['kind'], instances: t.instances, workersPerInstance: t.workersPerInstance, coresPerInstance: t.coresPerInstance, service: s, queueLimit: t.queueLimit, dropExpired: t.dropExpired };
+      if (t.fanOut === 'sequence' || t.fanOut === 'parallel') settings.fanOut = t.fanOut;
     }
     const { label, col, row } = place(t.id);
     nodes.push({ id: t.id, label, col, row, settings });
     if (t.cacheAside) edges.push({ id: `${t.id}-${t.cacheAside.target}`, from: t.id, to: t.cacheAside.target, call: call(t.cacheAside) });
-    if (t.downstream) edges.push({ id: `${t.id}-${t.downstream.target}`, from: t.id, to: t.downstream.target, call: call(t.downstream) });
+    for (const c of callsOf(t)) edges.push({ id: `${t.id}-${c.target}`, from: t.id, to: c.target, call: call(c) });
   }
   return { nodes, edges };
 }
 
 /**
  * Brings a graph up to date with settings changed outside the canvas (the settings drawer edits
- * the compiled topology; the failure editor edits traffic and retries). Positions, labels and
- * what each component is stay as drawn.
+ * the compiled topology, every call's timeout, retries and share and how a server calls its parts;
+ * the failure editor edits traffic and retries). Positions, labels and what each component is stay
+ * as drawn.
  */
 export function syncGraph(graph: BuilderGraph, topology: TopologyPreset, rps: number): BuilderGraph {
   const fresh = graphFromPreset(topology, rps);
@@ -57,7 +69,10 @@ export function syncGraph(graph: BuilderGraph, topology: TopologyPreset, rps: nu
   return {
     nodes: graph.nodes.map((n) => {
       const f = node.get(n.id);
-      return f ? { ...n, settings: { ...f.settings, kind: n.settings.kind } as NodeSettings } : n;
+      if (!f) return n;
+      // How a server calls its parts is only compiled while it has several; otherwise keep the canvas's choice.
+      const fanOut = 'fanOut' in n.settings && !('fanOut' in f.settings) ? { fanOut: n.settings.fanOut } : {};
+      return { ...n, settings: { ...f.settings, ...fanOut, kind: n.settings.kind } as NodeSettings };
     }),
     edges: graph.edges.map((e) => ({ ...e, call: edge.get(`${e.from}>${e.to}`)?.call ?? e.call })),
   };
