@@ -1,7 +1,7 @@
 import type { CallPolicy, Fault, RunConfig, TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { Analysis } from './analyze';
-import { callPolicyInto, formatMs, formatSeconds, leafCapacityRps, percent, spokenName, sumRange } from './helpers';
+import { callPolicyInto, formatMs, formatSeconds, leafCapacityRps, percent, spokenName, sumRange, admittedIn } from './helpers';
 
 /** What kind of moment a story step is, for its picture in the infographic. */
 export type StoryKind = 'fault' | 'giveup' | 'back' | 'overload' | 'waste' | 'cache' | 'backlog' | 'recovered' | 'stuck' | 'info';
@@ -169,7 +169,7 @@ function peakLoad(ctx: Context, id: string, fromMs: number): number {
   const t = ctx.run.tiers[id];
   let peak = 0;
   for (let s = Math.floor(fromMs / ctx.bucketMs); s < Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs); s++) {
-    peak = Math.max(peak, ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / ctx.bucketMs / capacity);
+    peak = Math.max(peak, (admittedIn(t, s) * 1000) / ctx.bucketMs / capacity);
   }
   return peak;
 }
@@ -333,7 +333,7 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
   const tier = tierOf(ctx.config, id);
   const capacity = leafCapacityRps(tier)!;
   const t = ctx.run.tiers[id];
-  const load = (s: number) => ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / ctx.bucketMs;
+  const load = (s: number) => (admittedIn(t, s) * 1000) / ctx.bucketMs;
   const from = Math.floor(main.startMs / ctx.bucketMs);
   const to = Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs);
   const name = ctx.say(id);

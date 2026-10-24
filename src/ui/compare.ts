@@ -2,7 +2,7 @@
  * "Compared with your last run": what the viewer changed, and how the results moved. Pure
  * functions over two drafts and two analysed runs; the panel only displays what these return.
  */
-import { leafCapacityRps } from '../analysis/helpers';
+import { leafCapacityRps, admittedIn } from '../analysis/helpers';
 import type { Verdict } from '../analysis/recovery';
 import type { RunConfig, TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
@@ -117,14 +117,14 @@ export function retriesSent(run: RunResult): number {
   return Object.values(run.tiers).reduce((n, t) => n + t.arrivalsRetry.reduce((a, b) => a + b, 0), 0);
 }
 
-/** Highest per-second load on a leaf tier, as a multiple of its normal capacity; null for a tier without one. */
+/** Highest per-second load a leaf tier took on (turned-away requests excluded), as a multiple of its normal capacity; null for a tier without one. */
 export function peakLoad(config: RunConfig, run: RunResult, tierId: string): number | null {
   const tier = config.tiers.find((t) => t.id === tierId);
   const capacity = tier ? leafCapacityRps(tier) : null;
   const t = run.tiers[tierId];
   if (!capacity || !t) return null;
   const perSecond = 1000 / run.bucketMs;
-  return t.arrivalsFirst.reduce((m, f, i) => Math.max(m, ((f + t.arrivalsRetry[i]) * perSecond) / capacity), 0);
+  return t.arrivalsFirst.reduce((m, _, i) => Math.max(m, (admittedIn(t, i) * perSecond) / capacity), 0);
 }
 
 /** A tier's average share of busy workers from the end of the last failure to the end of the run. */

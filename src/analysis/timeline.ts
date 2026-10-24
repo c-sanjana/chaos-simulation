@@ -1,6 +1,6 @@
 import type { Fault, RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
-import { callerOf, formatMs, formatSeconds, leafCapacityRps, nameOf, percent } from './helpers';
+import { admittedIn, callerOf, formatMs, formatSeconds, leafCapacityRps, nameOf, percent } from './helpers';
 import type { RecoveryResult } from './recovery';
 import type { Signals } from './signals';
 
@@ -57,7 +57,7 @@ export function buildTimeline(
   for (const t of Object.values(run.tiers)) {
     const capacity = leafCapacityRps(config.tiers.find((c) => c.id === t.id)!);
     if (capacity === null) continue;
-    const load = (s: number) => ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / run.bucketMs;
+    const load = (s: number) => (admittedIn(t, s) * 1000) / run.bucketMs;
     let first = -1;
     let peak = 0;
     for (let s = startSecond; s < endSecond; s++) {

@@ -125,11 +125,37 @@ describe('chartView', { timeout: 60_000 }, () => {
     const { config, run } = retryStormRun({ retries: 3 });
     const s = chartView('load', config, run, labels, 'db').spec.series;
     expect(s.map((x) => [x.label, !!x.area, !!x.dashed])).toEqual([
-      ['First attempts', true, false],
-      ['Retries (repeats)', true, false],
+      ["Users' new requests", true, false],
+      ['Repeats (from any layer)', true, false],
       ['DB capacity', false, true],
     ]);
     expect(s[1].color).toBe(COLORS.bad);
+  });
+
+  it('counts repeats from every layer as repeats, and turned-away requests apart, clipped', async () => {
+    const { buildRunConfig } = await import('../data/buildConfig');
+    const { retryStorm } = await import('../data/scenarios');
+    const { webChain } = await import('../data/topologies');
+    const { runSimulation } = await import('../engine/run');
+    const { loadSplit } = await import('./viewModels');
+    const config = buildRunConfig(webChain, retryStorm);
+    const run = runSimulation(config);
+    const db = run.tiers.db;
+    // With every layer retrying, most first tries at the DB are made for a repeat further up.
+    const sum = (xs: number[]) => xs.slice(40, 98).reduce((a, b) => a + b, 0);
+    expect(sum(db.arrivalsFromRepeats)).toBeGreaterThan(0.5 * sum(db.arrivalsFirst));
+    const split = loadSplit(run, 'db');
+    expect(sum(split.repeats)).toBeGreaterThan(5 * sum(split.fresh));
+    split.admitted.forEach((a, b) => expect(a).toBeCloseTo(split.fresh[b] + split.repeats[b], 6));
+    expect(run.tiers.db.arrivalsFromRepeats.slice(0, 30).every((v) => v === 0)).toBe(true); // none before the failure
+
+    // A bounded queue turns most of the storm away: drawn apart and clipped, so the admitted work stays readable.
+    const bounded = { ...config, tiers: config.tiers.map((t) => (t.id === 'db' ? { ...t, queueLimit: 93 } : t)) };
+    const view = chartView('load', bounded, runSimulation(bounded), labels, 'db').spec;
+    const away = view.series.find((x) => x.label.startsWith('Turned away'))!;
+    expect(away.label).toBe('Turned away (clipped at the top)');
+    expect(Math.max(...away.values)).toBeLessThanOrEqual(view.yMax!);
+    expect(view.yMax!).toBeLessThan(1000);
   });
 
   it('scopes latency and errors to a selected tier, with the caller timeout', () => {
@@ -158,8 +184,8 @@ describe('chartView', { timeout: 60_000 }, () => {
     const before = retryStormRun({ retries: 3 });
     const after = retryStormRun({ retries: 0 });
     const shownAfter = chartView('load', before.config, before.run, labels, null, after.run).spec.series;
-    expect(shownAfter.map((x) => x.label)).toEqual(['First attempts', 'Retries (repeats)', 'Total before the fix', 'DB capacity']);
-    expect(shownAfter[1].values.every((v) => v === 0)).toBe(true); // no retries after the fix
+    expect(shownAfter.map((x) => x.label)).toEqual(["Users' new requests", 'Repeats (from any layer)', 'Total before the fix', 'DB capacity']);
+    expect(shownAfter[1].values.every((v) => v === 0)).toBe(true); // no retries after the fix (users' apps 0 here too)
     const shownBefore = chartView('load', before.config, before.run, labels, null, after.run, undefined, false).spec.series;
     expect(shownBefore[2].label).toBe('Total after the fix');
     expect(shownBefore[1].values.some((v) => v > 0)).toBe(true);

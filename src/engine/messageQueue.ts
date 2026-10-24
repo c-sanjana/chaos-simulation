@@ -11,6 +11,8 @@ export interface Message {
   /** Path of the producer attempt that stored it; keys the random values of its consumer call. */
   pathHash: number;
   enqueuedAtMs: number;
+  /** Stored by a retry (or for one further up): its consumer call is load caused by retrying. */
+  fromRepeat: boolean;
 }
 
 /**
@@ -63,9 +65,9 @@ export class MessageQueue {
   }
 
   /** Producer side: stores a message, or returns false if the queue is full. */
-  offer(requestId: number, pathHash: number): boolean {
+  offer(requestId: number, pathHash: number, fromRepeat = false): boolean {
     if (this.length >= this.config.maxDepth) return false;
-    this.backlog.push({ requestId, pathHash, enqueuedAtMs: this.sim.now });
+    this.backlog.push({ requestId, pathHash, enqueuedAtMs: this.sim.now, fromRepeat });
     this.metrics.backlog.add(this.sim.now, 1);
     this.schedulePump();
     return true;
@@ -115,7 +117,7 @@ export class MessageQueue {
       this.target,
       message.requestId,
       hashPath(message.pathHash, CONSUME_BRANCH),
-      { stats: metrics, budget: this.budget },
+      { stats: metrics, budget: this.budget, fromRepeat: message.fromRepeat },
       (ok) => {
         this.busy--;
         metrics.busyConsumers.add(sim.now, -1);

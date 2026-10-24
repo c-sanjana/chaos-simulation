@@ -15,6 +15,12 @@ export class Attempt {
   state: AttemptState = 'queued';
   /** True once the caller stopped waiting (timed out). */
   abandoned = false;
+  /**
+   * A first try at this tier made on behalf of a repeat further up (the caller is handling a retry,
+   * or a request that was itself sent for one). Counted with first attempts here, but caused by
+   * retrying: the load chart shows these as repeats.
+   */
+  fromRepeat = false;
   /** Compute time spent on this attempt so far. */
   computeMs = 0;
   /** For cache lookups: the key asked for, and whether it was found. */

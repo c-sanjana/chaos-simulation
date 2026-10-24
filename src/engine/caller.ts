@@ -33,6 +33,8 @@ export interface CallOptions {
   budget?: RetryBudget | null;
   /** Called on each new attempt before it is sent (e.g. to attach a cache key). */
   prepare?: (attempt: Attempt) => void;
+  /** The call is made on behalf of a repeat further up (see Attempt.fromRepeat). */
+  fromRepeat?: boolean;
 }
 
 /**
@@ -56,7 +58,7 @@ export function callWithRetries(
   options: CallOptions,
   done: (ok: boolean, attempt: Attempt) => void,
 ): void {
-  const { stats, budget, prepare } = options;
+  const { stats, budget, prepare, fromRepeat = false } = options;
   let attemptNo = 0;
 
   const failed = (path: number, attempt: Attempt) => {
@@ -81,6 +83,7 @@ export function callWithRetries(
       if (ok) done(true, attempt);
       else failed(path, attempt);
     });
+    attempt.fromRepeat = fromRepeat;
     prepare?.(attempt);
     if (deadline !== Infinity) {
       sim.schedule(deadline, () => {

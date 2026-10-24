@@ -92,7 +92,7 @@ export class Tier implements CallTarget {
   }
 
   accept(attempt: Attempt): void {
-    this.metrics.arrival(this.sim.now, attempt.isRetry);
+    this.metrics.arrival(this.sim.now, attempt.isRetry, attempt.fromRepeat);
     const i = this.balancer.pick(this.instances.length);
     if (this.dead[i]) {
       this.respondUnstarted(attempt, 'failed'); // connection refused: fails fast, holds nothing
@@ -194,7 +194,7 @@ export class Tier implements CallTarget {
   private afterCompute(attempt: Attempt, instance: Instance): void {
     if (this.queue !== null) {
       // The producer is answered as soon as its message is stored; it never waits for processing.
-      this.finish(attempt, instance, this.queue.offer(attempt.requestId, attempt.pathHash) ? 'ok' : 'rejected');
+      this.finish(attempt, instance, this.queue.offer(attempt.requestId, attempt.pathHash, attempt.isRetry || attempt.fromRepeat) ? 'ok' : 'rejected');
     } else if (this.store !== null) {
       attempt.hit = this.store.get(attempt.key, this.sim.now);
       if (attempt.hit) this.metrics.cacheHit(this.sim.now);
@@ -218,7 +218,7 @@ export class Tier implements CallTarget {
       cacheTier,
       attempt.requestId,
       attempt.pathHash,
-      { stats: this.metrics, budget: this.cacheBudget, prepare: (lookup) => (lookup.key = key) },
+      { stats: this.metrics, budget: this.cacheBudget, prepare: (lookup) => (lookup.key = key), fromRepeat: attempt.isRetry || attempt.fromRepeat },
       (ok, lookup) => {
         if (ok && lookup.hit) this.finish(attempt, instance, 'ok');
         else this.readMissedKey(attempt, key, (readOk) => this.finish(attempt, instance, readOk ? 'ok' : 'failed'));
@@ -255,7 +255,7 @@ export class Tier implements CallTarget {
       this.downstream!,
       attempt.requestId,
       attempt.pathHash,
-      { stats: this.metrics, budget: this.downstreamBudget },
+      { stats: this.metrics, budget: this.downstreamBudget, fromRepeat: attempt.isRetry || attempt.fromRepeat },
       done,
     );
   }

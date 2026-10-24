@@ -1,4 +1,5 @@
 import type { CallPolicy, RunConfig, TierConfig } from '../engine/config';
+import type { TierSeries } from '../engine/result';
 import { serviceTimeMoments } from '../engine/distributions';
 
 /** The call into `tierId`: who makes it ('client' or a tier id) and its policy, or null if nothing calls it. */
@@ -27,6 +28,15 @@ export function leafCapacityRps(tier: TierConfig): number | null {
   if (tier.downstream || tier.cacheAside) return null;
   const concurrency = Math.min(tier.coresPerInstance, tier.workersPerInstance);
   return (tier.instances * concurrency * 1000) / serviceTimeMoments(tier.service).mean;
+}
+
+/**
+ * Attempts a tier took on in bucket s: arrivals minus those turned away at once because its queue
+ * was full. Load against capacity uses this: a request refused on arrival costs (almost) no work,
+ * and counting it made a bounded queue look like it multiplied the load 5× (review 2).
+ */
+export function admittedIn(t: TierSeries, s: number): number {
+  return t.arrivalsFirst[s] + t.arrivalsRetry[s] - t.rejected[s];
 }
 
 export function sumRange(xs: number[], from: number, to: number): number {

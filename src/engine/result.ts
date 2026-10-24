@@ -34,6 +34,11 @@ export interface TierSeries {
   /** Cache tiers only (zeros elsewhere): lookups answered from the cache. Hit rate = hits / ok. */
   hits: number[];
   /**
+   * Of `arrivalsFirst`: first tries here made on behalf of a repeat further up (a retry by a caller
+   * above, or a request sent for one). arrivalsFirst − this = load from users' own first tries.
+   */
+  arrivalsFromRepeats: number[];
+  /**
    * Queue tiers only (zeros elsewhere). A queue tier's `ok` counts messages stored (producers
    * answered), `rejected` producers turned away because the queue was full.
    * - backlogAvg: time-averaged messages waiting (stored, not yet taken by a consumer).

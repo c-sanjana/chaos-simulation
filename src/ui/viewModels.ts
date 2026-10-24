@@ -3,7 +3,7 @@
  * Nothing here simulates or decides anything; it only selects and formats.
  */
 import type { Analysis } from '../analysis/analyze';
-import { callerOf, formatMs, leafCapacityRps } from '../analysis/helpers';
+import { admittedIn, callerOf, formatMs, leafCapacityRps } from '../analysis/helpers';
 import type { RecoveryResult } from '../analysis/recovery';
 import type { RunConfig, TierConfig } from '../engine/config';
 import type { RunResult, TierSeries } from '../engine/result';
@@ -33,6 +33,30 @@ const tierConfig = (config: RunConfig, id: string) => config.tiers.find((t) => t
 const responses = (t: TierSeries, b: number) => t.ok[b] + t.failed[b] + t.rejected[b] + t.dropped[b];
 const errorShare = (t: TierSeries, b: number) => (t.failed[b] + t.rejected[b] + t.dropped[b]) / Math.max(1, responses(t, b));
 const arrivals = (t: TierSeries, b: number) => t.arrivalsFirst[b] + t.arrivalsRetry[b];
+
+/**
+ * A tier's load per second for the Load chart: what it took on (admitted), split into users' own
+ * first tries and repeats (retries here plus first tries made for a repeat further up, so the
+ * cascade from several layers shows as repeats), and what it turned away at once.
+ * ASSUMPTION: refusals are spread over new requests and repeats in proportion to their arrivals.
+ */
+export function loadSplit(run: RunResult, id: string): { fresh: number[]; repeats: number[]; admitted: number[]; turnedAway: number[] } {
+  const t = run.tiers[id];
+  const fresh: number[] = [];
+  const repeats: number[] = [];
+  const admitted: number[] = [];
+  const turnedAway: number[] = [];
+  t.arrivalsFirst.forEach((first, b) => {
+    const total = first + t.arrivalsRetry[b];
+    const kept = total > 0 ? admittedIn(t, b) / total : 0;
+    const rep = t.arrivalsRetry[b] + (t.arrivalsFromRepeats?.[b] ?? 0);
+    fresh.push(perSecond(run, (total - rep) * kept));
+    repeats.push(perSecond(run, rep * kept));
+    admitted.push(perSecond(run, admittedIn(t, b)));
+    turnedAway.push(perSecond(run, t.rejected[b]));
+  });
+  return { fresh, repeats, admitted, turnedAway };
+}
 
 // Display heuristics for colouring the diagram (they do not feed any verdict):
 // a tier is "bad" when its workers are saturated, more than 5% of its responses fail, a leaf's CPU
@@ -196,7 +220,7 @@ export function bottleneckTier(config: RunConfig, run: RunResult): string {
     const capacity = leafCapacityRps(tc);
     if (capacity === null) continue;
     const t = run.tiers[tc.id];
-    const peak = Math.max(...t.arrivalsFirst.map((_, b) => perSecond(run, arrivals(t, b)))) / capacity;
+    const peak = Math.max(...t.arrivalsFirst.map((_, b) => perSecond(run, admittedIn(t, b)))) / capacity;
     if (peak > bestRatio) {
       bestRatio = peak;
       best = tc.id;
@@ -266,6 +290,7 @@ export function chartView(
   const xsSeconds = run.client.sent.map((_, i) => (i * run.bucketMs) / 1000);
   const failureWindows = (config.faults ?? []).map((f) => [f.startMs / 1000, f.endMs / 1000] as [number, number]);
   const tierScope = scope && scope !== 'client' ? scope : null;
+  let yMax: number | undefined;
   const name = (id: string) => labels[id] ?? id;
   const ref = (label: string, values: number[]): TimeSeries => ({ label, values, color: COLORS.reference, dashed: true });
   const flat = (v: number) => xsSeconds.map(() => v);
@@ -292,15 +317,23 @@ export function chartView(
       scopeLabel = name(id);
       defaultScopeLabel = `${name(bottleneck)} (most overloaded)`;
       const capacity = leafCapacityRps(tierConfig(config, id));
-      const total = (r: RunResult) => r.tiers[id].arrivalsFirst.map((f, b) => perSecond(r, f + r.tiers[id].arrivalsRetry[b]));
-      const shown = after && shownAfter ? after : run;
+      const load = loadSplit(after && shownAfter ? after : run, id);
       const other = after ? (shownAfter ? run : after) : null;
       series = [
-        { label: 'First attempts', values: shown.tiers[id].arrivalsFirst.map((f) => perSecond(shown, f)), color: COLORS.primary, area: true },
-        { label: 'Retries (repeats)', values: shown.tiers[id].arrivalsRetry.map((f) => perSecond(shown, f)), color: COLORS.bad, area: true },
+        { label: "Users' new requests", values: load.fresh, color: COLORS.primary, area: true },
+        { label: 'Repeats (from any layer)', values: load.repeats, color: COLORS.bad, area: true },
       ];
-      if (other) series.push({ label: shownAfter ? 'Total before the fix' : 'Total after the fix', values: total(other), color: COLORS.before, dashed: true });
+      if (other) series.push({ label: shownAfter ? 'Total before the fix' : 'Total after the fix', values: loadSplit(other, id).admitted, color: COLORS.before, dashed: true });
       if (capacity !== null) series.push(ref(`${name(id)} capacity`, flat(capacity)));
+      // Requests turned away at once (a full queue) are drawn apart, and clipped so a burst of cheap
+      // refusals doesn't flatten the work actually done (review 2: a 2,000/s spike of refusals made
+      // the recommended fix look like a 5× overload).
+      if (load.turnedAway.some((v) => v > 0)) {
+        const top = Math.max(capacity ?? 0, ...load.admitted, ...(other ? loadSplit(other, id).admitted : [])) * 1.3;
+        const clipped = load.turnedAway.some((v) => v > top);
+        series.push({ label: clipped ? 'Turned away (clipped at the top)' : 'Turned away', values: load.turnedAway.map((v) => Math.min(v, top)), color: COLORS.before, dashed: true });
+        if (clipped) yMax = top;
+      }
       break;
     }
     case 'latency': {
@@ -352,7 +385,7 @@ export function chartView(
       break;
     }
   }
-  const yMax = unit === '%' ? 100 : undefined;
+  if (unit === '%') yMax = 100;
   const label = METRIC_TABS.find((m) => m.id === tab)!.label;
   return {
     spec: { xsSeconds, series, unit, yMax, failureWindows, playheadS, ariaLabel: `${label} (${scopeLabel}) over ${Math.round(run.durationMs / 1000)} seconds${after ? ', before and after the fix' : ''}` },
