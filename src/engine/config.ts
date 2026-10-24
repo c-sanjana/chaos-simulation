@@ -12,6 +12,13 @@ export type ServiceTime =
   | { kind: 'lognormal'; medianMs: number; p99Ms: number }
   | { kind: 'fixed'; ms: number };
 
+export type FanOut = 'sequence' | 'parallel' | 'split';
+
+/** Every downstream call a tier makes, in order (`downstream` first). Empty for a leaf tier. */
+export function callsOf(tier: Pick<TierConfig, 'downstream' | 'moreDownstream'>): CallPolicy[] {
+  return tier.downstream ? [tier.downstream, ...(tier.moreDownstream ?? [])] : [];
+}
+
 /** How a caller calls a downstream tier: timeout, retries and backoff. */
 export interface CallPolicy {
   /** Target tier id. */
@@ -27,6 +34,8 @@ export interface CallPolicy {
    * ASSUMPTION: full jitter (as popularised by the AWS Architecture Blog) is the jitter variant modelled.
    */
   jitter: boolean;
+  /** With fanOut 'split': this call's relative share of the attempts (default 1; shares are normalised). */
+  share?: number;
   /**
    * Retry budget: retries may be at most about this fraction of first attempts (e.g. 0.1 = 10%),
    * shared by every instance of the caller. Omit for no budget. See RetryBudget.
@@ -44,8 +53,25 @@ export interface TierConfig {
   /** Max queued (not yet started) requests per instance. null = unbounded. */
   queueLimit: number | null;
   service: ServiceTime;
-  /** Downstream call made after computing (after a cache miss, if `cacheAside` is set), or null for a leaf tier. */
+  /**
+   * Downstream call made after computing (after a cache miss, if `cacheAside` is set), or null for a
+   * leaf tier. With branching, this is the first of the tier's calls (see `moreDownstream`).
+   */
   downstream: CallPolicy | null;
+  /**
+   * Branching: further calls after `downstream`, made as `fanOut` says. Absent or empty = a chain
+   * (one call). Use `callsOf(tier)` to get every call in order.
+   */
+  moreDownstream?: CallPolicy[];
+  /**
+   * How a tier with several calls makes them (user decision, 2026-10-24):
+   * - 'sequence' (default): one after another, each once the previous answered; the first failure
+   *   fails the attempt and the rest are not made (how most request handlers are written).
+   * - 'parallel': all at once; the attempt answers when the slowest has, and fails if any failed.
+   * - 'split': each attempt makes exactly one of the calls, chosen at random by `share` (a load
+   *   balancer spreading traffic over several pools; even shares by default).
+   */
+  fanOut?: FanOut;
   /**
    * Cache-aside: before calling `downstream`, look the request's key up in this cache tier. On a hit
    * the tier responds without calling downstream; on a miss (or if the cache call fails) it calls

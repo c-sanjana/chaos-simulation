@@ -10,7 +10,7 @@
  */
 
 /** Separates independent uses of randomness, so e.g. arrival gaps and service times never coincide. */
-export const Stream = { Arrival: 1, Service: 2, Jitter: 3, CacheKey: 4 } as const;
+export const Stream = { Arrival: 1, Service: 2, Jitter: 3, CacheKey: 4, Split: 5 } as const;
 
 /**
  * 32-bit integer finaliser "lowbias32" (Chris Wellons, hash-prospector). A bijection on 32-bit
