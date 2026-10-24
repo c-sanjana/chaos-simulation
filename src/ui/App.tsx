@@ -17,7 +17,9 @@ import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
-import { customSystem, PRESET_SYSTEM, scenarioCatalog, systemDraft, type System } from './system';
+import { focusField, useInvalidFields } from './components/useInvalidFields';
+import { loadSaved, saveState } from './savedSystem';
+import { carryOver, customSystem, editedDraft, PRESET_SYSTEM, scenarioCatalog, systemDraft, withTrafficAxis, type System } from './system';
 import { ThemeToggle } from './themeMode';
 import { TippingStep } from './TippingStep';
 import { tourStops } from './tourStops';
@@ -42,11 +44,19 @@ export function App({ pool: injected }: AppProps) {
     if (!injected) pool.dispose();
   }, [pool, injected]);
 
+  /** A built system and its drawing, as remembered in this browser (savedSystem.ts). */
+  const [restored] = useState(() => loadSaved());
   /** The example system, or one built on the canvas; `canvas` holds the drawing while the builder is open. */
-  const [system, setSystem] = useState<System>(PRESET_SYSTEM);
-  const [canvas, setCanvas] = useState<BuilderGraph | null>(null);
-  const [scenarioId, setScenarioId] = useState(DEFAULT_SCENARIO);
-  const [applied, setApplied] = useState<Draft>(() => systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO));
+  const [system, setSystem] = useState<System>(restored?.system ?? PRESET_SYSTEM);
+  const [canvas, setCanvas] = useState<BuilderGraph | null>(restored?.canvasOpen ? restored.canvas : null);
+  /** A drawing set aside by Cancel or "Use the example system instead"; the builder reopens it. */
+  const [keptCanvas, setKeptCanvas] = useState<BuilderGraph | null>(restored && !restored.canvasOpen ? restored.canvas : null);
+  /** The drawing as the builder opened it, so Cancel keeps only a drawing that was changed. */
+  const openedWith = useRef<BuilderGraph | null>(null);
+  const [scenarioId, setScenarioId] = useState(restored?.scenarioId ?? DEFAULT_SCENARIO);
+  const [applied, setApplied] = useState<Draft>(() => restored?.applied ?? systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO));
+  /** A line under the top bar about what just changed (e.g. a reset failure), with an Undo when it can be undone. */
+  const [notice, setNotice] = useState<{ text: string; undo?: () => void } | null>(null);
   const [draft, setDraft] = useState<Draft>(applied);
   const [step, setStep] = useState(0);
   /** On steps 2 and 3 the scenario card collapses to one line to leave room for side-by-side views. */
@@ -88,6 +98,10 @@ export function App({ pool: injected }: AppProps) {
    * puts everything back when it closes.
    */
   const beforeDemo = useRef<{ system: System; scenarioId: string; applied: Draft; draft: Draft; canvas: BuilderGraph | null } | null>(null);
+  // Remember the built system, what runs on it and the drawing; never the tour's demo in their place.
+  useEffect(() => {
+    if (!beforeDemo.current) saveState({ system, scenarioId, applied, canvas: canvas ?? keptCanvas, canvasOpen: canvas !== null });
+  }, [system, scenarioId, applied, canvas, keptCanvas]);
   const startTour = () => {
     setTourFrom(step);
     const demo = systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO);
@@ -125,12 +139,20 @@ export function App({ pool: injected }: AppProps) {
 
   const pickScenario = (id: string) => {
     if (id === scenarioId && !dirty) return; // already showing this preset; don't wipe the viewer's settings
-    const fresh = systemDraft(system, id);
+    // A built system keeps its settings edits (drawer, traffic) when the failure changes.
+    const fresh = system.kind === 'custom' ? editedDraft(system, id, draft) : systemDraft(system, id);
     setScenarioId(id);
     setApplied(fresh);
     setDraft(fresh);
   };
-  const run = () => (setApplied(structuredClone(draft)), setEditingFailure(false));
+  const run = () => {
+    // On a built system the map's traffic range follows the traffic, so it stays on the map.
+    const next = withTrafficAxis(structuredClone(draft));
+    setApplied(next);
+    setDraft(next);
+    setEditingFailure(false);
+    setNotice(null);
+  };
   const resetToPreset = () => {
     const fresh = systemDraft(system, scenarioId);
     setApplied(fresh);
@@ -147,11 +169,66 @@ export function App({ pool: injected }: AppProps) {
     setEditingFailure(false);
     lastRun.current = null;
     setPreviousRun(null);
+    setNotice(null);
   };
-  // The canvas opens on the system being simulated, with any settings changed since it was drawn.
-  const openBuilder = () =>
-    setCanvas(system.kind === 'custom' ? syncGraph(system.graph, applied.topology, applied.scenario.rps) : graphFromPreset(applied.topology, applied.scenario.rps));
-  const useCanvas = (graph: BuilderGraph) => (switchSystem(customSystem(graph)), setCanvas(null));
+  // The canvas opens on a drawing set aside earlier, else on the system being simulated, with any
+  // settings changed since it was drawn.
+  const openBuilder = () => {
+    const graph = keptCanvas ?? (system.kind === 'custom' ? syncGraph(system.graph, applied.topology, applied.scenario.rps) : graphFromPreset(applied.topology, applied.scenario.rps));
+    openedWith.current = graph;
+    setCanvas(graph);
+    setKeptCanvas(null);
+    setNotice(null);
+  };
+  /** Cancel: back to the system as it was; a changed drawing is kept for next time. */
+  const cancelBuilder = () => {
+    if (JSON.stringify(canvas) !== JSON.stringify(openedWith.current)) setKeptCanvas(canvas);
+    setCanvas(null);
+  };
+  /** "Use this topology": the new system keeps the current failure and step where it can (system.ts carryOver). */
+  const useCanvas = (graph: BuilderGraph) => {
+    const next = customSystem(graph) as Extract<System, { kind: 'custom' }>;
+    const kept = carryOver(applied, scenarioId, next);
+    setSystem(next);
+    setScenarioId(kept.scenarioId);
+    setApplied(kept.draft);
+    setDraft(kept.draft);
+    setEditingFailure(false);
+    lastRun.current = null;
+    setPreviousRun(null);
+    setCanvas(null);
+    setKeptCanvas(null);
+    setNotice(kept.reset ? { text: kept.reset } : null);
+  };
+  /** "Use the example system instead", with an Undo; the drawing is kept for the builder. */
+  const useExample = () => {
+    const back = { system, scenarioId, applied, draft, step };
+    switchSystem(PRESET_SYSTEM);
+    setKeptCanvas(canvas);
+    setCanvas(null);
+    setNotice({
+      text: 'Switched to the example system. Your drawing is kept: ✎ Build your own system opens it again.',
+      undo: () => {
+        setSystem(back.system);
+        setScenarioId(back.scenarioId);
+        setApplied(back.applied);
+        setDraft(back.draft);
+        setStep(back.step);
+        setKeptCanvas(null);
+        setNotice(null);
+      },
+    });
+  };
+  // The drawer's Re-run: blocked while a field shows invalid text or the settings don't fit together.
+  const [settingsForm, setSettingsForm] = useState<HTMLFormElement | null>(null);
+  const invalidFields = useInvalidFields(settingsForm);
+  const problemList = useRef<HTMLUListElement>(null);
+  const rerunBlocked = problems.length > 0 || invalidFields.length > 0;
+  const showWhyBlocked = () => {
+    if (invalidFields.length > 0) return focusField(invalidFields[0]);
+    problemList.current?.scrollIntoView?.({ block: 'nearest' });
+  };
+  const built = system.kind === 'custom';
 
   return (
     <main className="csl-page">
@@ -160,7 +237,8 @@ export function App({ pool: injected }: AppProps) {
           Chaos Simulation Lab
         </h1>
         <div data-tour="scenario" className="csl-topbar__summary">
-          <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />
+          {/* Hidden while the builder is open: its failures belong to the system being edited. */}
+          {canvas === null && <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />}
         </div>
         <div className="csl-topbar__actions">
           {canvas === null && (
@@ -180,16 +258,29 @@ export function App({ pool: injected }: AppProps) {
         onStop={(stop) => setDemoAtMs(stop.atMs ?? null)}
       />
 
+      {notice && (
+        <p className="csl-notice" role="status">
+          {notice.text}
+          {notice.undo && (
+            <button type="button" className="csl-btn csl-btn--link" onClick={notice.undo}>
+              Undo
+            </button>
+          )}
+          <button type="button" className="csl-btn csl-btn--link" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {canvas !== null && (
         <section className="csl-card csl-card--compact csl-builder-page" aria-label="Build your own system">
           <div className="csl-builder-page__head">
             <span className="csl-builder-page__note">A chain for now: each part calls one next part, plus a cache. Branching is coming next.</span>
             {system.kind === 'custom' && (
-              <button type="button" className="csl-btn csl-btn--small" onClick={() => (switchSystem(PRESET_SYSTEM), setCanvas(null))}>
+              <button type="button" className="csl-btn csl-btn--small" onClick={useExample}>
                 Use the example system instead
               </button>
             )}
-            <button type="button" className="csl-btn csl-btn--small" onClick={() => setCanvas(null)}>
+            <button type="button" className="csl-btn csl-btn--small" onClick={cancelBuilder} title="Back to the system as it was; your drawing is kept for next time">
               Cancel
             </button>
           </div>
@@ -244,7 +335,7 @@ export function App({ pool: injected }: AppProps) {
               />
             )}
             {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
-            {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} />}
+            {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} built={built} />}
           </div>
           <aside className="csl-split__col csl-split__side--narrow">
             <div className="csl-split__slot" ref={setTimelineEl} />
@@ -254,7 +345,7 @@ export function App({ pool: injected }: AppProps) {
       {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} onEdit={openSettings} />}
       {step === 2 && (
         main.status === 'error' ? (
-          <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} />
+          <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} built={built} />
         ) : (
           <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} onEdit={openSettings} />
         )
@@ -265,7 +356,7 @@ export function App({ pool: injected }: AppProps) {
       <Drawer
         open={settings.open}
         title={settings.only === null ? 'All settings' : settings.only === 'client' ? 'Traffic settings' : `${labels[settings.only] ?? settings.only} settings`}
-        subtitle={`Preset: ${applied.scenario.title}. Changes apply to every step when you re-run.`}
+        subtitle={`${built ? 'Your system' : 'Preset'}: ${applied.scenario.title}. Changes apply to every step when you re-run.`}
         onClose={closeSettings}
         footer={
           <>
@@ -275,10 +366,24 @@ export function App({ pool: injected }: AppProps) {
               </button>
             ) : (
               <button type="button" className="csl-btn" onClick={() => setDraft(systemDraft(system, scenarioId))}>
-                Reset to preset
+                {built ? 'Reset to how you built it' : 'Reset to preset'}
               </button>
             )}
-            <button type="submit" form="csl-settings-form" className="csl-btn csl-btn--primary" disabled={problems.length > 0}>
+            {rerunBlocked && (
+              <span className="csl-drawer__blocked" id="csl-rerun-why">
+                {invalidFields.length > 0 ? `Fix "${invalidFields[0].label}" first` : 'Fix the problem above first'}
+              </span>
+            )}
+            <button
+              type="submit"
+              form="csl-settings-form"
+              className="csl-btn csl-btn--primary"
+              // Never a silent no-op: blocked, it says why beside it, and a press shows what to fix.
+              aria-disabled={rerunBlocked ? true : undefined}
+              aria-describedby={rerunBlocked ? 'csl-rerun-why' : undefined}
+              // Keeps the cursor in a half-typed field, so its text isn't swapped for the last valid value first.
+              onMouseDown={(e) => e.preventDefault()}
+            >
               Re-run simulation
             </button>
           </>
@@ -286,15 +391,17 @@ export function App({ pool: injected }: AppProps) {
       >
         <form
           id="csl-settings-form"
+          ref={setSettingsForm}
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
-            if (e.currentTarget.checkValidity() && problems.length === 0) (run(), closeSettings());
+            if (rerunBlocked || !e.currentTarget.checkValidity()) showWhyBlocked();
+            else (run(), closeSettings());
           }}
         >
           <SettingsForm draft={draft} onChange={setDraft} only={settings.only} />
           {problems.length > 0 && (
-            <ul className="csl-problems" role="alert">
+            <ul className="csl-problems" role="alert" ref={problemList}>
               {problems.map((p) => (
                 <li key={p}>{p}</li>
               ))}
@@ -307,7 +414,7 @@ export function App({ pool: injected }: AppProps) {
 }
 
 /** A run that could not be simulated: say why in plain words and keep the way out (settings, preset) on screen. */
-function SimulationError({ message, onEdit, onReset }: { message: string; onEdit: () => void; onReset: () => void }) {
+function SimulationError({ message, onEdit, onReset, built }: { message: string; onEdit: () => void; onReset: () => void; built: boolean }) {
   return (
     <section className="csl-card csl-card--compact" role="alert" aria-label="Simulation error">
       <h2 className="csl-card__title">These settings couldn't be simulated</h2>
@@ -319,7 +426,7 @@ function SimulationError({ message, onEdit, onReset }: { message: string; onEdit
           ⚙ Edit settings
         </button>
         <button type="button" className="csl-btn" onClick={onReset}>
-          Reset to the preset
+          {built ? 'Reset to how you built it' : 'Reset to the preset'}
         </button>
       </div>
     </section>

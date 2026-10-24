@@ -553,3 +553,32 @@
     transform: none;
   }
 }
+
+/* ---------- Around the builder (App.tsx): the notice line and the drawer's blocked Re-run ---------- */
+.csl-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--csl-border);
+  background: var(--csl-card);
+  font-size: 13px;
+  color: var(--csl-ink-2);
+}
+.csl-drawer__blocked {
+  align-self: center;
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--csl-bad-text);
+}
+.csl-drawer__footer .csl-btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.csl-builder .csl-btn[aria-disabled='true'].csl-btn--primary {
+  cursor: pointer;
+  opacity: 0.7;
+}
