@@ -1,5 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
+import type { RunConfig } from '../engine/config';
+import { stableKey } from '../worker/cachingPool';
+import { CancelledError, type SimPool } from '../worker/pool';
 import { FakePool } from './testing/fakePool';
 
 vi.mock('uplot', () => import('./testing/fakeUplot'));
@@ -274,9 +277,10 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
 
     fireEvent.click(screen.getByRole('button', { name: 'Show the guided tour' }));
-    await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(200), SLOW); // the demo's run
+    // The demo's run: the default settings, whose run from the start is reused.
     const tour = await screen.findByRole('dialog', {}, SLOW);
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/200 req\/s/);
+    expect(pool.analyzed.filter((c) => c.client.rps === 200)).toHaveLength(1);
     // Each demo stop moves the replay to its moment.
     fireEvent.click(within(tour).getByRole('button', { name: 'Next' }));
     expect(within(screen.getByRole('dialog')).getByText('Normal traffic')).toBeTruthy();
@@ -284,8 +288,10 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.keyDown(document, { key: 'ArrowLeft' });
     await waitFor(() => expect(Number((screen.getByLabelText('Playback position') as HTMLInputElement).value)).toBe(0)); // back: jumps
     fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW); // the viewer's settings, back
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/80 req\/s/);
+    // The viewer's settings, back, with their run reused rather than simulated again.
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/80 req\/s/), SLOW);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(pool.analyzed.filter((c) => c.client.rps === 80)).toHaveLength(1);
   });
 
   it('explains invalid input and blocks running it', async () => {
@@ -369,7 +375,161 @@ describe('App', { timeout: 60_000 }, () => {
     // Edit the built system again; then go back to the example.
     fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use the example system instead' }));
-    await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['gateway', 'api', 'cache', 'db']), SLOW);
     expect(screen.getByRole('button', { name: '✎ Build your own system' })).toBeTruthy();
+    // Back on the example's first failure: its run from the start of the test is reused, not re-simulated.
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Retry storm/);
+    expect(pool.analyzed.filter((c) => c.tiers[0].id === 'gateway' && c.faults![0].tier === 'db')).toHaveLength(1);
+  });
+});
+
+describe('App: switching steps keeps finished work and state', { timeout: 120_000 }, () => {
+  const slider = () => screen.getByRole('slider', { name: 'Playback position' }) as HTMLInputElement;
+  const goTo = (name: RegExp) => fireEvent.click(screen.getByRole('button', { name }));
+
+  it('step 1 keeps its replay position, tab and comparison; step 2 its map and cell; step 3 its fix, reusing step 2\'s map', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    // A re-run, so there is a comparison with the last run once the replay ends.
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText('App server → DB'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await waitFor(() => expect(pool.analyzed).toHaveLength(2), SLOW);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.change(slider(), { target: { value: '120000' } });
+    await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
+    fireEvent.change(slider(), { target: { value: '30000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Errors' }));
+
+    goTo(/Where's the tipping point/);
+    expect(screen.queryByRole('heading', { name: 'What happened' })).toBeNull(); // step 1 is hidden
+    await screen.findByText('60 of 60 runs', undefined, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
+    await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
+
+    goTo(/What happened/);
+    expect(slider().value).toBe('30000');
+    expect(screen.getByRole('button', { name: 'Errors' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Compared with your last run' })).toBeTruthy();
+
+    goTo(/Where's the tipping point/);
+    expect(screen.getByText('60 of 60 runs')).toBeTruthy(); // not started again
+    expect(screen.getByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ })).toBeTruthy();
+    expect(pool.cells).toHaveLength(59); // the cell at your settings is step 1's run
+
+    goTo(/Does a fix help/);
+    await screen.findByRole('heading', { name: /^Before vs after/ }, SLOW);
+    await waitFor(() => expect(screen.queryByText(/ of \d+ runs done/)).toBeNull(), SLOW); // both maps done
+    // No cell was ever simulated twice: the "before" map is step 2's map, the checks reuse the runs they can.
+    expect(new Set(pool.cells.map((c) => stableKey(c))).size).toBe(pool.cells.length);
+    // The replay at your settings reuses the ranking's run of the fix and the original run.
+    expect(new Set(pool.analyzed.map((c) => stableKey(c))).size).toBe(pool.analyzed.length);
+    const tabs = screen.getAllByRole('tab');
+    fireEvent.click(tabs[1]);
+    const short = tabs[1].textContent!.replace(/^[✓⚠✕]|\d+ s$/g, '');
+    await screen.findByText(`After: ${short}`, undefined, SLOW);
+    await screen.findByRole('heading', { name: /^Before vs after/ }, SLOW);
+    const work = [pool.cells.length, pool.analyzed.length];
+    goTo(/What happened/);
+    goTo(/Does a fix help/);
+    expect(screen.getAllByRole('tab')[1].getAttribute('aria-selected')).toBe('true');
+    await act(async () => {});
+    expect([pool.cells.length, pool.analyzed.length]).toEqual(work);
+  });
+
+  it('a replay pauses while its step is hidden and carries on when it is back, also one that arrived while hidden', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    goTo(/Where's the tipping point/); // before the first run is ready
+    await waitFor(() => expect(pool.analyzed.length).toBeGreaterThan(0));
+    await screen.findByText('60 of 60 runs', undefined, SLOW);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    goTo(/What happened/);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy(); // it plays now that it is shown
+    goTo(/Where's the tipping point/);
+    goTo(/What happened/);
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('a re-run starts the other steps afresh', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    goTo(/Where's the tipping point/);
+    await screen.findByText('60 of 60 runs', undefined, SLOW);
+    goTo(/What happened/);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '80' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    goTo(/Where's the tipping point/);
+    expect(screen.getByText(/^\d+ of 60 runs$/).textContent).not.toBe('60 of 60 runs'); // the map's 80 req/s cell is selected now
+    await screen.findByRole('heading', { name: /Replaying 80 req\/s/ }, SLOW);
+  });
+});
+
+describe('App: long runs', { timeout: 60_000 }, () => {
+  /** A pool where any traffic but the preset's runs "forever", reporting 40% done, until cancelled. */
+  function slowPool() {
+    const fake = new FakePool();
+    const started: RunConfig[] = [];
+    const pool: SimPool = {
+      size: 1,
+      dispose: () => fake.dispose(),
+      batch: () => {
+        const b = fake.batch();
+        let cancel = () => {};
+        return {
+          ...b,
+          analyze: (config, labels, opts) => {
+            if (config.client.rps === 200) return b.analyze(config, labels, opts);
+            started.push(config);
+            return new Promise((_, reject) => {
+              setTimeout(() => opts?.onProgress?.(0.4), 0);
+              cancel = () => reject(new CancelledError());
+            });
+          },
+          cancel: () => (b.cancel(), cancel()),
+          get cancelled() {
+            return b.cancelled;
+          },
+        };
+      },
+    };
+    return { pool, started };
+  }
+
+  it('shows how far a long run is, and can stop it; then run it anyway, or go back to the preset', async () => {
+    const { pool, started } = slowPool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '150' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await screen.findByText('40%', undefined, SLOW);
+    expect(screen.getByText(/^Simulating 120 s of traffic/)).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: 'Simulation progress' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this run' }));
+    const stopped = screen.getByRole('alert', { name: 'Simulation stopped' });
+    expect(stopped.textContent).toMatch(/You stopped this run before it finished/);
+    expect(screen.getByText('Stopped before it finished')).toBeTruthy(); // the step tab says so too
+    fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
+    expect(screen.getByRole('alert', { name: 'Simulation stopped' })).toBeTruthy(); // not "waiting" forever
+    fireEvent.click(screen.getByRole('button', { name: /What happened/ }));
+
+    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation stopped' })).getByRole('button', { name: 'Run it anyway' }));
+    await screen.findByText('40%', undefined, SLOW);
+    expect(started).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this run' }));
+    // Running the same settings again from the editor runs them again too.
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run' }));
+    await screen.findByText('40%', undefined, SLOW);
+    expect(started).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop this run' }));
+    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation stopped' })).getByRole('button', { name: 'Reset to the preset' }));
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW); // the preset's run, kept from the start
   });
 });

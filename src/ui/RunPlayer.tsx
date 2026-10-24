@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { spokenName } from '../analysis/helpers';
 import type { Fault, RunConfig } from '../engine/config';
@@ -9,6 +9,7 @@ import { MetricTabs } from './components/MetricTabs';
 import { PlaybackBar } from './components/PlaybackBar';
 import { TimeSeriesChart } from './components/TimeSeriesChart';
 import { EventTrack } from './components/EventTrack';
+import { StepActiveContext } from './components/StepPanel';
 import { StoryCard, type StoryStepView } from './components/StoryCard';
 import { TopologyDiagram } from './components/TopologyDiagram';
 import { usePlayback } from './components/usePlayback';
@@ -95,13 +96,27 @@ export function RunPlayer({
   const guidePauseMs = guided && !after && faults.length > 0 ? Math.max(...faults.map((f) => f.endMs)) + 1500 : null;
   const guideSlowMs = guidePauseMs === null ? null : Math.min(...faults.map((f) => f.startMs)) - 3000;
   const [guide, setGuide] = useState<'pending' | 'slowed' | 'paused' | 'done'>('pending');
+  // While its step is hidden the replay pauses, and carries on where it was when the step is back.
+  const active = useContext(StepActiveContext);
+  const resumeWhenShown = useRef(false);
   useEffect(() => {
     playback.seek(0);
     playback.setSpeed(16);
     setGuide('pending');
-    if (autoPlay && !holdPlayback) playback.play();
+    const play = autoPlay && !holdPlayback;
+    resumeWhenShown.current = play && !active;
+    if (play && active) playback.play();
     else playback.pause();
   }, [result, after?.result, holdPlayback]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!active) {
+      resumeWhenShown.current ||= playback.playing;
+      playback.pause();
+    } else if (resumeWhenShown.current) {
+      resumeWhenShown.current = false;
+      playback.play();
+    }
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The demo: play forward to its moment (briskly over long stretches), or jump back to it.
   useEffect(() => {

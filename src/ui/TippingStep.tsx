@@ -3,6 +3,7 @@ import { buildRunConfig } from '../data/buildConfig';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { buildSweep, tippingPoints } from '../sweep/sweep';
 import type { SimPool } from '../worker/pool';
+import { PlayerPlaceholder } from './components/PlayerPlaceholder';
 import { MapLegend, TippingMap } from './components/TippingMap';
 import { currentCell, nearestCell, onMap, retryCalls } from './draft';
 import { RunPlayer } from './RunPlayer';
@@ -77,16 +78,15 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             sideTimeline
           />
         )}
-        {replay.status === 'running' && (
-          <section className="csl-card csl-card--compact">
-            <p className="csl-status">Simulating {cellTitle}…</p>
-          </section>
-        )}
+        {replay.status === 'running' && <PlayerPlaceholder text={`Simulating ${cellTitle}…`} progress={replay.progress} minHeight={REPLAY_PLAYER_HEIGHT} />}
         {replay.status === 'error' && <p className="csl-error">{replay.message}</p>}
       </div>
     </div>
   );
 }
+
+/** ASSUMPTION: about the height of the replay player at 1440 × 900 (measured), so the page doesn't jump when it appears. */
+const REPLAY_PLAYER_HEIGHT = 640;
 
 function capitalise(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

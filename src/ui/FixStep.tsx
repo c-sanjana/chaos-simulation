@@ -9,11 +9,12 @@ import { buildSweep, tippingPoints, type SweepResult, type SweepSpec } from '../
 import type { AnalyzeResult } from '../worker/jobs';
 import type { SimPool } from '../worker/pool';
 import { FixTabs, type FixTab } from './components/FixTabs';
+import { PlayerPlaceholder } from './components/PlayerPlaceholder';
 import { TippingMap } from './components/TippingMap';
 import { currentCell, nearestCell, onMap } from './draft';
 import { RunPlayer } from './RunPlayer';
 import { useFixRanking } from './useFixRanking';
-import { useAnalysis, useSweep } from './useSimulation';
+import { useAnalysis, useSweep, type Async } from './useSimulation';
 import { axisPhrase, formatAxisValue, mapView, shortVerdict } from './viewModels';
 
 export interface FixStepProps {
@@ -58,8 +59,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   }, [applied, signals, topology, scenario]);
   const before = useSweep(pool, beforeSpec);
   const after = useSweep(pool, afterSpec);
-  // At the current settings the original run is reused; any other cell re-runs that cell's map
-  // settings, without and with the fix.
+  // At the current settings the original run and the ranking's run of the fix are reused (the pool
+  // keeps them); any other cell re-runs that cell's map settings, without and with the fix.
   const beforeConfig = atCurrent ? config : cellConfig(beforeSpec, cell);
   const afterConfig = !applied ? null : atCurrent ? applied.candidate.config : cellConfig(afterSpec, cell);
   const beforeOther = useAnalysis(pool, atCurrent ? null : beforeConfig, labels);
@@ -157,20 +158,27 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
           />
         )}
         {applied && (fixed.status === 'running' || beforeRun.status === 'running') && (
-          <section className="csl-card csl-card--compact">
-            <p className="csl-status">Simulating {cellTitle} without and with the fix…</p>
-          </section>
+          <PlayerPlaceholder text={`Simulating ${cellTitle} without and with the fix…`} progress={meanProgress(fixed, beforeRun)} minHeight={FIX_PLAYER_HEIGHT} />
         )}
         {!applied && (
-          <section className="csl-card csl-card--compact">
-            <p className="csl-status">
-              {!allTested || ranking.checking ? 'Testing fixes…' : helped.length > 0 ? 'Choose a fix to see it side by side with the original run.' : 'No fix helped, so there is nothing to compare.'}
-            </p>
-          </section>
+          <PlayerPlaceholder
+            text={!allTested || ranking.checking ? 'Testing fixes…' : helped.length > 0 ? 'Choose a fix to see it side by side with the original run.' : 'No fix helped, so there is nothing to compare.'}
+            minHeight={!allTested || ranking.checking ? FIX_PLAYER_HEIGHT : 0}
+          />
         )}
       </div>
     </div>
   );
+}
+
+/** ASSUMPTION: about the height of the before/after player at 1440 × 900 (measured), so the page doesn't jump when it appears. */
+const FIX_PLAYER_HEIGHT = 635;
+
+/** How far along the two replays are together, once either reports progress (a finished one counts as done). */
+export function meanProgress(...runs: Async<AnalyzeResult>[]): number | undefined {
+  const parts = runs.map((r) => (r.status === 'running' ? r.progress : 1));
+  if (!runs.some((r) => r.status === 'running' && r.progress !== undefined)) return undefined;
+  return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0) / runs.length;
 }
 
 /** Why there is nothing to try, in plain words. */
