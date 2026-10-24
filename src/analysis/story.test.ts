@@ -1,5 +1,5 @@
 import { buildRunConfig } from '../data/buildConfig';
-import { retryStorm } from '../data/scenarios';
+import { cacheRestart, gatewaySlow, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { Fault, RunConfig } from '../engine/config';
 import { call, tier } from '../engine/testConfigs';
@@ -13,9 +13,12 @@ const storyOf = (config: RunConfig) => {
   return buildStory(run, config, analysis, labels);
 };
 const texts = (steps: StoryStep[]) => steps.map((s) => s.text);
-/** The default retry storm with other failures, and optionally a different length or retries. */
+/**
+ * The retry storm with other failures, and optionally a different length, retrying at one layer
+ * only: the API retries the DB `retries` times (3 by default), nothing else retries.
+ */
 const storm = (faults: Fault[], over: { durationMs?: number; retries?: number } = {}): RunConfig => ({
-  ...buildRunConfig(webChain, retryStorm, { retries: over.retries }),
+  ...buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 0, api: over.retries ?? 3 } }),
   ...(over.durationMs === undefined ? {} : { durationMs: over.durationMs }),
   faults,
 });
@@ -31,7 +34,7 @@ function expectPlain(steps: StoryStep[]) {
   }
 }
 
-describe('buildStory on the retry storm', { timeout: 60_000 }, () => {
+describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_000 }, () => {
   it('tells the default stuck run step by step, revealed as the replay shows each part', () => {
     const { config, run, analysis } = retryStormRun({ retries: 3 });
     const story = buildStory(run, config, analysis, labels);
@@ -77,7 +80,7 @@ describe('buildStory on the retry storm', { timeout: 60_000 }, () => {
   });
 
   it('with one retry, the repeats push the database over only after the failure, and it recovers', () => {
-    const story = storyOf(buildRunConfig(webChain, retryStorm, { retries: 1 }));
+    const story = storyOf(storm(retryStorm.faults, { retries: 1 }));
     expect(texts(story)).toContain('The API gives up on a database answer after 1 s and asks again once.');
     const over = story.find((s) => s.text.startsWith('Then the requests asked again pushed the database past what it can handle'))!;
     expect(over.tMs).toBeGreaterThan(35_000);
@@ -198,6 +201,100 @@ describe('buildStory on the retry storm', { timeout: 60_000 }, () => {
   });
 });
 
+describe('buildStory on the presets, with the default retries at every layer (5 / 3 / 1)', { timeout: 60_000 }, () => {
+  const cascade =
+    "Every layer asks again when it gives up: users' apps up to 5 times, the gateway 3 times, the API once. One slow answer can come back as many requests.";
+
+  it('retry storm: the API gives up on the database, and every layer asks again', () => {
+    const story = storyOf(buildRunConfig(webChain, retryStorm));
+    expect(story.map((s) => [s.tMs, s.text])).toEqual([
+      [30_000, 'At 30 s the database became 8× slower for 5 seconds.'],
+      [31_000, `The API gives up on a database answer after 1 s. ${cascade}`],
+      [33_000, 'So the database got more requests than it can handle, even at full speed (about 160 a second).'],
+      [35_000, 'At 35 s the database was back to normal speed — but the pile of repeated requests was still there.'],
+      [
+        36_000,
+        "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too. " +
+          "Cache entries ran out and weren't refilled, sending even more requests to the database.",
+      ],
+      [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.2× the work it can handle.'],
+    ]);
+    expectPlain(story);
+  });
+
+  it('cache restarts empty: lookups fall through to the database, which is overloaded at once', () => {
+    const story = storyOf(buildRunConfig(webChain, cacheRestart));
+    expect(story.map((s) => [s.tMs, s.text])).toEqual([
+      [30_000, 'At 30 s the cache went down for 5 seconds.'],
+      [30_000, `Without the cache, the API sent every lookup to the database instead. ${cascade}`],
+      [30_000, 'So the database got more requests than it can handle, even at full speed (about 160 a second).'],
+      [35_000, 'At 35 s the cache was back up, but empty — and the pile of repeated requests was still there.'],
+      [36_000, "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too."],
+      [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.3× the work it can handle.'],
+    ]);
+    expectPlain(story);
+  });
+
+  it('gateway slows down: users\' apps give up on it, and its pile reaches the database once it is back', () => {
+    const story = storyOf(buildRunConfig(webChain, gatewaySlow));
+    expect(story.map((s) => [s.tMs, s.text])).toEqual([
+      [30_000, 'At 30 s the gateway became 50× slower for 20 seconds.'],
+      [37_000, `Users' apps give up on a gateway answer after 3 s. ${cascade}`],
+      [50_000, 'At 50 s the gateway was back to normal speed — but the pile of repeated requests was still there.'],
+      [50_000, 'Then the gateway passed its pile of requests on all at once, more than the database can handle (about 160 a second).'],
+      [
+        54_000,
+        "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too. " +
+          "Cache entries ran out and weren't refilled, sending even more requests to the database.",
+      ],
+      [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.3× the work it can handle.'],
+    ]);
+    expectPlain(story);
+    // The numbers come from the run: the pile reached the API in the second the gateway was back.
+    const { run } = analyzed(buildRunConfig(webChain, gatewaySlow));
+    expect(run.tiers.gateway.queueAvg[49]).toBeGreaterThan(1);
+    expect(run.tiers.api.arrivalsFirst[50]).toBeGreaterThan(10 * gatewaySlow.rps);
+  });
+
+  it('lists only the layers that ask again, with "once" and "twice", and says "Several layers" when not all do', () => {
+    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, gateway: 0, api: 2 } })));
+    expect(story[1]).toBe(
+      'The API gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps once, the API twice. One slow answer can come back as many requests.',
+    );
+  });
+
+  it('when the layer that noticed does not ask again, the cascade still tells who does', () => {
+    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { api: 0 } })));
+    expect(story[1]).toBe(
+      'The API gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps up to 5 times, the gateway 3 times. One slow answer can come back as many requests.',
+    );
+  });
+
+  it('when only a layer further up asks again, it says so instead of "those users got an error"', () => {
+    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, gateway: 0, api: 0 } })));
+    expect(story).toContain("The API gives up on a database answer after 1 s. Users' apps ask again when they give up, once.");
+    const gateway = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 3, api: 0 } })));
+    expect(gateway).toContain('The API gives up on a database answer after 1 s. The gateway asks again when it gives up, up to 3 times.');
+  });
+
+  it('a database outage: one failed answer; a retry budget gets a sentence of its own', () => {
+    const config = buildRunConfig(webChain, retryStorm);
+    const budgeted: RunConfig = {
+      ...config,
+      client: { ...config.client, call: { ...config.client.call, retryBudget: 0.1 } },
+      tiers: config.tiers.map((t) => (t.id === 'gateway' ? { ...t, downstream: { ...t.downstream!, retryBudget: 0.2 } } : t)),
+      faults: [{ tier: 'db', kind: 'dead', startMs: 30_000, endMs: 35_000 }],
+    };
+    const story = storyOf(budgeted);
+    expect(story[1].text).toBe(
+      "The API gets an error from the database straight away. Every layer asks again when it gives up: users' apps up to 5 times, the gateway 3 times, the API once. " +
+        "Users' apps stop asking again once repeats reach 10% of their requests. The gateway stops asking again once repeats reach 20% of its requests. " +
+        'One failed answer can come back as many requests.',
+    );
+    expectPlain(story);
+  });
+});
+
 describe('buildStory on small systems', { timeout: 60_000 }, () => {
   /** Users call a two-instance service directly. */
   const direct = (fault: Fault, timeoutMs: number | null = 200): RunConfig => ({
@@ -211,7 +308,7 @@ describe('buildStory on small systems', { timeout: 60_000 }, () => {
   it('one slowed or failed instance halves what the service can serve; users see the errors', () => {
     const slowed = texts(storyOf(direct({ tier: 'svc', instance: 0, kind: 'slow', factor: 10, startMs: 10_000, endMs: 15_000 })));
     expect(slowed[0]).toBe('At 10 s one of the 2 svc instances became 10× slower for 5 seconds.');
-    expect(slowed).toContain('The client gives up on a svc answer after 200 ms and does not ask again, so those users saw an error.');
+    expect(slowed).toContain("Users' apps give up on a svc answer after 200 ms and do not ask again, so those users saw an error.");
     expect(slowed.some((t) => /^With one instance slowed, the svc could serve only about 220 requests a second, but it got \d+\.$/.test(t))).toBe(true);
 
     const down = texts(storyOf(direct({ tier: 'svc', instance: 0, kind: 'dead', startMs: 10_000, endMs: 15_000 })));

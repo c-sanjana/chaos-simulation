@@ -31,22 +31,25 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
 
   const ctx: Context = { run, config, analysis, say, bucketMs: run.bucketMs };
   const main = faults[0];
-  const pressure = pressureTier(config, main);
-  const retries = callPolicyInto(config, pressure ?? main.tier)?.policy.retries ?? 0;
-  const hadPile = queueAtEnd(ctx, pressure ?? main.tier, r.lastFaultEndMs) >= 1;
+  const pressure = pressureTier(ctx, main);
+  // Any layer asking again makes the pile one of repeated requests: retries further up arrive
+  // further down as new requests.
+  const retries = retryingCalls(config).length;
+  const hadPile = [pressure, main.tier].some((id) => id !== null && queueAtEnd(ctx, id, r.lastFaultEndMs) >= 1);
 
   const steps: StoryStep[] = [];
   for (const f of faults) steps.push({ tMs: f.startMs, text: faultStartText(f, ctx), tone: 'fault' });
   const cause = causeStep(main, ctx);
   if (cause) steps.push(cause);
-  const overload = pressure === null ? null : overloadStep(pressure, main, ctx);
-  if (overload) steps.push(overload);
   for (const f of faults) {
     if (f.endMs >= run.durationMs) continue; // still going on at the end: nothing to tell
     // Only the last failure to end leads into how it all ended.
     const suffix = f.endMs === r.lastFaultEndMs ? afterTheFailure(f, ctx, retries, hadPile) : '.';
     steps.push({ tMs: f.endMs, text: faultEndText(f, ctx) + suffix, tone: 'info' });
   }
+  // After the end steps, so that an overload starting as the failure ends is told after it ends.
+  const overload = pressure === null ? null : overloadStep(pressure, main, ctx, retries > 0);
+  if (overload) steps.push(overload);
 
   const wasteS = r.verdict === 'stuck' && pressure !== null ? wasteSecond(pressure, ctx) : null;
   const cache = cacheStep(faults, ctx);
@@ -80,17 +83,48 @@ const about = (x: number) => `about ${x >= 100 ? Math.round(x / 10) * 10 : Math.
 
 /**
  * The tier whose load explains the trouble: the failed tier if it does the work itself (it calls
- * nothing), or, when a cache fails, the tier that cache protects. Null when neither applies (for
- * example a failed tier that calls others: its throughput depends on what it calls).
+ * nothing), or, when a cache fails, the tier that cache protects. When a tier that calls others
+ * fails (the Gateway, say), the tier it relies on that got the most work for what it can handle,
+ * if that ever went over. Null otherwise.
  */
-function pressureTier(config: RunConfig, fault: Fault): string | null {
+function pressureTier(ctx: Context, fault: Fault): string | null {
+  const { config } = ctx;
   const tier = tierOf(config, fault.tier);
   if (tier.cache) {
     const user = config.tiers.find((t) => t.cacheAside?.target === fault.tier);
     const behind = user?.downstream?.target;
     return behind !== undefined && leafCapacityRps(tierOf(config, behind)) !== null ? behind : null;
   }
-  return leafCapacityRps(tier) === null ? null : fault.tier;
+  if (leafCapacityRps(tier) !== null) return fault.tier;
+  const peaks = reachableLeaves(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
+  const worst = peaks.sort((a, b) => b.peak - a.peak)[0];
+  return worst !== undefined && worst.peak > 1 ? worst.id : null;
+}
+
+/** Tiers that do the work themselves (they call nothing) and that `id` calls, directly or not. */
+function reachableLeaves(config: RunConfig, id: string): string[] {
+  const seen = new Set<string>();
+  const visit = (tierId: string) => {
+    for (const call of [tierOf(config, tierId).downstream, tierOf(config, tierId).cacheAside]) {
+      if (call && !seen.has(call.target)) {
+        seen.add(call.target);
+        visit(call.target);
+      }
+    }
+  };
+  visit(id);
+  return [...seen].filter((t) => leafCapacityRps(tierOf(config, t)) !== null);
+}
+
+/** Highest load on a tier that calls nothing, as a multiple of what it can handle, from `fromMs` to the end of the judged range. */
+function peakLoad(ctx: Context, id: string, fromMs: number): number {
+  const capacity = leafCapacityRps(tierOf(ctx.config, id))!;
+  const t = ctx.run.tiers[id];
+  let peak = 0;
+  for (let s = Math.floor(fromMs / ctx.bucketMs); s < Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs); s++) {
+    peak = Math.max(peak, ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / ctx.bucketMs / capacity);
+  }
+  return peak;
 }
 
 /** Who a fault hits: the tier, or "one of the 4 API instances". */
@@ -124,22 +158,84 @@ function afterTheFailure(f: Fault, ctx: Context, retries: number, hadPile: boole
   return hadPile ? ' and started on the requests that had piled up.' : '.';
 }
 
+/**
+ * Who makes a call, as the story says it: users' apps for the client (plural), otherwise the
+ * caller's spoken name. `verb(singular, plural)` picks the matching verb form.
+ */
+function callerWords(id: string, ctx: Context): { name: string; verb: (singular: string, plural: string) => string } {
+  const users = id === 'client';
+  return { name: users ? "users' apps" : ctx.say(id), verb: (singular, plural) => (users ? plural : singular) };
+}
+
+const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+
 /** What a caller does after giving up: "asks again, up to 3 more times". */
-function askAgain(policy: CallPolicy, callerId: string): string {
-  if (policy.retries === 0) return callerId === 'client' ? 'does not ask again, so those users saw an error' : 'does not ask again, so those users got an error';
-  const times = policy.retries === 1 ? 'asks again once' : `asks again, up to ${policy.retries} more times`;
-  return policy.retryBudget === undefined ? times : `${times}, as long as repeats stay under ${percent(policy.retryBudget)} of its requests`;
+function askAgain(policy: CallPolicy, callerId: string, ctx: Context): string {
+  const { verb } = callerWords(callerId, ctx);
+  if (policy.retries === 0) return `${verb('does', 'do')} not ask again, so those users ${callerId === 'client' ? 'saw' : 'got'} an error`;
+  const ask = verb('asks', 'ask');
+  const again = policy.retries === 1 ? `${ask} again once` : `${ask} again, up to ${policy.retries} more times`;
+  return policy.retryBudget === undefined ? again : `${again}, as long as repeats stay under ${percent(policy.retryBudget)} of ${verb('its', 'their')} requests`;
+}
+
+/** The calls along the chain (the client's call and each tier's downstream call) that retry, front to back. */
+function retryingCalls(config: RunConfig): Array<{ id: string; policy: CallPolicy }> {
+  // ASSUMPTION: cache lookups are a side call, not a layer of the chain; they are left out.
+  const chain = [{ id: 'client', policy: config.client.call }, ...config.tiers.flatMap((t) => (t.downstream ? [{ id: t.id, policy: t.downstream }] : []))];
+  return chain.filter((c) => c.policy.retries > 0);
+}
+
+/** Who calls `id`, who calls that one, and so on out to the client (nearest first). */
+function callersInFront(config: RunConfig, id: string): string[] {
+  const ids: string[] = [];
+  for (let caller = id === 'client' ? null : callPolicyInto(config, id); caller !== null && !ids.includes(caller.id); caller = caller.id === 'client' ? null : callPolicyInto(config, caller.id)) {
+    ids.push(caller.id);
+  }
+  return ids;
+}
+
+/**
+ * Who asks again, when that is more than what the caller that noticed does (or '' if not): with
+ * several layers, how their repeats multiply ("Every layer asks again when it gives up: users'
+ * apps up to 5 times, the gateway 3 times, the API once. One slow answer can come back as many
+ * requests."); with one layer in front of the noticing caller, that layer ("Users' apps ask
+ * again when they give up, up to 5 times."). Only layers that retry are listed; a retry budget gets a
+ * sentence of its own.
+ */
+function cascadeText(f: Fault, callerId: string, ctx: Context): string {
+  const calls = retryingCalls(ctx.config);
+  // One retrying layer matters here only if it is in front of the caller that noticed (its
+  // repeats come back to that caller); behind it, it has nothing to do with this failure.
+  if (calls.length === 0 || (calls.length === 1 && !callersInFront(ctx.config, callerId).includes(calls[0].id))) return '';
+  const budgets = calls
+    .filter((c) => c.policy.retryBudget !== undefined)
+    .map(({ id, policy }) => {
+      const { name, verb } = callerWords(id, ctx);
+      return ` ${capitalise(name)} ${verb('stops', 'stop')} asking again once repeats reach ${percent(policy.retryBudget!)} of ${verb('its', 'their')} requests.`;
+    })
+    .join('');
+  if (calls.length === 1) {
+    const { name, verb } = callerWords(calls[0].id, ctx);
+    const n = calls[0].policy.retries;
+    return ` ${capitalise(name)} ${verb('asks', 'ask')} again when ${verb('it gives', 'they give')} up, ${n === 1 ? 'once' : `up to ${n} times`}.${budgets}`;
+  }
+  const every = calls.length === 1 + ctx.config.tiers.filter((t) => t.downstream).length;
+  const list = calls.map(({ id, policy }, i) => `${callerWords(id, ctx).name} ${i === 0 && policy.retries > 1 ? 'up to ' : ''}${times(policy.retries)}`);
+  const answer = f.kind === 'dead' && !tierOf(ctx.config, f.tier).cache ? 'failed' : 'slow';
+  return ` ${every ? 'Every layer asks again when it gives' : 'Several layers ask again when they give'} up: ${list.join(', ')}.${budgets} One ${answer} answer can come back as many requests.`;
 }
 
 /**
  * Why the failure matters to the caller: it gives up waiting (a slowdown) or gets an error at
  * once (an outage), and asks again or passes the error on. For a failed cache: lookups go to the
- * tier behind it instead. Null when the caller never noticed (answers stayed within its patience).
+ * tier behind it instead. When other layers ask again too, who does follows (see cascadeText),
+ * since repeats multiply from layer to layer. Null when the caller never noticed (answers stayed
+ * within its patience).
  */
 function causeStep(f: Fault, ctx: Context): StoryStep | null {
   const call = callPolicyInto(ctx.config, f.tier);
   if (call === null) return null;
-  const caller = ctx.say(call.id);
+  const { name: caller, verb } = callerWords(call.id, ctx);
   const target = noun(ctx.say(f.tier));
   const firstSlow = (): number | null => {
     if (call.policy.timeoutMs === null) return null;
@@ -149,24 +245,24 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
     for (let s = from; s < to; s++) if (t.latencyP99Ms[s] > call.policy.timeoutMs) return s * ctx.bucketMs;
     return null;
   };
+  const cascade = cascadeText(f, call.id, ctx);
+  const step = (tMs: number | null, text: string): StoryStep | null => (tMs === null ? null : { tMs, text: text + cascade, tone: 'info' });
 
   const callerTier = call.id === 'client' ? null : tierOf(ctx.config, call.id);
   if (tierOf(ctx.config, f.tier).cache && callerTier?.cacheAside?.target === f.tier && callerTier.downstream) {
     const behind = ctx.say(callerTier.downstream.target);
-    if (f.kind === 'dead') return { tMs: f.startMs, text: `Without ${ctx.say(f.tier)}, ${caller} sent every lookup to ${behind} instead.`, tone: 'info' };
-    const tMs = firstSlow();
-    return tMs === null ? null : { tMs, text: `${capitalise(caller)} gives up on ${ctx.say(f.tier)} after ${formatMs(call.policy.timeoutMs!)} and asks ${behind} instead.`, tone: 'info' };
+    if (f.kind === 'dead') return step(f.startMs, `Without ${ctx.say(f.tier)}, ${caller} sent every lookup to ${behind} instead.`);
+    return step(firstSlow(), `${capitalise(caller)} gives up on ${ctx.say(f.tier)} after ${formatMs(call.policy.timeoutMs!)} and asks ${behind} instead.`);
   }
 
-  const again = askAgain(call.policy, call.id);
+  // When other layers ask again, the cascade says what each one does.
+  const again = cascade === '' ? ` and ${askAgain(call.policy, call.id, ctx)}` : '';
   if (f.kind === 'dead') {
     const from = f.instance === undefined ? `from ${ctx.say(f.tier)}` : 'for requests sent to that instance';
-    return { tMs: f.startMs, text: `${capitalise(caller)} gets an error ${from} straight away and ${again}.`, tone: 'info' };
+    return step(f.startMs, `${capitalise(caller)} ${verb('gets', 'get')} an error ${from} straight away${again}.`);
   }
-  const tMs = firstSlow();
-  if (tMs === null) return null;
   const article = /^[aeiou]/i.test(target) ? 'an' : 'a';
-  return { tMs, text: `${capitalise(caller)} gives up on ${article} ${target} answer after ${formatMs(call.policy.timeoutMs!)} and ${again}.`, tone: 'info' };
+  return step(firstSlow(), `${capitalise(caller)} ${verb('gives', 'give')} up on ${article} ${target} answer after ${formatMs(call.policy.timeoutMs!)}${again}.`);
 }
 
 /** Share of the tier's usual speed left during a fault: slowed or down, the whole tier or one instance. */
@@ -181,7 +277,7 @@ function speedLeft(f: Fault, tier: TierConfig): number {
  * even at full speed (the requests asked again, or a cache that stopped helping, did that); failing
  * that, more than it could handle while the failure slowed it (or took an instance down).
  */
-function overloadStep(id: string, main: Fault, ctx: Context): StoryStep | null {
+function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): StoryStep | null {
   const tier = tierOf(ctx.config, id);
   const capacity = leafCapacityRps(tier)!;
   const t = ctx.run.tiers[id];
@@ -192,15 +288,18 @@ function overloadStep(id: string, main: Fault, ctx: Context): StoryStep | null {
   // While the whole tier is down it refuses everything at once, so its load says nothing.
   const down = (s: number) => (ctx.config.faults ?? []).some((f) => f.tier === id && f.kind === 'dead' && f.instance === undefined && f.startMs < (s + 1) * ctx.bucketMs && f.endMs > s * ctx.bucketMs);
   const failureEndS = Math.ceil(ctx.analysis.recovery.lastFaultEndMs / ctx.bucketMs);
-  const retries = (callPolicyInto(ctx.config, id)?.policy.retries ?? 0) > 0;
+  // A failed tier in front of this one (the Gateway, say) held a pile while it was slow or down.
+  const passedOn = main.tier !== id && !tierOf(ctx.config, main.tier).cache && queueAtEnd(ctx, main.tier, main.endMs) >= 1;
   for (let s = from; s < to; s++) {
     if (load(s) > capacity && !down(s)) {
       const full = `even at full speed (${about(capacity)} a second)`;
       const text = s < failureEndS
         ? `So ${name} got more requests than it can handle, ${full}.`
-        : retries
-          ? `Then the requests asked again pushed ${name} past what it can handle, ${full}.`
-          : `Then ${name} got more requests than it can handle, ${full}.`;
+        : passedOn
+          ? `Then ${ctx.say(main.tier)} passed its pile of requests on all at once, more than ${name} can handle (${about(capacity)} a second).`
+          : retries
+            ? `Then the requests asked again pushed ${name} past what it can handle, ${full}.`
+            : `Then ${name} got more requests than it can handle, ${full}.`;
       return { tMs: s * ctx.bucketMs, text, tone: 'bad' };
     }
   }
@@ -303,12 +402,6 @@ function verdictStep(ctx: Context, pressure: string | null, hadPile: boolean): S
 /** ", with the database getting up to 4.8× the work it can handle", measured after the failure ended; '' if never over. */
 function peakAfter(ctx: Context, id: string | null): string {
   if (id === null) return '';
-  const { lastFaultEndMs, judgedUntilMs } = ctx.analysis.recovery;
-  const capacity = leafCapacityRps(tierOf(ctx.config, id))!;
-  const t = ctx.run.tiers[id];
-  let peak = 0;
-  for (let s = Math.floor(lastFaultEndMs / ctx.bucketMs); s < Math.floor(judgedUntilMs / ctx.bucketMs); s++) {
-    peak = Math.max(peak, ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / ctx.bucketMs / capacity);
-  }
+  const peak = peakLoad(ctx, id, ctx.analysis.recovery.lastFaultEndMs);
   return peak > 1 ? `, with ${ctx.say(id)} getting up to ${peak.toFixed(1)}× the work it can handle` : '';
 }

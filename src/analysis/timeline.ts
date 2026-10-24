@@ -72,7 +72,9 @@ export function buildTimeline(
     afterLoad /= Math.max(1, endSecond - afterFault);
     if (recovery.verdict === 'stuck' && afterLoad > capacity) {
       entries.push({
-        tMs: recovery.lastFaultEndMs,
+        // Not before the load first went over (a failure in front of this tier, such as a slow
+        // Gateway, can pass the pile on only once it ends).
+        tMs: Math.max(recovery.lastFaultEndMs, at(first)),
         text: `Point of no return: the failure is over, but retries keep ${name(t.id)} load at ${(afterLoad / capacity).toFixed(1)}× its capacity, so the backlog can never drain`,
         kind: 'tip',
       });

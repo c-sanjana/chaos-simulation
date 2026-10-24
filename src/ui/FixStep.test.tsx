@@ -53,7 +53,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     expect(screen.getByRole('region', { name: 'Cons' }).textContent).toMatch(/^Cons \(\d\)/);
     await screen.findByRole('heading', { name: /^Before vs after: Retry budget/ }, SLOW);
     await screen.findByText(/the system used to tip at 120 req\/s; with the fix it recovers at every traffic level shown/, undefined, SLOW);
-    expect(screen.getByText(/^200 req\/s · 5s failure length \(your settings\) · only the fix differs$/)).toBeTruthy();
+    expect(screen.getByText(/^200 req\/s · a 5 s failure \(yours\) · only the fix differs$/)).toBeTruthy();
     // The "after" diagram labels what the fix changed.
     fireEvent.click(screen.getByRole('button', { name: 'After' }));
     expect(screen.getAllByText(/retry budget 10%/).length).toBeGreaterThan(0);
@@ -68,13 +68,13 @@ describe('FixStep', { timeout: 60_000 }, () => {
       expect(b.getAttribute('aria-label')).toMatch(/\(shown on the right\)$/);
     }
     for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).toBe('');
-    expect(screen.getByText('Simulating 80 req/s · 2s failure length without and with the fix…')).toBeTruthy();
-    await screen.findByText(/^80 req\/s · 2s failure length · only the fix differs$/, undefined, SLOW);
+    expect(screen.getByText('Simulating 80 req/s · a 2 s failure without and with the fix…')).toBeTruthy();
+    await screen.findByText(/^80 req\/s · a 2 s failure · only the fix differs$/, undefined, SLOW);
     const reruns = pool.analyzed.slice(analyzedBefore);
     expect(reruns.map((c) => c.client.rps)).toEqual([80, 80]);
     expect(reruns.map((c) => c.tiers.find((t) => t.id === 'api')!.downstream!.retryBudget)).toEqual([undefined, 0.1]);
     fireEvent.click(screen.getByRole('button', { name: 'Back to your settings (200 req/s · 5s failure length)' }));
-    await screen.findByText(/^200 req\/s · 5s failure length \(your settings\) · only the fix differs$/, undefined, SLOW);
+    await screen.findByText(/^200 req\/s · a 5 s failure \(yours\) · only the fix differs$/, undefined, SLOW);
     for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).toBe('◆');
     expect(screen.queryByRole('button', { name: /^Back to your settings/ })).toBeNull();
 

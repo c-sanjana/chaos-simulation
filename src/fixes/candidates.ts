@@ -25,10 +25,11 @@ export interface FixCandidate {
 export const COMMON_INSTINCT = "it is a common first instinct, so it's worth checking whether it actually helps";
 
 /**
- * Fixes worth trying for this run: each is the original config with one setting change. `why`
- * quotes the triggering signal with its number, e.g. "retries made up 74% of DB's load". Common
- * instincts get why = COMMON_INSTINCT. In catalog order; fixes that cannot be applied to this
- * config (or would change nothing) are left out.
+ * Fixes worth trying for this run: each is the original config with one change (one setting; for
+ * "retry at one layer only", the retries of every other call). `why` quotes the triggering signal
+ * with its number, e.g. "retries made up 74% of DB's load". Common instincts get why =
+ * COMMON_INSTINCT. In catalog order; fixes that cannot be applied to this config (or would change
+ * nothing) are left out.
  */
 export function candidateFixes(config: RunConfig, signals: Signals, labels: Record<string, string>): FixCandidate[] {
   const name = (id: string) => nameOf(id, labels);
@@ -83,13 +84,15 @@ export function fillNames(how: string, caller: string, target: string, labels: R
 function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: (id: string) => string): FixPlan | null {
   const callName = (ref: CallRef) => `${name(ref.owner)} → ${name(ref.policy.target)}`;
   const [caller, target] = [(ref: CallRef) => name(ref.owner), (ref: CallRef) => name(ref.policy.target)];
+  /** Who makes a call: "users' apps" (the client), "the API", or "the API's Cache lookups" (plural except a tier's main call). */
+  const maker = (ref: CallRef) =>
+    ref.owner === 'client' ? "users' apps" : ref.field === 'cacheAside' ? `the ${name(ref.owner)}'s ${name(ref.policy.target)} lookups` : `the ${name(ref.owner)}`;
   switch (def.kind) {
-    // Retry fixes change the call whose retries showed up: retries arriving at a tier were sent by
-    // its caller (retries further up arrive there as first attempts).
+    // Retry fixes change one call: see retryCallFor for which.
     case 'retryBudget': {
-      const ref = retryingCall(config, signals);
       const ratio = FIX_SETTINGS.retryBudgetRatio;
-      if (ref === null || (ref.policy.retryBudget ?? Infinity) <= ratio) return null;
+      const ref = retryCallFor(config, signals, (r) => (r.policy.retryBudget ?? Infinity) > ratio);
+      if (ref === null) return null;
       return {
         config: withCall(config, ref, { retryBudget: ratio }),
         ...ends(ref),
@@ -98,9 +101,9 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       };
     }
     case 'capRetries': {
-      const ref = retryingCall(config, signals);
-      if (ref === null || ref.policy.retries <= FIX_SETTINGS.maxRetries) return null;
       const n = FIX_SETTINGS.maxRetries;
+      const ref = retryCallFor(config, signals, (r) => r.policy.retries > n);
+      if (ref === null) return null;
       return {
         config: withCall(config, ref, { retries: n }),
         ...ends(ref),
@@ -109,8 +112,8 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       };
     }
     case 'jitterBackoff': {
-      const ref = retryingCall(config, signals);
-      if (ref === null || (ref.policy.jitter && ref.policy.backoffBaseMs > 0)) return null;
+      const ref = retryCallFor(config, signals, (r) => !(r.policy.jitter && r.policy.backoffBaseMs > 0));
+      if (ref === null) return null;
       // A call that retries immediately has no backoff to jitter, so it gets a base delay too.
       const patch = ref.policy.backoffBaseMs > 0 ? { jitter: true } : { jitter: true, backoffBaseMs: FIX_SETTINGS.jitterBaseMs };
       return {
@@ -118,6 +121,26 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
         ...ends(ref),
         where: callName(ref),
         what: `${caller(ref)} waits a random, growing delay before each retry to ${target(ref)}, so retries spread out instead of arriving together.`,
+      };
+    }
+    case 'retryOneLayer': {
+      const retrying = allCalls(config).filter((r) => r.policy.retries > 0);
+      if (retrying.length < 2 || bottleneck(signals) === null) return null;
+      // The call into the bottleneck if it retries, else the nearest retrying call in front of it;
+      // failing both, the innermost retrying call.
+      const keep = retryCallFor(config, signals, () => true) ?? retrying[retrying.length - 1];
+      const others = retrying.filter((r) => r.owner !== keep.owner || r.field !== keep.field);
+      let fixed = config;
+      for (const r of others) fixed = withCall(fixed, r, { retries: 0 });
+      const makers = others.map(maker);
+      const n = keep.policy.retries;
+      const plural = others.length > 1 || others[0].field !== 'downstream';
+      const only = keep.field === 'downstream' ? `Only ${maker(keep)} asks` : `Only ${maker(keep)} ask`;
+      return {
+        config: fixed,
+        ...ends(keep),
+        where: callName(keep),
+        what: `${only} the ${target(keep)} again (${n === 1 ? 'once' : `up to ${n} times`}); ${listed(makers)} no longer ${plural ? 'retry' : 'retries'}.`,
       };
     }
     case 'boundQueue': {
@@ -245,6 +268,9 @@ export function describeSignal(signal: keyof Signals, s: Signals, config: RunCon
   }
 }
 
+/** "a", "a and b", "a, b and c". */
+const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
 const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
@@ -272,10 +298,52 @@ function callInto(config: RunConfig, tierId: string): CallRef | null {
 /** The two ends of a call, for the catalog's {caller} and {target}. */
 const ends = (ref: CallRef) => ({ caller: ref.owner, target: ref.policy.target });
 
-/** The call whose retries the retryShare signal measured, if it retries at all. */
-function retryingCall(config: RunConfig, signals: Signals): CallRef | null {
-  const ref = signals.retryShare === null ? null : callInto(config, signals.retryShare.tier);
-  return ref !== null && ref.policy.retries > 0 ? ref : null;
+/**
+ * The calls that lead to `tierId`: the call into it, then the call into that caller, and so on
+ * out to the client's call (innermost first). Empty when nothing calls it.
+ */
+function callsTowards(config: RunConfig, tierId: string): CallRef[] {
+  const path: CallRef[] = [];
+  const seen = new Set<string>();
+  // Validation forbids loops; `seen` makes sure a bad config cannot hang this.
+  for (let ref = callInto(config, tierId); ref !== null && !seen.has(ref.owner); ref = ref.owner === 'client' ? null : callInto(config, ref.owner)) {
+    seen.add(ref.owner);
+    path.push(ref);
+  }
+  return path;
+}
+
+/**
+ * The call a retry fix changes, or null if none fits: the first call, starting from the call into
+ * the bottleneck and moving out towards users, that retries and that the fix would change
+ * (`applies`).
+ *
+ * Why there? With one retrying layer this is the call whose retries arrive at the overloaded tier
+ * (as before). With several, every layer's repeats end up there, and the choice was measured on
+ * the three presets at their default settings (retries: users' apps 5, Gateway 3, API 1). No
+ * single-call change made a stuck run recover. Changing the call nearest the bottleneck never
+ * failed more requests than doing nothing, while changing users' apps (the call with the most
+ * retries, whose repeats are what the retryShare signal sees at the Gateway) often did: capping
+ * them failed 24–45% more requests, a budget up to 9% more, because users' own repeats are what
+ * rescue a request once the layers behind them have given up. Moving outwards from the bottleneck
+ * lets "cap retries" reach the Gateway when the API already retries only once.
+ */
+function retryCallFor(config: RunConfig, signals: Signals, applies: (ref: CallRef) => boolean): CallRef | null {
+  const id = bottleneck(signals);
+  if (id === null) return null;
+  return callsTowards(config, id).find((ref) => ref.policy.retries > 0 && applies(ref)) ?? null;
+}
+
+/** Every call in the config, front to back: the client's, then each tier's cache-aside and downstream calls. */
+function allCalls(config: RunConfig): CallRef[] {
+  const calls: CallRef[] = [{ owner: 'client', field: 'call', policy: config.client.call }];
+  for (const t of config.tiers) {
+    for (const field of ['cacheAside', 'downstream'] as const) {
+      const policy = t[field];
+      if (policy) calls.push({ owner: t.id, field, policy });
+    }
+  }
+  return calls;
 }
 
 function tierById(config: RunConfig, id: string): TierConfig {

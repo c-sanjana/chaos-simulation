@@ -1,5 +1,7 @@
 import type { Signals } from '../analysis/signals';
-import { retryStormRun } from '../analysis/testRuns';
+import { analyzed, retryStormRun } from '../analysis/testRuns';
+import { buildRunConfig } from '../data/buildConfig';
+import { retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, singleTier, tier } from '../engine/testConfigs';
@@ -21,7 +23,7 @@ function diffPaths(a: unknown, b: unknown, path = ''): string[] {
 
 describe('FIX_CATALOG', () => {
   it('has one entry per kind, unique ids, a short tab name, and one-line pros and cons', () => {
-    const kinds: FixKind[] = ['retryBudget', 'capRetries', 'jitterBackoff', 'boundQueue', 'dropExpired', 'coalesceMisses', 'longerTimeout', 'addInstances'];
+    const kinds: FixKind[] = ['retryBudget', 'capRetries', 'jitterBackoff', 'retryOneLayer', 'boundQueue', 'dropExpired', 'coalesceMisses', 'longerTimeout', 'addInstances'];
     expect(FIX_CATALOG.map((d) => d.kind).sort()).toEqual([...kinds].sort());
     expect(new Set(FIX_CATALOG.map((d) => d.id)).size).toBe(FIX_CATALOG.length);
     for (const d of FIX_CATALOG) {
@@ -56,15 +58,17 @@ describe('FIX_CATALOG', () => {
     expect(byId['cap-retries'].pros.join(' ')).not.toMatch(/twice the normal load/);
     expect(byId['longer-timeout'].cons[0]).toBe('Only helps if the slowdown is shorter than the new wait');
     expect([...byId['retry-budget'].cons, ...byId['jitter-backoff'].cons].join(' ')).not.toMatch(/gRPC|halves/);
+    // Measured: keeping one layer's retries does not save a run overloaded by an emptied cache.
+    expect(byId['retry-one-layer'].cons).toContain('Does not help when the extra load comes from elsewhere, such as an emptied cache');
   });
 });
 
-describe('on the stuck retry storm', { timeout: 60_000 }, () => {
+describe('on the stuck retry storm, retrying at one layer (3 API → DB retries)', { timeout: 60_000 }, () => {
   const { config, analysis } = retryStormRun({ retries: 3 });
   const signals = analysis.signals;
   const snapshot = structuredClone(config);
 
-  const expectedChange: Record<FixKind, [string, unknown]> = {
+  const expectedChange: Record<Exclude<FixKind, 'retryOneLayer'>, [string, unknown]> = {
     retryBudget: ['tiers.1.downstream.retryBudget', 0.1],
     capRetries: ['tiers.1.downstream.retries', 1],
     jitterBackoff: ['tiers.1.downstream.jitter', true],
@@ -75,7 +79,8 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
     addInstances: ['tiers.1.instances', 6],
   };
 
-  it.each(FIX_CATALOG.map((d) => [d.kind, d] as const))('applyFix(%s) changes exactly one setting and leaves the original alone', (kind, d) => {
+  const oneSetting = FIX_CATALOG.filter((d) => d.kind !== 'retryOneLayer').map((d) => [d.kind as Exclude<FixKind, 'retryOneLayer'>, d] as const);
+  it.each(oneSetting)('applyFix(%s) changes exactly one setting and leaves the original alone', (kind, d) => {
     const patched = applyFix(d, config, signals)!;
     expect(patched).not.toBeNull();
     const [path, value] = expectedChange[kind];
@@ -84,7 +89,11 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
     expect(config).toEqual(snapshot);
   });
 
-  it('suggests every catalog fix, in catalog order, each quoting its signal with real numbers', () => {
+  it('does not suggest retrying at one layer only: only one layer retries already', () => {
+    expect(applyFix(def('retryOneLayer'), config, signals)).toBeNull();
+  });
+
+  it('suggests every other catalog fix, in catalog order, each quoting its signal with real numbers', () => {
     const candidates = candidateFixes(config, signals, labels);
     expect(candidates.map((c) => c.id)).toEqual(['retry-budget', 'cap-retries', 'jitter-backoff', 'bound-queue', 'drop-expired', 'coalesce-misses', 'longer-timeout', 'add-instances']);
     const why = Object.fromEntries(candidates.map((c) => [c.id, c.why]));
@@ -133,7 +142,42 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
   it('leaves out fixes whose signal did not show up', () => {
     const { config: calm, analysis: calmAnalysis } = retryStormRun({ retries: 0 });
     const ids = candidateFixes(calm, calmAnalysis.signals, labels).map((c) => c.id);
-    for (const id of ['retry-budget', 'cap-retries', 'jitter-backoff']) expect(ids).not.toContain(id);
+    for (const id of ['retry-budget', 'cap-retries', 'jitter-backoff', 'retry-one-layer']) expect(ids).not.toContain(id);
+  });
+});
+
+describe('on the default retry storm, every layer retrying (users\' apps 5, Gateway 3, API 1)', { timeout: 60_000 }, () => {
+  const { config, analysis } = analyzed(buildRunConfig(webChain, retryStorm));
+  const candidates = candidateFixes(config, analysis.signals, labels);
+  const byId = Object.fromEntries(candidates.map((c) => [c.id, c]));
+
+  it('suggests every fix, retrying at one layer included', () => {
+    expect(candidates.map((c) => c.id)).toEqual(FIX_CATALOG.map((d) => d.id));
+    // Retries arrived mostly at the Gateway (users' repeats), but the DB is where the pile is.
+    expect(analysis.signals.retryShare!.tier).toBe('gateway');
+    expect(analysis.signals.queueWaitOverTimeout!.tier).toBe('db');
+  });
+
+  it('aims the retry fixes at the call into the DB, moving out to the Gateway to cap its 3 retries', () => {
+    expect(Object.fromEntries(['retry-budget', 'cap-retries', 'jitter-backoff', 'retry-one-layer'].map((id) => [id, byId[id].title]))).toEqual({
+      'retry-budget': 'Retry budget of 10%: API → DB',
+      'cap-retries': 'Cap retries at 1: Gateway → API',
+      'jitter-backoff': 'Exponential backoff with full jitter: API → DB',
+      'retry-one-layer': 'Retry at one layer only: API → DB',
+    });
+    expect(byId['cap-retries'].what).toBe('Gateway retries a failed call to API at most once (instead of 3 times).');
+    expect(diffPaths(config, byId['cap-retries'].config)).toEqual(['tiers.0.downstream.retries']);
+  });
+
+  it('retrying at one layer keeps the API → DB retry and turns off users\' and the Gateway\'s', () => {
+    const fix = byId['retry-one-layer'];
+    expect(fix.what).toBe("Only the API asks the DB again (once); users' apps and the Gateway no longer retry.");
+    expect(fix.how).toBe(
+      'The API is the only one that asks the database again; every other layer passes errors straight back. Repeats no longer multiply from layer to layer, so a slowdown adds a little extra work instead of many times more.',
+    );
+    expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Gateway's load`);
+    expect(diffPaths(config, fix.config).sort()).toEqual(['client.call.retries', 'tiers.0.downstream.retries']);
+    expect([fix.config.client.call.retries, fix.config.tiers[0].downstream!.retries, fix.config.tiers[1].downstream!.retries]).toEqual([0, 0, 1]);
   });
 });
 
@@ -167,8 +211,34 @@ describe('applyFix: where it applies', () => {
     expect(c.tiers[0].downstream).toMatchObject({ jitter: true, backoffBaseMs: 100 });
   });
 
+  it('retry fixes start at the call into the bottleneck and move out towards users to the first call they would change', () => {
+    // The bottleneck is the DB (queue signal), whatever tier the retries arrived at.
+    const s = signalsWith({ retryShare: at('api'), queueWaitOverTimeout: at('db') });
+    expect(diffPaths(chain(), applyFix(def('retryBudget'), chain(), s)!)).toEqual(['tiers.0.downstream.retryBudget']);
+    // API → DB already retries at most once, so the cap moves out to the client's call.
+    const c = chain();
+    c.tiers[0].downstream!.retries = 1;
+    expect(diffPaths(c, applyFix(def('capRetries'), c, s)!)).toEqual(['client.call.retries']);
+    // A call that does not retry is skipped.
+    c.tiers[0].downstream!.retries = 0;
+    expect(diffPaths(c, applyFix(def('jitterBackoff'), c, s)!).sort()).toEqual(['client.call.backoffBaseMs', 'client.call.jitter']);
+  });
+
+  it('stops walking out towards users at a loop (which validation would reject)', () => {
+    const loop: RunConfig = {
+      ...chain(),
+      tiers: [
+        tier('a', { kind: 'fixed', ms: 1 }, { downstream: call('b', { retries: 0 }) }),
+        tier('b', { kind: 'fixed', ms: 1 }, { downstream: call('a', { retries: 0 }) }),
+        ...chain().tiers,
+      ],
+    };
+    expect(applyFix(def('capRetries'), loop, signalsWith({ retryShare: at('b') }))).toBeNull();
+  });
+
   it('does not apply a change that is already in place', () => {
     const c = chain();
+    c.client.call = { ...c.client.call, retries: 0 }; // or it would move out to the client's call
     c.tiers[0].downstream = { ...c.tiers[0].downstream!, retries: 1, retryBudget: 0.05, jitter: true, backoffBaseMs: 20 };
     c.tiers[0].coalesceMisses = true;
     c.tiers[2].dropExpired = true;
@@ -183,6 +253,7 @@ describe('applyFix: where it applies', () => {
   it('retry fixes need a caller that retries; coalescing needs a cache-aside tier', () => {
     const c = chain();
     c.tiers[0].downstream!.retries = 0;
+    c.client.call = { ...c.client.call, retries: 0 };
     expect(applyFix(def('retryBudget'), c, signalsWith({ retryShare: at('db') }))).toBeNull();
     const noCache = { ...chain(), tiers: chain().tiers.map((t) => (t.id === 'api' ? { ...t, cacheAside: undefined } : t)) };
     expect(applyFix(def('coalesceMisses'), noCache, signalsWith({ cacheHitDrop: { tier: 'cache', value: { before: 1, during: 0 } } }))).toBeNull();
@@ -204,6 +275,53 @@ describe('applyFix: where it applies', () => {
     expect(applyFix(def('boundQueue'), orphan, s)).toBeNull();
     expect(applyFix(def('dropExpired'), orphan, signalsWith({ wastedShare: at('spare') }))).toBeNull(); // no caller to give up on it
     expect(applyFix(def('addInstances'), orphan, s)!.tiers[1].instances).toBe(6);
+  });
+
+  it('retrying at one layer keeps the call into the bottleneck and turns off every other retrying call', () => {
+    const c = chain();
+    c.tiers[0].cacheAside = { ...c.tiers[0].cacheAside!, retries: 2 };
+    const fix = applyFix(def('retryOneLayer'), c, signalsWith({ retryShare: at('db') }))!;
+    expect(diffPaths(c, fix).sort()).toEqual(['client.call.retries', 'tiers.0.cacheAside.retries']);
+    expect([fix.client.call.retries, fix.tiers[0].cacheAside!.retries, fix.tiers[0].downstream!.retries]).toEqual([0, 0, 3]);
+    const candidate = candidateFixes(c, signalsWith({ retryShare: at('db') }), {}).find((x) => x.id === 'retry-one-layer')!;
+    expect(candidate.what).toBe("Only the api asks the db again (up to 3 times); users' apps and the api's cache lookups no longer retry.");
+    expect(candidate.how).toMatch(/^The api is the only one that asks the db again;/);
+  });
+
+  it('retrying at one layer: the nearest retrying call in front of the bottleneck, else the innermost one', () => {
+    // The bottleneck is the API: the client's call into it retries, so that one stays.
+    const toApi = applyFix(def('retryOneLayer'), chain(), signalsWith({ retryShare: at('api') }))!;
+    expect(diffPaths(chain(), toApi)).toEqual(['tiers.0.downstream.retries']);
+    const what = candidateFixes(chain(), signalsWith({ retryShare: at('api') }), {}).find((x) => x.id === 'retry-one-layer')!.what;
+    expect(what).toBe("Only users' apps ask the api again (up to 2 times); the api no longer retries.");
+    // The bottleneck is the cache: the API's lookups don't retry, so the nearest retrying call in front is the client's.
+    expect(diffPaths(chain(), applyFix(def('retryOneLayer'), chain(), signalsWith({ queueWaitOverTimeout: at('cache') }))!)).toEqual(['tiers.0.downstream.retries']);
+    // Nothing on the way to the bottleneck retries: the innermost retrying call (API → DB) stays.
+    const orphan = { ...chain(), tiers: [...chain().tiers, tier('spare', { kind: 'fixed', ms: 1 })] };
+    const kept = applyFix(def('retryOneLayer'), orphan, signalsWith({ queueWaitOverTimeout: at('spare') }))!;
+    expect(diffPaths(orphan, kept)).toEqual(['client.call.retries']);
+    expect(candidateFixes(orphan, signalsWith({ retryShare: at('spare') }), {}).find((x) => x.id === 'retry-one-layer')!.what).toBe(
+      "Only the api asks the db again (up to 3 times); users' apps no longer retry.",
+    );
+  });
+
+  it('retrying at one layer can keep a cache-aside call when the cache is the bottleneck', () => {
+    const c = chain();
+    c.tiers[0].cacheAside = { ...c.tiers[0].cacheAside!, retries: 2 };
+    const what = candidateFixes(c, signalsWith({ retryShare: at('cache') }), {}).find((x) => x.id === 'retry-one-layer')!.what;
+    expect(what).toBe("Only the api's cache lookups ask the cache again (up to 2 times); users' apps and the api no longer retry.");
+  });
+
+  it('retrying at one layer needs at least two retrying calls and something overloaded', () => {
+    const one = chain();
+    one.client.call = { ...one.client.call, retries: 0 };
+    expect(applyFix(def('retryOneLayer'), one, signalsWith({ retryShare: at('db') }))).toBeNull();
+    expect(applyFix(def('retryOneLayer'), chain(), noSignals)).toBeNull();
+    const onceEach = chain();
+    onceEach.tiers[0].downstream!.retries = 1;
+    expect(candidateFixes(onceEach, signalsWith({ retryShare: at('db') }), {}).find((x) => x.id === 'retry-one-layer')!.what).toBe(
+      "Only the api asks the db again (once); users' apps no longer retry.",
+    );
   });
 
   it('bounds a non-leaf tier’s queue at its worker count', () => {

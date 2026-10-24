@@ -70,9 +70,9 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   if (!original) return <p className="csl-status">Waiting for the original run…</p>;
   const { x: xAxis, y: yAxis } = scenario.map;
   const where = `at your settings (${current.x} req/s, ${axisPhrase(yAxis, current.y)})`;
-  const longerS = longerOutageSeconds(config);
+  const longerS = ranking.longerApplies === false ? null : longerOutageSeconds(config);
   const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.robustness[f.candidate.id], where, longerS));
-  const cellTitle = `${cell.x} req/s · ${formatAxisValue(yAxis, cell.y)} ${yAxis.label}`;
+  const cellTitle = `${cell.x} req/s · ${axisPhrase(yAxis, cell.y)}`;
   const status = ranking.error ? (
     <span className="csl-error">{ranking.error}</span>
   ) : !allTested ? (
@@ -144,7 +144,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         {applied && afterConfig && beforeConfig && fixed.status === 'done' && beforeRun.status === 'done' && (
           <RunPlayer
             title={`Before vs after: ${applied.candidate.name}`}
-            subtitle={`${cellTitle}${atCurrent ? ' (your settings)' : ''} · only the fix differs`}
+            subtitle={`${cellTitle}${atCurrent ? ' (yours)' : ''} · only the fix differs`}
             topology={topology}
             config={beforeConfig}
             result={beforeRun.value}

@@ -1,4 +1,6 @@
-import { retryStormRun } from '../analysis/testRuns';
+import { analyzed, retryStormRun } from '../analysis/testRuns';
+import { buildRunConfig } from '../data/buildConfig';
+import { retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, tier } from '../engine/testConfigs';
@@ -27,6 +29,26 @@ describe('configChanges for each catalogue fix on the retry storm', { timeout: 6
 
   it('finds nothing between a config and itself', () => {
     expect(configChanges(config, structuredClone(config))).toEqual([]);
+  });
+});
+
+describe('configChanges for the retry fixes on the default retry storm (every layer retrying)', { timeout: 60_000 }, () => {
+  const { config, analysis } = analyzed(buildRunConfig(webChain, retryStorm));
+  const byId = Object.fromEntries(candidateFixes(config, analysis.signals, labels).map((c) => [c.id, configChanges(config, c.config)]));
+
+  it('labels every call that stops retrying, the client\'s included, for retrying at one layer', () => {
+    expect(byId['retry-one-layer']).toEqual([
+      { call: { from: 'client', to: 'gateway' }, text: 'no retries (was 5)' },
+      { call: { from: 'gateway', to: 'api' }, text: 'no retries (was 3)' },
+    ]);
+  });
+
+  it('labels the one call each other retry fix changed', () => {
+    expect([byId['retry-budget'], byId['cap-retries'], byId['jitter-backoff']]).toEqual([
+      [{ call: { from: 'api', to: 'db' }, text: 'retry budget 10%' }],
+      [{ call: { from: 'gateway', to: 'api' }, text: 'max 1 retry (was 3)' }],
+      [{ call: { from: 'api', to: 'db' }, text: 'random retry delays' }],
+    ]);
   });
 });
 

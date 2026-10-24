@@ -1,13 +1,14 @@
 import { buildRunConfig } from '../data/buildConfig';
-import { retryStorm } from '../data/scenarios';
+import { cacheRestart, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import { call, singleTier, tier } from '../engine/testConfigs';
 import type { Fault, RunConfig } from '../engine/config';
-import { controlConfig, maxRequestMs } from './recovery';
+import { binCenterMs, latencyBin } from '../engine/stats';
+import { assessRecovery, controlConfig, maxRequestMs } from './recovery';
 import { analyzed, retryStormRun } from './testRuns';
 
 describe('assessRecovery', { timeout: 60_000 }, () => {
-  it('a retry storm with 3 retries per layer is stuck', () => {
+  it('a retry storm with 3 API → DB retries is stuck', () => {
     const { analysis } = retryStormRun({ retries: 3 });
     expect(analysis.recovery.verdict).toBe('stuck');
     expect(analysis.recovery.recoveredAtMs).toBeNull();
@@ -26,6 +27,26 @@ describe('assessRecovery', { timeout: 60_000 }, () => {
     for (let i = 0; i < status.length; i++) {
       if (arrivalMs[i] >= r.recoveredAtMs! && arrivalMs[i] < r.judgedUntilMs) expect(status[i]).toBe(control.client.requests.status[i]);
     }
+  });
+
+  it('compares p99 with the control at the latency histogram\'s resolution', () => {
+    const { config, run, control, analysis } = retryStormRun({ retries: 0 });
+    const ceilingBin = latencyBin(Math.max(...control.client.latencyP99Ms.filter((p) => !Number.isNaN(p))));
+    const withP99 = (ms: number) => {
+      const tweaked = structuredClone(run);
+      tweaked.client.latencyP99Ms[80] = ms;
+      return assessRecovery(tweaked, control, config);
+    };
+    // Higher than the control's highest, but in the same bin: as healthy as before.
+    expect(withP99(binCenterMs(ceilingBin + 0.49))).toEqual(analysis.recovery);
+    // A bin higher: that second is not healthy, so recovery comes after it.
+    expect(withP99(binCenterMs(ceilingBin + 1))).toMatchObject({ verdict: 'recovered', recoveredAtMs: 81_000 });
+  });
+
+  it('a 1 s cache outage at 160 req/s recovers within seconds (a p99 a hair above the control\'s once read as 62 s)', () => {
+    const { analysis } = analyzed(buildRunConfig(webChain, cacheRestart, { rps: 160, outageMs: 1000 }));
+    expect(analysis.recovery).toMatchObject({ verdict: 'recovered', failedRequests: 0 });
+    expect(analysis.recovery.recoveryMs!).toBeLessThanOrEqual(2000);
   });
 
   it('a failure too small to matter leaves the run unaffected', () => {
@@ -67,9 +88,12 @@ describe('assessRecovery', { timeout: 60_000 }, () => {
 });
 
 describe('assessRecovery judges only what happened inside the run', { timeout: 60_000 }, () => {
-  /** The default retry storm (DB 8× slower, 3 API → DB retries), with a different length and failure. */
+  /**
+   * The retry storm (DB 8× slower) retrying at one layer (3 API → DB retries), with a different
+   * length and failure. Users' apps don't retry, so their longest request (3 s) fits these short runs.
+   */
   const storm = (durationMs: number, fault: Partial<Fault>): RunConfig => {
-    const config = buildRunConfig(webChain, retryStorm);
+    const config = buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 0, api: 3 } });
     return { ...config, durationMs, faults: [{ ...config.faults![0], ...fault }] };
   };
 

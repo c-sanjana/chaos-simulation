@@ -12,7 +12,13 @@ traffic, whether it actually helps and whether it moves the tipping point.
 ## The first minute
 
 The page opens on a **retry storm**. A database slows down 8× for just 5 seconds, at a traffic
-level it normally handles easily. On a first visit a 30-second guided tour points out each part
+level it normally handles easily. Every layer retries, differently, as real systems often do:
+users' apps ask again up to 5 times, the Gateway retries the API 3 times and the API retries the
+DB once (all editable per layer). Two other presets fail elsewhere in the stack: **Cache restarts
+empty** (the cache goes down for 5 s and comes back cold, so every lookup stampedes the DB) and
+**Gateway slows down** (the front door slows 50× for 20 s and users' retries pile onto it). Any
+part can fail (slow down, go down, lose one server, or for the cache restart empty), and several
+failures can be combined. On a first visit a 30-second guided tour points out each part
 of the page (skip it, or replay it any time with **?** at the top right; ☾ beside it switches to
 dark mode, and the page stays light unless you choose dark).
 
@@ -21,20 +27,20 @@ dark mode, and the page stays light unless you choose dark).
    when the replay gets there), and the first replay pauses just after the failure ends: "the
    database is back to normal speed; watch whether the system recovers". Below it, the measured
    details, with numbers from the run:
-   - DB p99 exceeds the API's 1 s timeout.
-   - The API retries, and DB load climbs to 4.8× its capacity at its peak.
-   - The point of no return: the failure is over, but retries keep DB load at 3.7× capacity, so
-     the backlog can never drain.
-   - 98% of DB work during the incident is for requests the API had already given up on.
-   - API workers are 99% occupied while CPU sits at 6%.
+   - DB p99 exceeds the API's 1 s timeout, and every layer starts asking again.
+   - Retries push DB load past its capacity, up to 3.2× at the peak.
+   - The point of no return: the failure is over, but retries keep the DB overloaded, so the
+     backlog can never drain.
+   - Most DB work is for requests the API had already given up on, and the cache empties because
+     nothing refills it.
 
    The diagram marks the injected slowdown (⚡), overloaded parts (⚠) and failing calls (✕), with
    a key. End-to-end latency is measured as how long users waited for an answer, errors
    included, so it rises when requests fail instead of looking fast.
-2. **Where's the tipping point?** The same 5-second failure, re-run at 60 combinations of traffic
-   and API → DB retries. Each cell is a full simulation, and you can click one to replay it inline.
-   With 0 retries the system always recovers. With 1 retry it tips at 220 req/s, with 2 at 140,
-   and with 3 or more at 120.
+2. **Where's the tipping point?** The same failure, re-run at 60 combinations of traffic and how
+   long the failure lasts. Each cell is a full simulation, and you can click one to replay it
+   inline. For the retry storm: a slowdown of up to 2 s always recovers; 3 s tips at 160 req/s,
+   5 s at 100 and 8 s at 80, so the default 200 req/s is far past it.
 3. **Does a fix help?** Candidate fixes are chosen from what the run showed. Each one is a single
    setting change, re-run against the same traffic and the same failure, and ranked by what
    actually happened. Every fix that helped is then checked to see whether it holds up: on 5 random
@@ -214,9 +220,21 @@ time log. The main calls:
 - **Fixes must be runnable.** Advice that can't be expressed as a setting change is left out.
   Fixes that were tried and didn't help are still shown; they teach as much as the winners.
 
-  The default retry storm (200 req/s, 3 API → DB retries) is stuck on all 5 seeds, with 12,687
-  failed requests at the default seed. What each fix does (recovery time after the failure ends
-  and failed requests are at the default seed):
+  With the default retries at every layer (5 / 3 / 1), the measured results at the default seed
+  (recovery time after the failure ends, failed requests):
+  - **Retry storm** (stuck, 12,561 failed): only bounding the DB queue holds up (16 s, 209 failed;
+    5 of 5 seeds; still helps with a 10 s slowdown). A 3× longer timeout recovers in 9 s with 0
+    failed but not with a longer slowdown, and "retry at one layer only" helps on 1 of 5 seeds;
+    the app marks both ⚠. Changing a single call's retries (budget, cap, jitter) no longer helps:
+    with three layers retrying, the others still multiply the load.
+  - **Cache restarts empty** (stuck, 12,747 failed): coalescing cache misses (1 s, 0 failed; 5 of
+    5) and bounding the DB queue (23 s) hold up; a longer timeout helps only sometimes.
+  - **Gateway slows down** (stuck, 10,361 failed): bounding the queue (7 s, 0 failed; 5 of 5) holds
+    up; retrying at one layer only helps on 2 of 5 seeds. This preset's 2× longer slowdown happens
+    to recover by itself, so the longer-slowdown check is skipped there (it can't tell anything).
+
+  With a single retrying layer (API → DB 3 times, the original preset; kept in the tests) the
+  default run is stuck on all 5 seeds, with 12,687 failed requests:
   - **Helped on 5 of 5 seeds, and still helps with a 10 s slowdown:**
     - bounding the DB queue: recovers in 2 s (242 failed);
     - a retry budget: 3 s (306 failed);
@@ -234,9 +252,16 @@ time log. The main calls:
       a synchronisation one;
     - coalescing cache misses: it cuts DB reads by 43%, which isn't enough;
     - more API instances: the API isn't the bottleneck.
-- **The map varies one call's retries.** With retries at every layer they multiply, (r+1)³, so
-  every retry count tipped at the same traffic and the map was a single step. Varying API → DB
-  retries gives a readable staircase.
+- **The map varies how long the failure lasts.** Measured: with retries at one layer the tipping
+  point steps with the retry count (1 retry tips at ~200–220 req/s, 2 at 140, 3 at 120, whichever
+  layer retries), but once two or more layers retry, every mix tips at about the same traffic, so a
+  retries axis would show identical rows. Failure length gives a readable staircase for a failure
+  in any component. The cascade is real but capped by nested timeouts: 5 / 3 / 1 retries could in
+  principle send one request to the DB 48 times, yet the DB peaks at 3.2× its capacity, because
+  users' apps give up after 3 s while the inner layers are still retrying.
+- **Recovery is judged at the latency histogram's resolution.** A second counts as healthy if its
+  p99 is in the same histogram bin as the no-failure run's highest (or lower): a 0.2 ms difference
+  inside one ~12% bin once turned a 1 s cache outage into "recovered 62 s after".
 
 ## Time spent and how AI was used
 

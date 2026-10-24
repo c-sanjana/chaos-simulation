@@ -1520,15 +1520,15 @@ button.csl-map__cell {
   flex-direction: column;
   gap: 8px;
 }
-/* Four tabs per row, so eight fixes take two rows; the full name is in the panel below. */
+/* Five tabs per row, so up to ten fixes take two rows; the full name is in the tooltip and the panel. */
 .csl-fixtabs__list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
 }
 .csl-fixtab {
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1590,7 +1590,7 @@ button.csl-map__cell {
 .csl-fixtabs__panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   border: 1px solid var(--csl-border);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1649,7 +1649,7 @@ button.csl-map__cell {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   border-top: 1px solid var(--csl-border);
-  padding-top: 8px;
+  padding-top: 6px;
 }
 .csl-procon__title {
   margin: 0 0 4px;
@@ -1663,7 +1663,7 @@ button.csl-map__cell {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   font-size: 12.5px;
 }
 .csl-procon__list li {
@@ -1757,8 +1757,8 @@ button.csl-map__cell {
 .csl-fix-maps__panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-bottom: 10px;
+  gap: 4px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--csl-border);
 }
 /* Step 3's side column also holds the fixes, so its timeline may be a little shorter. */

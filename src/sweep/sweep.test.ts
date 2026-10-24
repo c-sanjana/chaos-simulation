@@ -15,7 +15,7 @@ describe('buildSweep', () => {
   const xs = retryStorm.map.x.values;
   const ys = retryStorm.map.y.values;
 
-  it('has one valid config per (traffic, retries) pair, row by row', () => {
+  it('has one valid config per (traffic, failure length) pair, row by row', () => {
     expect(spec.xAxis).toBe(retryStorm.map.x);
     expect(spec.yAxis).toBe(retryStorm.map.y);
     expect(spec.cells).toHaveLength(xs.length * ys.length);
@@ -23,31 +23,40 @@ describe('buildSweep', () => {
     for (const cell of spec.cells) expect(() => validateConfig(cell.config)).not.toThrow();
   });
 
-  it('sets traffic and API → DB retries from the cell, and keeps the scenario\'s failure', () => {
+  it('sets traffic and the failure length from the cell, and keeps the topology\'s retries', () => {
     for (const { x, y, config } of spec.cells) {
       expect(config.client.rps).toBe(x);
-      expect(tier(config, 'api').downstream!.retries).toBe(y);
-      expect(tier(config, 'gateway').downstream!.retries).toBe(0);
-      expect(config.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 8, startMs: 30_000, endMs: 35_000 }]);
+      expect(config.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 8, startMs: 30_000, endMs: 30_000 + y }]);
+      expect([config.client.call.retries, tier(config, 'gateway').downstream!.retries, tier(config, 'api').downstream!.retries]).toEqual([5, 3, 1]);
       expect(config.durationMs).toBe(retryStorm.durationMs);
     }
   });
 
   it('applies base overrides, with the axes taking precedence', () => {
-    const cells = buildSweep(webChain, retryStorm, { outageMs: 10_000, seed: 9, rps: 1, retries: 99 }).cells;
+    const cells = buildSweep(webChain, retryStorm, { outageMs: 99_000, seed: 9, rps: 1, retries: { client: 0 } }).cells;
     for (const { x, y, config } of cells) {
-      expect(config.faults![0]).toMatchObject({ startMs: 30_000, endMs: 40_000 });
+      expect(config.faults![0]).toMatchObject({ startMs: 30_000, endMs: 30_000 + y });
       expect(config.seed).toBe(9);
       expect(config.client.rps).toBe(x);
-      expect(tier(config, 'api').downstream!.retries).toBe(y);
+      expect(config.client.call.retries).toBe(0);
+      expect(tier(config, 'gateway').downstream!.retries).toBe(3);
     }
   });
 
-  it('maps an outage axis to the fault window', () => {
-    const outage: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'outageMs', label: 'outage', values: [2000, 8000] } } };
-    for (const { y, config } of buildSweep(webChain, outage).cells) {
-      expect(config.faults![0]).toMatchObject({ startMs: 30_000, endMs: 30_000 + y });
-      expect(tier(config, 'api').downstream!.retries).toBe(retryStorm.retries);
+  it("maps a retries axis to its caller's retries (the API's when it names none), keeping base overrides for other callers", () => {
+    const gatewayRetries: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'retries', label: 'Gateway retries', values: [4, 0], caller: 'gateway' } } };
+    const cells = buildSweep(webChain, gatewayRetries, { retries: { client: 0, gateway: 9 } }).cells;
+    expect(cells).toHaveLength(2 * xs.length);
+    for (const { y, config } of cells) {
+      expect(tier(config, 'gateway').downstream!.retries).toBe(y);
+      expect(config.client.call.retries).toBe(0);
+      expect(tier(config, 'api').downstream!.retries).toBe(1);
+      expect(config.faults).toEqual(retryStorm.faults);
+    }
+    const apiRetries: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'retries', label: 'DB retries', values: [2] } } };
+    for (const { config } of buildSweep(webChain, apiRetries).cells) {
+      expect(tier(config, 'api').downstream!.retries).toBe(2);
+      expect(tier(config, 'gateway').downstream!.retries).toBe(3);
     }
   });
 
@@ -155,7 +164,7 @@ describe('runSweep', () => {
     ...retryStorm,
     durationMs: 20_000,
     faults: [{ tier: 'db', kind: 'slow', factor: 8, startMs: 5_000, endMs: 10_000 }],
-    map: { x: { ...retryStorm.map.x, values: [60, 200] }, y: { ...retryStorm.map.y, values: [3, 0] } },
+    map: { x: { ...retryStorm.map.x, values: [60, 200] }, y: { ...retryStorm.map.y, values: [5000, 1000] } },
   };
   const spec = buildSweep(webChain, small);
 
@@ -166,10 +175,10 @@ describe('runSweep', () => {
       progress.push([cell.x, cell.y, r.done]);
     });
     expect(progress).toEqual([
-      [60, 3, 1],
-      [200, 3, 2],
-      [60, 0, 3],
-      [200, 0, 4],
+      [60, 5000, 1],
+      [200, 5000, 2],
+      [60, 1000, 3],
+      [200, 1000, 4],
     ]);
     expect(result.done).toBe(4);
     for (const { x, y, config } of spec.cells) expect(result.get(x, y)).toEqual(executeJob({ kind: 'cell', config }));

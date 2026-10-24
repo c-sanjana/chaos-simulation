@@ -1,13 +1,15 @@
 import type { Signals } from '../analysis/signals';
 
 /**
- * Candidate fixes, as data. Each is one setting change, interpreted by `applyFix` (candidates.ts),
- * which works out where in a given config the change goes and with what value.
+ * Candidate fixes, as data. Each is one change (one setting, or for 'retryOneLayer' the retries of
+ * every call but one), interpreted by `applyFix` (candidates.ts), which works out where in a given
+ * config the change goes and with what value.
  */
 export type FixKind =
   | 'retryBudget'
   | 'capRetries'
   | 'jitterBackoff'
+  | 'retryOneLayer'
   | 'boundQueue'
   | 'dropExpired'
   | 'coalesceMisses'
@@ -99,6 +101,24 @@ export const FIX_CATALOG: FixDefinition[] = [
     cons: [
       'Sends just as many retries, so total load is the same',
       'Helps only when repeats arrive in bursts, not when they pile up steadily',
+    ],
+    signal: 'retryShare',
+  },
+  {
+    id: 'retry-one-layer',
+    kind: 'retryOneLayer',
+    title: 'Retry at one layer only',
+    short: 'One layer',
+    how: '{Caller} is the only one that asks {target} again; every other layer passes errors straight back. Repeats no longer multiply from layer to layer, so a slowdown adds a little extra work instead of many times more.',
+    pros: [
+      'Repeats no longer multiply from layer to layer',
+      'One layer still retries, so brief errors stay hidden from users',
+      'Cheap: a setting on each caller, no new servers',
+    ],
+    cons: [
+      "Users see an error sooner when one layer's retries aren't enough",
+      'Every team must agree which layer retries',
+      'Does not help when the extra load comes from elsewhere, such as an emptied cache',
     ],
     signal: 'retryShare',
   },

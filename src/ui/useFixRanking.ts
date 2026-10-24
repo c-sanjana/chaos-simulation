@@ -17,10 +17,15 @@ export interface FixRankingState {
   robustness: Record<string, Robustness>;
   /** True until those checks are done (from the start, so "all tested" never shows a ranking about to change). */
   checking: boolean;
+  /**
+   * Whether the longer-slowdown check means anything: only when the longer slowdown leaves the
+   * original stuck (if it recovers by itself, no fix can "help" there). null until known.
+   */
+  longerApplies: boolean | null;
   error: string | null;
 }
 
-const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tested: 0, robustness: {}, checking: false, error: null };
+const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tested: 0, robustness: {}, checking: false, longerApplies: null, error: null };
 
 /**
  * Tries every candidate fix for a run in the worker pool, ranking them by what actually happened as
@@ -64,10 +69,15 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
         const top = rankFixes(original, results).filter((f) => f.helped);
         if (top.length === 0) return setState((s) => ({ ...s, checking: false }));
         const longerConfig = withLongerOutage(config);
-        const [originals, longerOriginal] = await Promise.all([
+        const [originals, longerResult] = await Promise.all([
           Promise.all(seedVariants(config, SEEDS).map((c) => batch.cell(c))),
           longerConfig ? batch.cell(longerConfig) : Promise.resolve(null),
         ]);
+        // ASSUMPTION: a longer slowdown the system recovers from by itself says nothing about a fix
+        // (measured: the Gateway preset's 40 s slowdown recovers while 20 s gets stuck), so skip it.
+        const stuck = (v: string) => v === 'stuck' || v === 'overloaded';
+        const longerOriginal = longerResult && stuck(longerResult.verdict) ? longerResult : null;
+        setState((s) => ({ ...s, longerApplies: longerOriginal !== null }));
         await Promise.all(
           top.flatMap((f) => {
             const longerFixed = withLongerOutage(f.candidate.config);
