@@ -24,13 +24,13 @@ export function cellColor(cell: MapCellView): string {
 }
 
 /**
- * The mark inside a cell, so that the outcome never depends on colour alone: ◆ on the marked cell
- * (usually the current settings), ✕ on a stuck cell. Overloaded cells are hatched instead (CSS),
- * and recovered cells carry no mark (the legend explains their shades).
+ * The mark inside a cell: ◆ on the marked cell (usually the current settings), nothing elsewhere.
+ * Stuck cells are told by colour and by their accessible name ("…: stuck"); overloaded cells are
+ * also hatched (CSS). ASSUMPTION: no ✕ in stuck cells (user decision, 2026-10-24: the marks made
+ * the grid busier and harder to read).
  */
 export function cellText(cell: MapCellView): string {
-  if (cell.isCurrent) return '◆';
-  return cell.status === 'stuck' ? '✕' : '';
+  return cell.isCurrent ? '◆' : '';
 }
 
 /**
@@ -209,8 +209,8 @@ export interface MapLegendProps {
 }
 
 /**
- * Key for TippingMap. Every failing outcome has a mark besides its colour (✕ stuck, hatching for
- * overloaded), and the key shows the mark in its swatch too.
+ * Key for TippingMap. Overloaded cells are hatched besides their colour, and the key shows the
+ * hatching in its swatch too.
  */
 export function MapLegend({ showSelected = true, showTip = true, markLabel = 'your settings', showMark = true, showPending = true }: MapLegendProps) {
   return (
@@ -225,9 +225,7 @@ export function MapLegend({ showSelected = true, showTip = true, markLabel = 'yo
         ))}
       </li>
       <li className="csl-map-legend__item">
-        <span className="csl-map-legend__swatch csl-map-legend__swatch--stuck" style={{ backgroundColor: 'var(--csl-map-stuck)' }} aria-hidden="true">
-          ✕
-        </span>
+        <span className="csl-map-legend__swatch csl-map-legend__swatch--stuck" style={{ backgroundColor: 'var(--csl-map-stuck)' }} aria-hidden="true" />
         Stuck
       </li>
       <li className="csl-map-legend__item">

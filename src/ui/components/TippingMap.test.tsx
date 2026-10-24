@@ -32,9 +32,9 @@ describe('cell helpers', () => {
     expect(cellColor(cell({ status: 'pending' }))).toBe('var(--csl-map-pending)');
   });
 
-  it('marks stuck cells with ✕ (not colour alone) and the current settings with ◆', () => {
+  it('marks only the current settings, with ◆ (stuck cells are told by colour and their name)', () => {
     expect(cellText(cell({ recoverySeconds: 12.4 }))).toBe('');
-    expect(cellText(cell({ status: 'stuck' }))).toBe('✕');
+    expect(cellText(cell({ status: 'stuck' }))).toBe('');
     expect(cellText(cell({ status: 'stuck', isCurrent: true }))).toBe('◆');
     expect(cellText(cell({ status: 'overloaded' }))).toBe(''); // hatched instead
     expect(cellText(cell({ status: 'pending' }))).toBe('');
@@ -184,7 +184,7 @@ describe('MapLegend', () => {
     const items = screen.getAllByRole('listitem');
     expect(items.map((i) => i.textContent)).toEqual([
       'Recovers in< 4 s4–9 s9 s+',
-      '✕Stuck',
+      'Stuck',
       'Too much traffic even without the failure',
       'Not run yet',
       'tipping point',

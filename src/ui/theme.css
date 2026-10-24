@@ -594,7 +594,7 @@ button.csl-map__cell {
 .csl-map__cell[aria-pressed='true'] {
   box-shadow: 0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink);
 }
-/* Overloaded even without the failure: hatched, so it differs from stuck (✕) without colour. */
+/* Overloaded even without the failure: hatched, so it differs from stuck without relying on colour. */
 .csl-map__cell--overloaded {
   background-image: repeating-linear-gradient(135deg, transparent 0 3px, var(--csl-map-hatch) 3px 5px);
 }

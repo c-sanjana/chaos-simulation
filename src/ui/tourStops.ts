@@ -13,7 +13,7 @@ export const TOUR_FIX = FIX_CATALOG.find((d) => d.kind === 'boundQueue')!.short;
  * Each `target` matches a `data-tour` attribute in the page. `atMs` moves the step 1 replay to
  * that moment (playing forward to it), so the viewer sees what the stop describes. Stops about
  * results that take a while (the map, the fixes) wait for them (`waitForResults`). Things on screen
- * are named, not described by colour ("the striped arrows", "cells marked ✕"). The numbers in the
+ * are named where possible ("the striped arrows"). The numbers in the
  * text are the default run's: `tourStops.test.ts` checks them against a fresh simulation. The last
  * stop (the "?" button) is visible on every screen, so it stays on the previous screen.
  */
@@ -72,7 +72,7 @@ export const tourStops: TourStop[] = [
     screen: 1,
     waitForResults: true,
     title: 'Where’s the tipping point?',
-    body: 'Each cell re-runs the failure with other traffic or a longer slowdown. Cells marked ✕ got stuck; a bar marks the tipping point. Click one to replay it.',
+    body: 'Each cell re-runs the failure with other traffic or a longer slowdown. A bar marks the tipping point, where runs start getting stuck. Click one to replay it.',
   },
   {
     target: 'fix-tabs',
