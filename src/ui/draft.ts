@@ -1,6 +1,7 @@
 import type { Fault, TierConfig } from '../engine/config';
 import { scenarios } from '../data/scenarios';
 import { topologies } from '../data/topologies';
+import { LIMITS, runSizeProblem } from '../data/limits';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 
 /** What the viewer can edit: a topology and a scenario, starting from the presets. Plain data. */
@@ -113,11 +114,8 @@ export function currentCell(s: ScenarioPreset): { x: number; y: number } {
   return { x: s.rps, y };
 }
 
-/**
- * Input limits. ASSUMPTION: 5,000 req/s for up to 600 s keeps one run to a few seconds in a
- * browser tab; far larger values can run for minutes and exhaust memory.
- */
-export const LIMITS = { maxRps: 5000, minDurationS: 30, maxDurationS: 600 } as const;
+/** Input limits (5,000 req/s, 30–600 s); defined in data/limits.ts with the reasons. */
+export { LIMITS };
 
 /** Recovery needs time after the failure to be judged; the run must last this long past its end. */
 export const JUDGE_AFTER_FAILURE_S = 20;
@@ -143,6 +141,9 @@ export function draftProblems(d: Draft): string[] {
       );
     }
   }
+  // The fields stop traffic and duration at their limits; this also covers a loaded or built system.
+  const tooBig = runSizeProblem(s.rps, s.durationMs);
+  if (tooBig) problems.push(tooBig);
   for (const t of d.topology.tiers) {
     if (t.service.kind === 'lognormal' && !(t.service.p99Ms > t.service.medianMs)) {
       problems.push(`${label(t.id)}: the slowest 1% of requests (p99) must take longer than a typical one (median).`);

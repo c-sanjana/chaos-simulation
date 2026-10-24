@@ -1,6 +1,7 @@
 import {
   GRID_COLS,
   GRID_ROWS,
+  addCell,
   addNode,
   canConnectNodes,
   connect,
@@ -60,6 +61,23 @@ describe('grid helpers', () => {
     expect(nearestFreeCell(g, -4, 99)).toEqual({ col: 1, row: GRID_ROWS });
     expect(nearestFreeCell(g, 6.4, 1.2)).toEqual({ col: 6, row: 1 }); // fractions round to a cell
     expect(nearestFreeCell(fullGraph(), 1, 1)).toBeNull();
+  });
+
+  it('places added boxes one cell apart: right of the selected box, else along the example layout, else anywhere roomy', () => {
+    expect(addCell(emptyGraph())).toEqual({ col: 1, row: 3 });
+    const g = starterGraph(); // Client 1,3 · LB 3,3 · App server 5,3 · Cache 5,1 · DB 7,3
+    expect(addCell(g, 'database-1')).toEqual({ col: 9, row: 3 });
+    expect(addCell(g, 'loadBalancer-1')).toEqual({ col: 9, row: 3 }); // 5,3 is taken: first roomy cell on the middle row
+    expect(addCell(g)).toEqual({ col: 9, row: 3 });
+    expect(addCell(g, 'missing')).toEqual({ col: 9, row: 3 });
+    // Middle row full: the top row (away from the cache), then the bottom row.
+    const middle = add(g, 'queue', 9, 3);
+    expect(addCell(middle)).toEqual({ col: 1, row: 1 });
+    // No cell with room around it: any empty cell.
+    let crowded = emptyGraph();
+    for (let row = 1; row <= GRID_ROWS; row += 2) for (let col = 1; col <= GRID_COLS; col += 2) crowded = add(crowded, 'server', col, row);
+    expect(addCell(crowded)).toEqual({ col: 2, row: 1 });
+    expect(addCell(fullGraph())).toBeNull();
   });
 
   it('looks up the node at a cell', () => {

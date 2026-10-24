@@ -62,6 +62,31 @@ export function firstFreeCell(graph: BuilderGraph): Cell | null {
   return null;
 }
 
+/** Whether a cell is empty and none of the eight cells around it holds a box. */
+function roomy(graph: BuilderGraph, col: number, row: number): boolean {
+  return inGrid(col, row) && graph.nodes.every((n) => Math.abs(n.col - col) > 1 || Math.abs(n.row - row) > 1);
+}
+
+/**
+ * Where the Add button puts a new component: one empty cell to the right of `besideId` (the
+ * selected box) when there is room, else the first cell with room around it on the example's
+ * layout lines (every other column; the middle row, then the top, then the bottom), else any
+ * cell with room around it, else the first empty cell. Null when the grid is full.
+ * ASSUMPTION: boxes in touching cells hide the arrow (and its label) between them; one empty cell
+ * between boxes leaves room for both, as on the example.
+ */
+export function addCell(graph: BuilderGraph, besideId?: string): Cell | null {
+  const beside = graph.nodes.find((n) => n.id === besideId);
+  if (beside && roomy(graph, beside.col + 2, beside.row)) return { col: beside.col + 2, row: beside.row };
+  for (const row of [3, 1, 5]) {
+    for (let col = 1; col <= GRID_COLS; col += 2) if (roomy(graph, col, row)) return { col, row };
+  }
+  for (let row = 1; row <= GRID_ROWS; row++) {
+    for (let col = 1; col <= GRID_COLS; col++) if (roomy(graph, col, row)) return { col, row };
+  }
+  return firstFreeCell(graph);
+}
+
 /**
  * The empty cell closest to (col, row) (straight-line distance; ties go to the earlier cell in
  * reading order), or null when the grid is full. A target outside the grid is clamped onto it.

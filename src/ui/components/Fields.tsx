@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 interface Limits {
   min?: number;
@@ -27,6 +27,12 @@ export interface NumberFieldProps extends Limits {
   value: number;
   unit?: string;
   onChange: (value: number) => void;
+  /**
+   * A value must also be above this (not equal to it), e.g. the slowest 1% must take longer than
+   * the typical time; `aboveMessage` explains it under the field.
+   */
+  above?: number;
+  aboveMessage?: string;
 }
 
 /**
@@ -35,18 +41,25 @@ export interface NumberFieldProps extends Limits {
  * An invalid value is marked and explained under the field (and blocks the form it is in, through
  * the input's native min/max/step validity); on blur the field shows the last valid value again.
  */
-export function NumberField({ label, value, unit, onChange, min, max, integer }: NumberFieldProps) {
+export function NumberField({ label, value, unit, onChange, min, max, integer, above, aboveMessage }: NumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const id = useId();
   const shown = draft ?? String(value);
   const limits = { min, max, integer };
-  const valid = parseValid(shown, limits) !== null;
+  const parsed = parseValid(shown, limits);
+  const belowFloor = parsed !== null && above !== undefined && !(parsed > above);
+  const valid = parsed !== null && !belowFloor;
+  const message = belowFloor ? (aboveMessage ?? `Enter a number above ${above}`) : limitsMessage(limits);
+  // The form's own check (checkValidity) must agree with what the field shows, including `above`.
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => input.current?.setCustomValidity(valid ? '' : message), [valid, message]);
 
   return (
     <label className="csl-field">
       {label}
       <span className={`csl-field__box${valid ? '' : ' csl-field__box--invalid'}`}>
         <input
+          ref={input}
           className="csl-field__input"
           type="number"
           inputMode="decimal"
@@ -62,7 +75,7 @@ export function NumberField({ label, value, unit, onChange, min, max, integer }:
             const raw = e.target.value;
             setDraft(raw);
             const n = parseValid(raw, limits);
-            if (n !== null) onChange(n);
+            if (n !== null && (above === undefined || n > above)) onChange(n);
           }}
           onBlur={() => setDraft(null)}
         />
@@ -70,7 +83,7 @@ export function NumberField({ label, value, unit, onChange, min, max, integer }:
       </span>
       {!valid && (
         <span className="csl-field__error" id={`${id}-error`}>
-          {limitsMessage(limits)}
+          {message}
         </span>
       )}
     </label>

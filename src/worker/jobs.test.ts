@@ -30,6 +30,10 @@ describe('executeJob', () => {
     expect(Object.keys(summary).sort()).toEqual(['failedRequests', 'recoveryMs', 'verdict']);
   });
 
+  it('refuses a run too big to simulate, before doing any work', () => {
+    expect(() => executeJob({ kind: 'cell', config: { ...config, client: { ...config.client, rps: 70_000 }, durationMs: 120_000 } })).toThrow(/^This many requests would take too long to simulate/);
+  });
+
   it('throws on an invalid config', () => {
     expect(() => executeJob({ kind: 'cell', config: { ...config, durationMs: -1 } })).toThrow('Invalid config');
   });

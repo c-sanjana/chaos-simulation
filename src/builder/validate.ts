@@ -1,4 +1,7 @@
-import { aKind, canConnect, KIND_NOUNS, type BuilderGraph, type BuilderNode } from './graph';
+import { aKind, canConnect, KIND_LABELS, KIND_NOUNS, type BuilderGraph, type BuilderNode } from './graph';
+
+/** A part as the messages name it: its name, or its kind when the name is blank. */
+const nameOf = (n: BuilderNode) => n.label.trim() || KIND_LABELS[n.settings.kind];
 
 /**
  * What stops a drawn topology from being simulated, in plain words (empty = it can run).
@@ -10,7 +13,7 @@ import { aKind, canConnect, KIND_NOUNS, type BuilderGraph, type BuilderNode } fr
 export function validateGraph(graph: BuilderGraph): string[] {
   const problems: string[] = [];
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const name = (n: BuilderNode) => n.label;
+  const name = nameOf;
   const clients = graph.nodes.filter((n) => n.settings.kind === 'client');
   if (clients.length === 0) return ['Add a Client: it stands for the users sending requests.'];
   if (clients.length > 1) problems.push('Use one Client: it stands for all your users.');
@@ -20,7 +23,7 @@ export function validateGraph(graph: BuilderGraph): string[] {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) problems.push('A connection points at a component that no longer exists.');
-    else if (!canConnect(from.settings.kind, to.settings.kind)) problems.push(`${name(from)} can't call ${name(to)}: ${aKind(from.settings.kind)} doesn't call ${aKind(to.settings.kind)}.`);
+    else if (!canConnect(from.settings.kind, to.settings.kind)) problems.push(`${name(from)} can't call ${name(to)}: ${aKind(from.settings.kind)} doesn't call ${aKind(to.settings.kind)}. Select that arrow and press Remove this call.`);
   }
 
   for (const n of graph.nodes) {
@@ -28,9 +31,11 @@ export function validateGraph(graph: BuilderGraph): string[] {
     const caches = out.filter((t) => t.settings.kind === 'cache');
     const calls = out.filter((t) => t.settings.kind !== 'cache');
     if (calls.length > 1) {
-      problems.push(`${name(n)} calls ${calls.map(name).join(' and ')}. For now each component calls one next component (plus a cache); branching is coming next.`);
+      problems.push(
+        `${name(n)} calls ${calls.map(name).join(' and ')}, but for now each part calls one next part (plus a cache). Remove ${calls.length === 2 ? 'one of these calls' : `all but one of these calls`}: select its arrow and press Remove this call.`,
+      );
     }
-    if (caches.length > 1) problems.push(`${name(n)} uses ${caches.length} caches; use one.`);
+    if (caches.length > 1) problems.push(`${name(n)} uses ${caches.length} caches; use one. Select the arrow to each extra cache and press Remove this call.`);
     if (caches.length > 0 && calls.length === 0) problems.push(`${name(n)} has a cache but nothing to ask when the cache doesn't have the answer: connect it to a database or another component.`);
     const kind = n.settings.kind;
     if (kind === 'client' && out.length === 0) problems.push('Connect the Client to the component users call first.');
@@ -40,17 +45,19 @@ export function validateGraph(graph: BuilderGraph): string[] {
   }
 
   const cycle = findCycle(graph);
-  if (cycle) problems.push(`These call each other in a loop: ${cycle.map((id) => byId.get(id)?.label ?? id).join(' → ')}. A request would go round forever.`);
+  if (cycle) problems.push(
+      `These call each other in a loop: ${cycle.map((id) => (byId.has(id) ? name(byId.get(id)!) : id)).join(' → ')}. A request would go round forever: remove one of these calls.`,
+    );
 
   // Names are how the story, the timeline and the charts refer to each part.
   const names = new Map<string, number>();
   for (const n of graph.nodes) {
     const key = n.label.trim().toLowerCase();
-    if (key === '') problems.push(`Give the ${KIND_NOUNS[n.settings.kind]} a name.`);
+    if (key === '') problems.push(`Give the ${KIND_NOUNS[n.settings.kind]} a name: select it and type one in Name.`);
     else names.set(key, (names.get(key) ?? 0) + 1);
   }
   for (const n of graph.nodes) {
-    if ((names.get(n.label.trim().toLowerCase()) ?? 0) > 1) problems.push(`Two parts are called "${n.label.trim()}": give each its own name.`);
+    if ((names.get(n.label.trim().toLowerCase()) ?? 0) > 1) problems.push(`Two parts are called "${n.label.trim()}": give each its own name (select one and change its Name).`);
   }
 
   const reached = reachable(graph, clients[0].id);
@@ -62,15 +69,16 @@ export function validateGraph(graph: BuilderGraph): string[] {
 function settingsProblems(n: BuilderNode): string[] {
   const s = n.settings;
   const bad: string[] = [];
+  const who = nameOf(n);
   const whole = (v: number, what: string) => {
-    if (!(Number.isInteger(v) && v > 0)) bad.push(`${n.label}: ${what} must be a whole number above 0.`);
+    if (!(Number.isInteger(v) && v > 0)) bad.push(`${who}: ${what} must be a whole number above 0.`);
   };
   if (s.kind === 'client') {
-    if (!(s.rps > 0)) bad.push(`${n.label}: traffic must be above 0 requests a second.`);
+    if (!(s.rps > 0)) bad.push(`${who}: traffic must be above 0 requests a second.`);
     return bad;
   }
-  if (!(s.service.medianMs > 0)) bad.push(`${n.label}: the typical (median) time must be above 0.`);
-  else if (!(s.service.p99Ms > s.service.medianMs)) bad.push(`${n.label}: the slowest 1% (p99) must take longer than the typical (median) request.`);
+  if (!(s.service.medianMs > 0)) bad.push(`${who}: the typical (median) time must be above 0.`);
+  else if (!(s.service.p99Ms > s.service.medianMs)) bad.push(`${who}: the slowest 1% (p99) must take longer than the typical (median) request. Raise "Slowest 1% take" above ${s.service.medianMs} ms.`);
   if (s.kind === 'queue') {
     whole(s.maxDepth, 'the number of messages it holds');
     whole(s.consumers, 'consumers');

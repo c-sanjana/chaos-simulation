@@ -75,6 +75,31 @@ describe('NumberField limits', () => {
   });
 });
 
+describe('NumberField above', () => {
+  it('must be above a floor (not equal to it), explained in its own words, and blocks the form', () => {
+    const onChange = vi.fn();
+    render(
+      <form aria-label="f">
+        <NumberField label="Slowest 1% take" value={20} onChange={onChange} min={0.01} above={4} aboveMessage="Must take longer than the typical time (4 ms)" />
+      </form>,
+    );
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '4' } });
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Must take longer than the typical time (4 ms)')).toBeTruthy();
+    expect((screen.getByRole('form') as HTMLFormElement).checkValidity()).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: '5' } });
+    expect(onChange).toHaveBeenCalledWith(5);
+    expect((screen.getByRole('form') as HTMLFormElement).checkValidity()).toBe(true);
+  });
+
+  it('has a plain default message', () => {
+    render(<NumberField label="x" value={1} onChange={() => {}} above={1} />);
+    expect(screen.getByText('Enter a number above 1')).toBeTruthy();
+  });
+});
+
 describe('CheckboxField', () => {
   it('is a labelled checkbox that reports its new state', () => {
     const onChange = vi.fn();

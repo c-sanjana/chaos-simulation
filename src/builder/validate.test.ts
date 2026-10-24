@@ -24,12 +24,12 @@ describe('validateGraph', () => {
 
   it('branching is not supported yet, and says it is coming', () => {
     const g = withEdge(withNode(chainGraph(['client', 'server', 'database']), 'db2', 'database'), 'n1', 'db2');
-    expect(validateGraph(g)).toEqual(['server 1 calls database 2 and db2. For now each component calls one next component (plus a cache); branching is coming next.']);
+    expect(validateGraph(g)).toEqual(['server 1 calls database 2 and db2, but for now each part calls one next part (plus a cache). Remove one of these calls: select its arrow and press Remove this call.']);
   });
 
   it('caches: one per server, and a server with a cache needs something to fall back on', () => {
     const two = withEdge(withNode(chainGraph(['client', 'server', 'database'], 1), 'c2', 'cache'), 'n1', 'c2');
-    expect(validateGraph(two)).toContain('server 1 uses 2 caches; use one.');
+    expect(validateGraph(two)).toContain('server 1 uses 2 caches; use one. Select the arrow to each extra cache and press Remove this call.');
     const noFallback = chainGraph(['client', 'server'], 1);
     expect(validateGraph(noFallback)).toEqual([
       "server 1 has a cache but nothing to ask when the cache doesn't have the answer: connect it to a database or another component.",
@@ -43,9 +43,14 @@ describe('validateGraph', () => {
 
   it('refuses calls that make no sense, loops, missing ends and unreached parts', () => {
     const g = chainGraph(['client', 'server', 'database']);
-    expect(validateGraph(withEdge(g, 'n2', 'n1'))).toContain("database 2 can't call server 1: a database doesn't call an app server.");
+    expect(validateGraph(withEdge(g, 'n2', 'n1'))).toContain("database 2 can't call server 1: a database doesn't call an app server. Select that arrow and press Remove this call.");
     const loop = withEdge(withEdge(withNode(chainGraph(['client', 'server']), 's2', 'server'), 'n1', 's2'), 's2', 'n1');
-    expect(validateGraph(loop)).toContain('These call each other in a loop: server 1 → s2 → server 1. A request would go round forever.');
+    // Blank names are shown as their kind, never as an empty word.
+    const blank = { ...loop, nodes: loop.nodes.map((n) => (n.id === 's2' ? { ...n, label: ' ' } : n)) };
+    expect(validateGraph(blank)).toContain('These call each other in a loop: server 1 → App server → server 1. A request would go round forever: remove one of these calls.');
+    const threeWay = withEdge(withEdge(withNode(withNode(chainGraph(['client', 'server', 'database']), 'd2', 'database'), 'd3', 'database'), 'n1', 'd2'), 'n1', 'd3');
+    expect(validateGraph(threeWay)[0]).toMatch(/Remove all but one of these calls/);
+    expect(validateGraph(loop)).toContain('These call each other in a loop: server 1 → s2 → server 1. A request would go round forever: remove one of these calls.');
     expect(validateGraph(withEdge(g, 'n2', 'ghost'))).toContain('A connection points at a component that no longer exists.');
     expect(validateGraph(withNode(g, 'spare', 'server'))).toEqual(["spare isn't reached from the Client: connect it or remove it."]);
   });
@@ -53,15 +58,15 @@ describe('validateGraph', () => {
   it('every part needs its own name', () => {
     const g = chainGraph(['client', 'server', 'server', 'database']);
     const named = (a: string, b: string) => ({ ...g, nodes: g.nodes.map((n) => (n.id === 'n1' ? { ...n, label: a } : n.id === 'n2' ? { ...n, label: b } : n)) });
-    expect(validateGraph(named('  ', 'API'))).toEqual(['Give the app server a name.']);
-    expect(validateGraph(named('API', 'api '))).toEqual(['Two parts are called "API": give each its own name.', 'Two parts are called "api": give each its own name.']);
+    expect(validateGraph(named('  ', 'API'))).toEqual(['Give the app server a name: select it and type one in Name.']);
+    expect(validateGraph(named('API', 'api '))).toEqual(['Two parts are called "API": give each its own name (select one and change its Name).', 'Two parts are called "api": give each its own name (select one and change its Name).']);
   });
 
   it('settings that cannot be simulated', () => {
     const g = chainGraph(['client', 'server', 'queue', 'database'], 1);
     const set = (id: string, patch: object) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, settings: { ...n.settings, ...patch } } : n)) }) as BuilderGraph;
     expect(validateGraph(set('n0', { rps: 0 }))).toEqual(['client 0: traffic must be above 0 requests a second.']);
-    expect(validateGraph(set('n1', { service: { medianMs: 5, p99Ms: 5 } }))).toEqual(['server 1: the slowest 1% (p99) must take longer than the typical (median) request.']);
+    expect(validateGraph(set('n1', { service: { medianMs: 5, p99Ms: 5 } }))).toEqual(['server 1: the slowest 1% (p99) must take longer than the typical (median) request. Raise "Slowest 1% take" above 5 ms.']);
     expect(validateGraph(set('n1', { service: { medianMs: 0, p99Ms: 5 } }))).toEqual(['server 1: the typical (median) time must be above 0.']);
     expect(validateGraph(set('n1', { instances: 1.5, workersPerInstance: 0 }))).toEqual(['server 1: copies must be a whole number above 0.', 'server 1: workers per copy must be a whole number above 0.']);
     expect(validateGraph(set('n2', { maxDepth: 0, consumers: -1 }))).toEqual(['queue 2: the number of messages it holds must be a whole number above 0.', 'queue 2: consumers must be a whole number above 0.']);

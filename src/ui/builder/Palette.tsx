@@ -38,7 +38,7 @@ export function Palette({ unavailable, onAdd, onDragStart, onDragEnd }: PaletteP
             key={kind}
             className={`csl-palette__item${why ? ' csl-palette__item--unavailable' : ''}`}
             draggable={!why}
-            title={why ?? `Drag onto the canvas to add ${aKind(kind)}`}
+            title={why ?? `${KIND_BLURBS[kind]}. Drag onto the canvas to add ${aKind(kind)}.`}
             data-testid={`palette-${kind}`}
             onDragStart={(e) => {
               startDrag(e, kind, 'copy');

@@ -7,6 +7,7 @@ import type { Verdict } from '../analysis/recovery';
 import { simulateUntilSettled } from '../analysis/settle';
 import type { RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
+import { runSizeProblem } from '../data/limits';
 
 /** What a tipping-point map needs from one cell: small, so it is cheap to send between threads. */
 export interface CellSummary {
@@ -35,6 +36,10 @@ export function executeJob(job: AnalyzeJob): AnalyzeResult;
 export function executeJob(job: CellJob): CellSummary;
 export function executeJob(job: Job): JobResult;
 export function executeJob(job: Job): JobResult {
+  // A guard before any work: one oversized run can exhaust the tab's memory. (Settling extends a
+  // run to at most MAX_SETTLE_MS, well inside the cap for any traffic the guard lets through.)
+  const tooBig = runSizeProblem(job.config.client.rps, job.config.durationMs);
+  if (tooBig) throw new Error(tooBig);
   const { config, run, control, recovery } = simulateUntilSettled(job.config);
   if (job.kind === 'analyze') return { run, control, analysis: analyzeRun(run, control, config, job.labels, recovery) };
   const { verdict, recoveryMs, failedRequests } = recovery;

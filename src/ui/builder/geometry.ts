@@ -3,13 +3,16 @@
  * (laid out by CSS grid) line up exactly; builder.css reads these through CSS variables set
  * inline by the canvas, so they are defined once, here.
  *
- * ASSUMPTION: 9 × 118 px by 5 × 100 px (1062 × 500) fits beside a 300 px settings panel inside the
- * app's 1400 px content width at a 1440 × 900 viewport, with the palette above, without scrolling.
+ * ASSUMPTION: 9 × 118 px by 5 × 96 px (1062 × 480, plus a 1 px border) fits beside a 288 px
+ * settings panel inside the app's 1400 px content width at a 1440 × 900 viewport, with the toolbar
+ * and palette above and up to three problems below, without scrolling. An 80 px box holds a
+ * one-line name, its kind and two lines of numbers; a two-line name may cut the last line short
+ * (the full text is in its tooltip).
  */
 import type { BuilderEdge, BuilderGraph, BuilderNode } from '../../builder/graph';
 
 export const CELL_W = 118;
-export const CELL_H = 100;
+export const CELL_H = 96;
 /** Space between a box and the edge of its cell. */
 export const INSET_X = 3;
 export const INSET_Y = 8;
@@ -37,11 +40,19 @@ export function boxExit(center: Point, dx: number, dy: number, gap = TIP_GAP): P
   return { x: center.x + t * dx, y: center.y + t * dy };
 }
 
+/** Which side of its arrow a label sits on, so it never covers the arrow itself. */
+export type LabelSide = 'above' | 'below' | 'left' | 'right';
+
 export interface EdgeLine {
   start: Point;
   end: Point;
-  /** Midpoint, where the arrow's label goes. */
+  /** Midpoint, where the arrow's label is anchored. */
   mid: Point;
+  /**
+   * Mostly horizontal arrows get their label above (a two-way pair: each on its own outer side),
+   * mostly vertical ones beside them, on the right (a pair: each on its own outer side).
+   */
+  labelSide: LabelSide;
 }
 
 /**
@@ -64,7 +75,10 @@ export function edgeLine(from: BuilderNode, to: BuilderNode, twoWay: boolean): E
   }
   const start = boxExit(a, dx, dy);
   const end = boxExit(b, -dx, -dy);
-  return { start, end, mid: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
+  // A pair is shifted to the right of travel: going right that is down, going down it is left.
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const labelSide: LabelSide = horizontal ? (twoWay && dx > 0 ? 'below' : 'above') : twoWay && dy > 0 ? 'left' : 'right';
+  return { start, end, mid: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, labelSide };
 }
 
 /** Each edge with its line, skipping any whose ends are missing. */

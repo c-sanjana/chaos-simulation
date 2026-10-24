@@ -1,7 +1,8 @@
 /**
  * The topology builder's data: components placed on a grid and the calls between them.
  *
- * Plain, serialisable data (it is saved and turned into a simulation config by `compile.ts`).
+ * Plain, serialisable data: remembered in the browser (`ui/savedSystem.ts`) and turned into a
+ * simulation config by `compile.ts`.
  * Settings use the same units as the engine: times in ms, traffic in requests per second.
  */
 

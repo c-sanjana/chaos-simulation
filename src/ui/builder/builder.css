@@ -4,8 +4,12 @@
  * Colours are tokens only, so the dark theme works. Cell sizes come from geometry.ts through the
  * --csl-cell-* variables set on the canvas.
  *
- * Height budget at 1440 × 900 (app top bar ≈ 60 px): bar 44 + palette 74 + canvas 500 + foot ≈ 90,
- * plus gaps, stays under ~780 px. The settings panel scrolls on its own.
+ * Height budget at 1440 × 900 (app top bar ≈ 68 px, page padding below ≈ 50 px): bar 52 (Cancel
+ * and "use the example" live in it) + palette 84 (blurbs at most two lines) + canvas 482 + foot
+ * ≤ 100 (the problem list scrolls inside past three lines), plus gaps, stays under ~780 px with
+ * problems listed. The settings panel scrolls on its own.
+ * Below 900 px wide (phones) everything stacks: palette, canvas (scrolls sideways at full size),
+ * status and problems, then the settings panel.
  */
 
 .csl-builder {
@@ -31,6 +35,10 @@
   font-size: 13px;
   color: var(--csl-muted);
 }
+.csl-builder__note {
+  display: block;
+  font-size: 12.5px;
+}
 .csl-builder__actions {
   display: flex;
   flex-wrap: wrap;
@@ -44,7 +52,8 @@
 .csl-builder__body {
   display: flex;
   align-items: stretch;
-  gap: 16px;
+  /* 12 px gap + 288 px panel leave the canvas column its full 1,064 px at the 1,400 px page width. */
+  gap: 12px;
   min-width: 0;
 }
 .csl-builder__main {
@@ -106,6 +115,11 @@
   font-size: 11.5px;
   line-height: 1.3;
   color: var(--csl-muted);
+  /* At most two lines (the full text is in the item's tooltip), so the page fits one screen. */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .csl-palette__add {
   grid-column: 3;
@@ -185,10 +199,11 @@
   stroke-width: 2;
   stroke-dasharray: 6 4;
 }
+/* Labels sit beside their arrow (geometry.ts labelSide), above the boxes so a box never hides one. */
 .csl-bcanvas__edge-label {
   position: absolute;
-  transform: translate(-50%, -50%);
-  z-index: 2;
+  transform: translate(-50%, calc(-100% - 3px));
+  z-index: 4;
   font: inherit;
   font-family: var(--csl-font-mono);
   font-size: 11px;
@@ -199,6 +214,15 @@
   background: var(--csl-card);
   color: var(--csl-ink-2);
   cursor: pointer;
+}
+.csl-bcanvas__edge-label--below {
+  transform: translate(-50%, 3px);
+}
+.csl-bcanvas__edge-label--right {
+  transform: translate(5px, -50%);
+}
+.csl-bcanvas__edge-label--left {
+  transform: translate(calc(-100% - 5px), -50%);
 }
 .csl-bcanvas__edge-label:hover {
   border-color: var(--csl-border-strong);
@@ -211,6 +235,7 @@
 /* While something is being dragged, labels must not catch the drop. */
 .csl-bcanvas--dragging .csl-bcanvas__edge-label {
   pointer-events: none;
+  z-index: 2; /* under the boxes, so the drop verdict under a box stays readable */
 }
 
 /* ---------- Boxes ---------- */
@@ -396,8 +421,14 @@
   background: var(--csl-alert-bg);
   color: var(--csl-bad-text);
   font-size: 13px;
-  max-height: 96px;
+  /* The title and two or three problems; more scroll inside (the count is on "Use this topology"). */
+  box-sizing: border-box;
+  max-height: 74px;
   overflow-y: auto;
+}
+.csl-builder__problems:focus-visible {
+  outline: 2px solid var(--csl-focus);
+  outline-offset: 2px;
 }
 .csl-builder__problems-title {
   margin: 0 0 2px;
@@ -411,7 +442,7 @@
 /* ---------- Settings panel ---------- */
 .csl-bpanel {
   position: relative;
-  flex: 0 0 300px;
+  flex: 0 0 288px;
   min-height: 360px;
   background: var(--csl-card);
   border: 1px solid var(--csl-border);
@@ -504,6 +535,22 @@
   border-radius: 8px;
   padding: 0 8px;
 }
+.csl-bpanel__connect {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.csl-bpanel__connect .csl-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.csl-bpanel__connect .csl-btn {
+  min-height: 34px;
+}
+.csl-bpanel__connect .csl-btn[aria-disabled='true'] {
+  color: var(--csl-muted);
+  cursor: not-allowed;
+}
 .csl-bpanel__delete {
   align-self: flex-start;
   color: var(--csl-bad-text);
@@ -524,5 +571,55 @@
 @media (prefers-reduced-motion: reduce) {
   .csl-bnode__handle:hover {
     transform: none;
+  }
+}
+
+/* ---------- Around the builder (App.tsx): the notice line and the drawer's blocked Re-run ---------- */
+.csl-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--csl-border);
+  background: var(--csl-card);
+  font-size: 13px;
+  color: var(--csl-ink-2);
+}
+.csl-drawer__blocked {
+  align-self: center;
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--csl-bad-text);
+}
+.csl-drawer__footer .csl-btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.csl-builder .csl-btn[aria-disabled='true'].csl-btn--primary {
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+/* ---------- Phones and narrow windows: stack the builder ---------- */
+@media (max-width: 900px) {
+  .csl-builder__body {
+    flex-direction: column;
+  }
+  .csl-palette {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* The panel follows the canvas at its natural height instead of filling a column beside it. */
+  .csl-bpanel {
+    flex: none;
+    min-height: 0;
+  }
+  .csl-bpanel__scroll {
+    position: static;
+  }
+  .csl-builder__problems {
+    max-height: none;
   }
 }
