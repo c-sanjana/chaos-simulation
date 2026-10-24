@@ -185,10 +185,11 @@
   stroke-width: 2;
   stroke-dasharray: 6 4;
 }
+/* Labels sit beside their arrow (geometry.ts labelSide), above the boxes so a box never hides one. */
 .csl-bcanvas__edge-label {
   position: absolute;
-  transform: translate(-50%, -50%);
-  z-index: 2;
+  transform: translate(-50%, calc(-100% - 3px));
+  z-index: 4;
   font: inherit;
   font-family: var(--csl-font-mono);
   font-size: 11px;
@@ -199,6 +200,15 @@
   background: var(--csl-card);
   color: var(--csl-ink-2);
   cursor: pointer;
+}
+.csl-bcanvas__edge-label--below {
+  transform: translate(-50%, 3px);
+}
+.csl-bcanvas__edge-label--right {
+  transform: translate(5px, -50%);
+}
+.csl-bcanvas__edge-label--left {
+  transform: translate(calc(-100% - 5px), -50%);
 }
 .csl-bcanvas__edge-label:hover {
   border-color: var(--csl-border-strong);
@@ -211,6 +221,7 @@
 /* While something is being dragged, labels must not catch the drop. */
 .csl-bcanvas--dragging .csl-bcanvas__edge-label {
   pointer-events: none;
+  z-index: 2; /* under the boxes, so the drop verdict under a box stays readable */
 }
 
 /* ---------- Boxes ---------- */
@@ -503,6 +514,22 @@
   border: 1px solid var(--csl-border-strong);
   border-radius: 8px;
   padding: 0 8px;
+}
+.csl-bpanel__connect {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.csl-bpanel__connect .csl-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.csl-bpanel__connect .csl-btn {
+  min-height: 34px;
+}
+.csl-bpanel__connect .csl-btn[aria-disabled='true'] {
+  color: var(--csl-muted);
+  cursor: not-allowed;
 }
 .csl-bpanel__delete {
   align-self: flex-start;

@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { canConnectNodes, connectRefusal, updateCall, updateNode, type SettingsPatch } from '../../builder/edit';
 import {
   KIND_BLURBS,
@@ -16,26 +16,28 @@ import {
 } from '../../builder/graph';
 import { CheckboxField, NumberField } from '../components/Fields';
 import { LIMITS } from '../draft';
+import { FIELD_LIMITS, p99Message } from '../fieldLimits';
 import { callLabel, callSentence, displayName, edgeEnds } from './describe';
 import { KindIcon } from './KindIcon';
 import { PALETTE_KINDS } from './Palette';
 import type { Selection } from './BuilderCanvas';
 
-/*
- * Field limits. ASSUMPTION: generous ranges that keep runs meaningful and the simulator fast; the
- * main validator still checks combinations (e.g. a route from the Client to a database).
- */
-const MAX_INSTANCES = 100;
-const MAX_WORKERS = 10_000;
-const MAX_CORES = 256;
-const MAX_SERVICE_MS = 60_000;
-const MAX_P99_MS = 600_000;
-const MAX_QUEUE = 100_000;
-const MAX_KEYS = 10_000_000;
-const MAX_TIMEOUT_MS = 600_000;
-const MAX_RETRIES = 10;
-const MAX_BACKOFF_MS = 60_000;
-const MAX_TTL_S = 86_400;
+const {
+  maxInstances: MAX_INSTANCES,
+  maxWorkers: MAX_WORKERS,
+  maxCores: MAX_CORES,
+  minServiceMs: MIN_SERVICE_MS,
+  maxServiceMs: MAX_SERVICE_MS,
+  maxP99Ms: MAX_P99_MS,
+  maxQueue: MAX_QUEUE,
+  maxKeys: MAX_KEYS,
+  maxTimeoutMs: MAX_TIMEOUT_MS,
+  maxRetries: MAX_RETRIES,
+  maxBackoffMs: MAX_BACKOFF_MS,
+  minTtlS: MIN_TTL_S,
+  maxTtlS: MAX_TTL_S,
+  maxSkew: MAX_SKEW,
+} = FIELD_LIMITS;
 
 export interface SettingsPanelProps {
   graph: BuilderGraph;
@@ -78,8 +80,8 @@ function NameField({ value, onChange }: { value: string; onChange: (v: string) =
 function ServiceFields({ service, what, set }: { service: ServiceSettings; what: string; set: (p: Partial<ServiceSettings>) => void }) {
   return (
     <>
-      <NumberField label={`Typical time ${what}`} unit="ms" value={service.medianMs} min={0.01} max={MAX_SERVICE_MS} onChange={(v) => set({ medianMs: v })} />
-      <NumberField label="Slowest 1% take" unit="ms" value={service.p99Ms} min={service.medianMs} max={MAX_P99_MS} onChange={(v) => set({ p99Ms: v })} />
+      <NumberField label={`Typical time ${what}`} unit="ms" value={service.medianMs} min={MIN_SERVICE_MS} max={MAX_SERVICE_MS} onChange={(v) => set({ medianMs: v })} />
+      <NumberField label="Slowest 1% take" unit="ms" value={service.p99Ms} min={MIN_SERVICE_MS} max={MAX_P99_MS} above={service.medianMs} aboveMessage={p99Message(service.medianMs)} onChange={(v) => set({ p99Ms: v })} />
     </>
   );
 }
@@ -119,9 +121,9 @@ function CacheFields({ s, set }: { s: CacheSettings; set: (p: SettingsPatch) => 
       <Group title="What it remembers" hint="A request whose key is in the cache is answered here; otherwise the server asks the database.">
         <NumberField label="Keys it can hold" unit="keys" value={s.capacity} min={1} max={MAX_KEYS} integer onChange={(v) => set({ capacity: v })} />
         <NumberField label="Different keys requested" unit="keys" value={s.keys} min={1} max={MAX_KEYS} integer onChange={(v) => set({ keys: v })} />
-        <NumberField label="Popularity skew (0 = even, 1 = typical web)" value={s.skew} min={0} max={3} onChange={(v) => set({ skew: v })} />
+        <NumberField label="Popularity skew (0 = even, 1 = typical web)" value={s.skew} min={0} max={MAX_SKEW} onChange={(v) => set({ skew: v })} />
         <CheckboxField label="Entries expire" checked={s.ttlMs !== null} onChange={(on) => set({ ttlMs: on ? 60_000 : null })} />
-        {s.ttlMs !== null && <NumberField label="Expire after" unit="s" value={s.ttlMs / 1000} min={0.1} max={MAX_TTL_S} onChange={(v) => set({ ttlMs: v * 1000 })} />}
+        {s.ttlMs !== null && <NumberField label="Expire after" unit="s" value={s.ttlMs / 1000} min={MIN_TTL_S} max={MAX_TTL_S} onChange={(v) => set({ ttlMs: v * 1000 })} />}
       </Group>
       <Group title="Capacity">
         <MachineFields s={s} set={set} />
@@ -144,6 +146,8 @@ function QueueFields({ s, set }: { s: QueueSettings; set: (p: SettingsPatch) => 
 }
 
 function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: Omit<SettingsPanelProps, 'selection'> & { node: BuilderNode }) {
+  /** The component chosen in "Calls…", connected only when Connect is pressed (arrow keys only choose). */
+  const [target, setTarget] = useState('');
   const s = node.settings;
   const set = (settings: SettingsPatch) => onChange(updateNode(graph, node.id, { settings }));
   const outgoing = graph.edges.filter((e) => e.from === node.id);
@@ -192,23 +196,32 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
         )}
         {callsSomething &&
           (targets.length > 0 ? (
-            <label className="csl-field">
-              Calls…
-              <select
-                className="csl-field__select csl-bpanel__select"
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) onConnect(node.id, e.target.value);
+            <div className="csl-bpanel__connect">
+              <label className="csl-field">
+                Calls…
+                <select className="csl-field__select csl-bpanel__select" value={targets.some((t) => t.id === target) ? target : ''} onChange={(e) => setTarget(e.target.value)}>
+                  <option value="">Choose a component to call</option>
+                  {targets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {displayName(t)} ({KIND_NOUNS[t.settings.kind]})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="csl-btn csl-btn--small"
+                // aria-disabled keeps it focusable, so keyboard users find it right after the list.
+                aria-disabled={targets.some((t) => t.id === target) ? undefined : true}
+                onClick={() => {
+                  if (!targets.some((t) => t.id === target)) return;
+                  setTarget('');
+                  onConnect(node.id, target);
                 }}
               >
-                <option value="">Choose a component to call</option>
-                {targets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {displayName(t)} ({KIND_NOUNS[t.settings.kind]})
-                  </option>
-                ))}
-              </select>
-            </label>
+                Connect
+              </button>
+            </div>
           ) : (
             <p className="csl-bpanel__hint">There is nothing more on the canvas it can call.</p>
           ))}
@@ -221,7 +234,12 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
   );
 }
 
-function EdgeSettings({ edge, from, to, graph, onChange, onDelete }: Pick<SettingsPanelProps, 'graph' | 'onChange' | 'onDelete'> & { edge: BuilderEdge; from: BuilderNode; to: BuilderNode }) {
+function EdgeSettings({ edge, from, to, graph, onChange, onDelete, focusTitle }: Pick<SettingsPanelProps, 'graph' | 'onChange' | 'onDelete'> & { edge: BuilderEdge; from: BuilderNode; to: BuilderNode; focusTitle: boolean }) {
+  // Just connected with the keyboard: focus moves to the new call, so its settings are read next.
+  const title = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (focusTitle) title.current?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const c = edge.call;
   const set = (patch: Partial<BuilderEdge['call']>) => onChange(updateCall(graph, edge.id, patch));
   const fromName = displayName(from);
@@ -236,7 +254,7 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete }: Pick<Settin
           →
         </span>
         <div>
-          <h3 className="csl-bpanel__title">
+          <h3 className="csl-bpanel__title" ref={title} tabIndex={-1}>
             {fromName} → {toName}
           </h3>
           <p className="csl-bpanel__sub">
@@ -250,8 +268,13 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete }: Pick<Settin
       </Group>
       <Group title="Trying again" hint="Each retry is one more request. When the callee is slow because it is overloaded, retries add to the overload: a retry storm.">
         <NumberField label="Retries" value={c.retries} min={0} max={MAX_RETRIES} integer onChange={(v) => set({ retries: v })} />
-        <NumberField label="Wait before retrying (doubles each time)" unit="ms" value={c.backoffBaseMs} min={0} max={MAX_BACKOFF_MS} onChange={(v) => set({ backoffBaseMs: v })} />
-        <CheckboxField label="Randomise the wait (jitter)" checked={c.jitter} onChange={(on) => set({ jitter: on })} />
+        {/* How long to wait between tries only matters when it tries again. */}
+        {c.retries > 0 && (
+          <>
+            <NumberField label="Wait before retrying (doubles each time)" unit="ms" value={c.backoffBaseMs} min={0} max={MAX_BACKOFF_MS} onChange={(v) => set({ backoffBaseMs: v })} />
+            <CheckboxField label="Randomise the wait (jitter)" checked={c.jitter} onChange={(on) => set({ jitter: on })} />
+          </>
+        )}
       </Group>
       <button type="button" className="csl-btn csl-bpanel__delete" onClick={onDelete}>
         Remove this call
@@ -263,6 +286,17 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete }: Pick<Settin
 /** The side panel: settings of the selected box or arrow, or a short how-to when nothing is selected. */
 export function SettingsPanel(props: SettingsPanelProps) {
   const { graph, selection } = props;
+  /** The call just made with Connect, whose heading takes focus when its settings open. */
+  const [connected, setConnected] = useState<string | null>(null);
+  const connect = (from: string, to: string) => {
+    setConnected(`${from}--${to}`); // the id `connect` gives a new call
+    props.onConnect(from, to);
+  };
+  // Only straight after connecting: selecting that call again later leaves focus where it is.
+  const selectedId = selection?.id;
+  useEffect(() => {
+    if (connected !== null && selectedId !== connected) setConnected(null);
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
   const node = selection?.type === 'node' ? graph.nodes.find((n) => n.id === selection.id) : undefined;
   const edge = selection?.type === 'edge' ? graph.edges.find((e) => e.id === selection.id) : undefined;
   const ends = edge ? edgeEnds(graph, edge) : {};
@@ -271,8 +305,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     <aside className="csl-bpanel" aria-label="Settings">
       {/* The panel is as tall as the canvas column and scrolls inside, so it never makes the page scroll. */}
       <div className="csl-bpanel__scroll">
-      {node && <NodeSettings key={node.id} {...props} node={node} />}
-      {edge && ends.from && ends.to && <EdgeSettings key={edge.id} {...props} edge={edge} from={ends.from} to={ends.to} />}
+      {node && <NodeSettings key={node.id} {...props} onConnect={connect} node={node} />}
+      {edge && ends.from && ends.to && <EdgeSettings key={edge.id} {...props} edge={edge} from={ends.from} to={ends.to} focusTitle={edge.id === connected} />}
       {!node && !(edge && ends.from && ends.to) && (
         <div className="csl-bpanel__intro">
           <h3 className="csl-bpanel__title">Settings</h3>

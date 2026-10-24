@@ -35,6 +35,17 @@ describe('geometry', () => {
     const back = edgeLine(server, lb, true);
     expect(there.start.y).not.toBe(back.start.y);
     expect(there.start.y - cellCenter(3, 3).y).toBeCloseTo(-(back.start.y - cellCenter(3, 3).y));
+    // Each label on its own outer side, so the two never overlap.
+    expect([there.labelSide, back.labelSide]).toEqual(['below', 'above']);
+  });
+
+  it('puts labels beside the arrow, never on it: above horizontal arrows, right of vertical ones', () => {
+    const g = starterGraph();
+    const [client, lb, server, cache] = g.nodes;
+    expect(edgeLine(client, lb, false).labelSide).toBe('above');
+    expect(edgeLine(server, cache, false).labelSide).toBe('right');
+    expect(edgeLine(server, cache, true).labelSide).toBe('right');
+    expect(edgeLine(cache, server, true).labelSide).toBe('left');
   });
 
   it('lists lines for every edge whose ends exist, marking two-way pairs', () => {

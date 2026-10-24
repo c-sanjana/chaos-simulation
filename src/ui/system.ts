@@ -33,6 +33,11 @@ export function systemDraft(system: System, scenarioId: string): Draft {
   return { scenario: structuredClone(scenario), topology: structuredClone(topology) };
 }
 
+/** The example system drawn on the canvas, exactly as the example preset runs it (its traffic, retries, sizes). */
+export function exampleGraph(): BuilderGraph {
+  return graphFromPreset(webChain, presetScenarios['retry-storm'].rps);
+}
+
 /** The graph the canvas opens with: the built system as drawn, or the example drawn on the canvas. */
 export function graphForCanvas(system: System, rps: number): BuilderGraph {
   return system.kind === 'custom' ? system.graph : graphFromPreset(webChain, rps);
