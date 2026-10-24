@@ -38,15 +38,56 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.change(screen.getByLabelText(/^DB retries/), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText(/^DB slowdown/), { target: { value: '4' } });
-    fireEvent.change(screen.getByLabelText(/^Lasting/), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '20' } });
+    // Retries per layer, front to back (defaults 5 / 3 / 1).
+    expect(['Client → Gateway', 'Gateway → API', 'API → DB'].map((l) => (screen.getByLabelText(l) as HTMLInputElement).value)).toEqual(['5', '3', '1']);
+    fireEvent.change(screen.getByLabelText('API → DB'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Client → Gateway'), { target: { value: '2' } });
+    const first = screen.getByRole('group', { name: 'Failure 1' });
+    fireEvent.change(within(first).getByLabelText(/^How much slower/), { target: { value: '4' } });
+    fireEvent.change(within(first).getByLabelText(/^Lasting/), { target: { value: '10' } });
+    fireEvent.change(within(first).getByLabelText(/^Starts at/), { target: { value: '20' } });
+    expect(within(first).getByText('DB slows 4× for 10 s.')).toBeTruthy();
+    // A second failure, anywhere in the stack.
+    fireEvent.click(screen.getByRole('button', { name: '+ Add another failure' }));
+    const second = screen.getByRole('group', { name: 'Failure 2' });
+    expect((within(second).getByLabelText('Part') as HTMLSelectElement).value).toBe('gateway');
+    fireEvent.change(within(second).getByLabelText('Part'), { target: { value: 'cache' } });
+    fireEvent.change(within(second).getByLabelText('What happens'), { target: { value: 'restart-empty' } });
+    expect(within(second).getByText('Cache goes down and restarts empty for 10 s.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
     await waitFor(() => expect(pool.analyzed.length).toBeGreaterThan(2), SLOW);
     const last = pool.analyzed.at(-1)!;
     expect(last.tiers.find((t) => t.id === 'api')!.downstream!.retries).toBe(0);
-    expect(last.faults![0]).toMatchObject({ factor: 4, startMs: 20_000, endMs: 30_000 });
+    expect(last.client.call.retries).toBe(2);
+    expect(last.faults).toEqual([
+      { tier: 'db', kind: 'slow', factor: 4, startMs: 20_000, endMs: 30_000 },
+      { tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 20_000, endMs: 30_000 },
+    ]);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*retries 2 \/ 3 \/ 0/);
+    // Extra failures can be removed; the first stays.
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    expect(screen.queryByRole('button', { name: 'Remove failure 1' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove failure 2' }));
+    expect(screen.queryByRole('group', { name: 'Failure 2' })).toBeNull();
+  });
+
+  it('offers failures in other parts of the stack as presets', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'cache', kind: 'dead', flushAtEnd: true }), SLOW);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/Cache goes down and restarts empty for 5 s/);
+    fireEvent.click(screen.getByRole('button', { name: /^Gateway slows down/ }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'gateway', kind: 'slow', factor: 50 }), SLOW);
+    const part = within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('Part') as HTMLSelectElement;
+    expect(part.value).toBe('gateway');
+    // One server down is offered where there is more than one server; "restarts empty" only for the cache.
+    const kinds = () => [...(within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('What happens') as HTMLSelectElement).options].map((o) => o.value);
+    expect(kinds()).toEqual(['slow', 'down', 'one-down']);
+    fireEvent.change(part, { target: { value: 'db' } });
+    expect(kinds()).toEqual(['slow', 'down']);
   });
 
   it('shows the tipping-point map, its progress and an inline replay of the selected cell', async () => {
@@ -55,11 +96,12 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
-    expect(screen.getByText(/the system tips at 120 req\/s/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /80 requests per second, 1 DB retries: recovers in 2 s/ })).toBeTruthy();
-    await screen.findByRole('heading', { name: /Replaying 200 rps · 3 DB retries/ }, SLOW);
-    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 0 DB retries/ }));
-    await screen.findByRole('heading', { name: /Replaying 80 rps · 0 DB retries/ }, SLOW);
+    expect(screen.getByText(/With a 5 s failure, the system tips at 120 req\/s/)).toBeTruthy();
+    expect(screen.getByText(/Every layer asks again when it gives up \(Client 5×, Gateway 3×, API 1×\)/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /80 requests per second, 1s failure length: recovers in 2 s/ })).toBeTruthy();
+    await screen.findByRole('heading', { name: /Replaying 200 req\/s · 5s failure length/ }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
+    await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
     // Side by side: map on the left; the replay on the right, with its live timeline beside the chart.
     const timeline = screen.getByRole('region', { name: 'Live timeline' });
@@ -72,7 +114,7 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
-    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · 3 DB retries/);
+    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · retries 5 \/ 3 \/ 1/);
     const toggle = within(summary).getByRole('button', { name: 'Change failure' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);

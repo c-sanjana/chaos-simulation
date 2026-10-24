@@ -26,6 +26,14 @@ export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; o
           min={1}
           onChange={(v) => onChange({ ...draft, topology: { ...draft.topology, clientCall: { ...draft.topology.clientCall, timeoutMs: v } } })}
         />
+        <NumberField
+          label="Client retries"
+          value={draft.topology.clientCall.retries}
+          min={0}
+          max={10}
+          integer
+          onChange={(v) => onChange({ ...draft, topology: { ...draft.topology, clientCall: { ...draft.topology.clientCall, retries: v } } })}
+        />
       </div>
         </>
       )}
@@ -48,11 +56,7 @@ export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; o
             {t.downstream && (
               <>
                 <NumberField label={`Timeout to ${draft.topology.layout[t.downstream.target]?.label ?? t.downstream.target}`} unit="ms" value={t.downstream.timeoutMs ?? 0} min={1} onChange={(v) => call(t, 'downstream', { timeoutMs: v })} />
-                {t.id === s.retryCall ? (
-                  <NumberField label="Retries" value={s.retries} min={0} max={10} integer onChange={(v) => onChange(updateScenario(draft, { retries: v }))} />
-                ) : (
-                  <NumberField label="Retries" value={t.downstream.retries} min={0} max={10} integer onChange={(v) => call(t, 'downstream', { retries: v })} />
-                )}
+                <NumberField label="Retries" value={t.downstream.retries} min={0} max={10} integer onChange={(v) => call(t, 'downstream', { retries: v })} />
                 <NumberField label="Backoff base" unit="ms" value={t.downstream.backoffBaseMs} min={0} onChange={(v) => call(t, 'downstream', { backoffBaseMs: v })} />
               </>
             )}

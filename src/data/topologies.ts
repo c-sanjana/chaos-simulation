@@ -10,11 +10,14 @@ import type { TopologyPreset } from './types';
  *   normal cache-miss traffic keeps it well below saturation.
  * - Timeouts shrink going down the stack (client 3 s > gateway→API 2 s > API→DB 1 s), a common
  *   configuration.
+ * - Every layer retries, and differently: users' clients retry 5 times, the Gateway retries the API
+ *   3 times and the API retries the DB once (user decision, 2026-10-24). One slow DB answer can
+ *   therefore come back as many requests; nested timeouts limit how many (PLAN.md).
  */
 export const webChain: TopologyPreset = {
   id: 'web-chain',
   name: 'Web app with cache',
-  clientCall: { target: 'gateway', timeoutMs: 3000, retries: 0, backoffBaseMs: 100, jitter: false },
+  clientCall: { target: 'gateway', timeoutMs: 3000, retries: 5, backoffBaseMs: 100, jitter: false },
   tiers: [
     {
       id: 'gateway',
@@ -23,7 +26,7 @@ export const webChain: TopologyPreset = {
       coresPerInstance: 4,
       queueLimit: null,
       service: { kind: 'lognormal', medianMs: 1, p99Ms: 5 },
-      downstream: { target: 'api', timeoutMs: 2000, retries: 0, backoffBaseMs: 50, jitter: false },
+      downstream: { target: 'api', timeoutMs: 2000, retries: 3, backoffBaseMs: 50, jitter: false },
       dropExpired: false,
     },
     {
@@ -34,7 +37,7 @@ export const webChain: TopologyPreset = {
       queueLimit: null,
       service: { kind: 'lognormal', medianMs: 4, p99Ms: 20 },
       cacheAside: { target: 'cache', timeoutMs: 100, retries: 0, backoffBaseMs: 0, jitter: false },
-      downstream: { target: 'db', timeoutMs: 1000, retries: 0, backoffBaseMs: 50, jitter: false },
+      downstream: { target: 'db', timeoutMs: 1000, retries: 1, backoffBaseMs: 50, jitter: false },
       dropExpired: false,
     },
     {

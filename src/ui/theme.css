@@ -1117,7 +1117,43 @@ button.csl-map__cell {
   padding-top: 12px;
 }
 .csl-failure .csl-field {
-  width: 190px;
+  width: 160px;
+}
+.csl-failure__group {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.csl-failure__legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--csl-muted);
+}
+.csl-failure__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+.csl-failure__sentence {
+  align-self: center;
+  font-size: 13px;
+  color: var(--csl-ink-2);
+}
+.csl-field__select {
+  font: inherit;
+  font-size: 14px;
+  color: var(--csl-ink);
+  background: var(--csl-card);
 }
 .csl-failure__run {
   margin-left: auto;

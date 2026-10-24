@@ -4,10 +4,10 @@ import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { buildSweep, tippingPoints } from '../sweep/sweep';
 import type { SimPool } from '../worker/pool';
 import { MapLegend, TippingMap } from './components/TippingMap';
-import { currentCell, nearestCell, onMap } from './draft';
+import { currentCell, nearestCell, onMap, retryCalls } from './draft';
 import { RunPlayer } from './RunPlayer';
 import { useAnalysis, useSweep } from './useSimulation';
-import { formatAxisValue, mapView, shortVerdict } from './viewModels';
+import { axisPhrase, formatAxisValue, mapView, retriesPhrase, shortVerdict } from './viewModels';
 
 /** Step 2: the tipping-point map, with any cell replayable inline. */
 export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool: SimPool; topology: TopologyPreset; scenario: ScenarioPreset; labels: Record<string, string>; onEdit?: (tierId: string | null) => void }) {
@@ -25,7 +25,8 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
   const summary = sweep.result?.get(selected.x, selected.y);
   const tips = sweep.result && sweep.done === sweep.total ? tippingPoints(sweep.result) : [];
   const currentTip = tips.find((t) => t.y === current.y);
-  const cellTitle = `${selected.x} rps · ${formatAxisValue(yAxis, selected.y)} ${yAxis.label}`;
+  const cellTitle = `${selected.x} req/s · ${formatAxisValue(yAxis, selected.y)} ${yAxis.label}`;
+  const cascade = retriesPhrase(retryCalls(topology), labels);
 
   return (
     <div className="csl-split csl-split--stretch">
@@ -38,7 +39,7 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             </span>
           </div>
           <p className="csl-card__sub" style={{ margin: 0 }}>
-            Each cell re-runs the same failure at other settings. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Click a cell to replay it.
+            Each cell re-runs the same failure at another traffic level and {yAxis.label}. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Click a cell to replay it.
           </p>
           <MapLegend />
           <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
@@ -49,15 +50,15 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
           </div>
           {!onMap(scenario) && (
             <p className="csl-status" style={{ margin: 0 }}>
-              Your settings ({current.x} req/s · {formatAxisValue(yAxis, current.y)} {yAxis.label}) aren't one of the map's cells; the nearest is selected.
+              Your settings ({current.x} req/s, {axisPhrase(yAxis, current.y)}) aren't one of the map's cells; the nearest is selected.
             </p>
           )}
           {currentTip && (
             <p style={{ margin: 0, fontSize: 13, color: 'var(--csl-ink-2)' }}>
               {currentTip.tipsAtX === null
-                ? `With ${formatAxisValue(yAxis, current.y)} ${yAxis.label}, the system recovers at every traffic level shown.`
-                : `With ${formatAxisValue(yAxis, current.y)} ${yAxis.label}, the system tips at ${currentTip.tipsAtX} req/s.${current.x >= currentTip.tipsAtX ? ` Your ${current.x} req/s is past it: everything looks healthy until any slowdown happens.` : ''}`}{' '}
-              {yAxis.param === 'retries' && 'Retries (asking again) hide brief glitches, but multiply the work when the database struggles.'}
+                ? `With ${axisPhrase(yAxis, current.y)}, the system recovers at every traffic level shown.`
+                : `With ${axisPhrase(yAxis, current.y)}, the system tips at ${currentTip.tipsAtX} req/s.${current.x >= currentTip.tipsAtX ? ` Your ${current.x} req/s is past it: everything looks healthy until a failure like this happens.` : ''}`}{' '}
+              {cascade && `Every layer asks again when it gives up (${cascade}), so one failed answer can come back as many requests.`}
             </p>
           )}
         </section>

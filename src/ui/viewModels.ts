@@ -387,6 +387,26 @@ export function formatAxisValue(axis: Axis, v: number): string {
   return axis.param === 'outageMs' ? `${v / 1000}s` : String(v);
 }
 
+/** A map value in words: "a 5 s failure", "3 DB retries", "200 req/s". */
+export function axisPhrase(axis: Axis, v: number): string {
+  if (axis.param === 'outageMs') {
+    const s = v / 1000;
+    return `${/^(8|11|18)/.test(String(s)) ? 'an' : 'a'} ${s} s failure`; // "an 8 s failure"
+  }
+  if (axis.param === 'rps') return `${v} req/s`;
+  return `${v} ${axis.label}`;
+}
+
+/**
+ * The retry cascade in words, front to back, e.g. "Client 5×, Gateway 3×, API 1×"; null when no
+ * call retries.
+ */
+export function retriesPhrase(calls: Array<{ caller: string; retries: number }>, labels: Record<string, string>): string | null {
+  const retrying = calls.filter((c) => c.retries > 0);
+  if (retrying.length === 0) return null;
+  return retrying.map((c) => `${labels[c.caller] ?? c.caller} ${c.retries}×`).join(', ');
+}
+
 /** Map cells: stuck/overloaded are drawn as stuck; unaffected as an instant recovery. */
 export function mapView(title: string, xAxis: Axis, yAxis: Axis, get: (x: number, y: number) => CellSummary | undefined, current: { x: number; y: number } | null): MapView {
   const cells: MapCellView[] = [];

@@ -22,16 +22,94 @@ export function updateScenario(d: Draft, change: Partial<ScenarioPreset>): Draft
   return { ...d, scenario: { ...d.scenario, ...change } };
 }
 
-/** Edits the scenario's first fault (presets have exactly one). */
-export function updateFault(d: Draft, change: Partial<Fault>): Draft {
-  const [first, ...rest] = d.scenario.faults;
-  return updateScenario(d, { faults: [{ ...first, ...change }, ...rest] });
+/** Edits one of the scenario's faults (the first by default). */
+export function updateFault(d: Draft, change: Partial<Fault>, index = 0): Draft {
+  return updateScenario(d, { faults: d.scenario.faults.map((f, i) => (i === index ? { ...f, ...change } : f)) });
 }
 
-/** The map cell matching the current settings. */
+/** Replaces one of the scenario's faults outright (e.g. after changing its kind, so no stale fields remain). */
+export function setFault(d: Draft, fault: Fault, index: number): Draft {
+  return updateScenario(d, { faults: d.scenario.faults.map((f, i) => (i === index ? fault : f)) });
+}
+
+/**
+ * Adds a failure: a slowdown of a part that isn't failing yet (front to back), at the same time and
+ * for as long as the first failure. ASSUMPTION: 4× slower is a noticeable but not extreme default.
+ */
+export function addFault(d: Draft): Draft {
+  const first = d.scenario.faults[0];
+  const failing = new Set(d.scenario.faults.map((f) => f.tier));
+  const tier = d.topology.tiers.find((t) => !failing.has(t.id))?.id ?? first.tier;
+  return updateScenario(d, { faults: [...d.scenario.faults, { tier, kind: 'slow', factor: 4, startMs: first.startMs, endMs: first.endMs }] });
+}
+
+/** Removes a failure; the first one always stays (a scenario injects at least one). */
+export function removeFault(d: Draft, index: number): Draft {
+  if (index === 0) return d;
+  return updateScenario(d, { faults: d.scenario.faults.filter((_, i) => i !== index) });
+}
+
+/** The kinds of failure the editor offers, as plain words. */
+export type FaultKindChoice = 'slow' | 'down' | 'one-down' | 'restart-empty';
+
+export function faultKindOf(f: Fault): FaultKindChoice {
+  if (f.kind === 'slow') return 'slow';
+  if (f.flushAtEnd) return 'restart-empty';
+  return f.instance === undefined ? 'down' : 'one-down';
+}
+
+/** The fault with its kind changed, keeping where and when it happens. */
+export function withFaultKind(f: Fault, kind: FaultKindChoice): Fault {
+  const { tier, startMs, endMs } = f;
+  if (kind === 'slow') return { tier, startMs, endMs, kind: 'slow', factor: f.factor ?? 4 };
+  if (kind === 'one-down') return { tier, startMs, endMs, kind: 'dead', instance: 0 };
+  if (kind === 'restart-empty') return { tier, startMs, endMs, kind: 'dead', flushAtEnd: true };
+  return { tier, startMs, endMs, kind: 'dead' };
+}
+
+/** e.g. "slows 8×", "goes down", "loses one of its 4 servers", "goes down and restarts empty". */
+export function describeFault(f: Fault, instances: number): string {
+  switch (faultKindOf(f)) {
+    case 'slow':
+      return `slows ${f.factor}×`;
+    case 'restart-empty':
+      return 'goes down and restarts empty';
+    case 'one-down':
+      return `loses one of its ${instances} servers`;
+    case 'down':
+      return 'goes down';
+  }
+}
+
+/** A call that can retry: who calls whom, and how many times it asks again after giving up. */
+export interface RetryCall {
+  /** 'client' or the calling tier's id. */
+  caller: string;
+  target: string;
+  retries: number;
+}
+
+/** Every call's retries, front to back (cache lookups excluded: they don't retry). */
+export function retryCalls(t: TopologyPreset): RetryCall[] {
+  const calls: RetryCall[] = [{ caller: 'client', target: t.clientCall.target, retries: t.clientCall.retries }];
+  for (const tier of t.tiers) if (tier.downstream) calls.push({ caller: tier.id, target: tier.downstream.target, retries: tier.downstream.retries });
+  return calls;
+}
+
+/** Sets how many times `caller` retries its call. */
+export function updateRetries(d: Draft, caller: string, retries: number): Draft {
+  if (caller === 'client') return { ...d, topology: { ...d.topology, clientCall: { ...d.topology.clientCall, retries } } };
+  return updateTier(d, caller, (t) => ({ ...t, downstream: t.downstream && { ...t.downstream, retries } }));
+}
+
+/**
+ * The map cell matching the current settings. ASSUMPTION: the map's y axis is failure length (every
+ * preset) or traffic; a 'retries' axis would read its caller's retries from the topology, which the
+ * UI does not offer.
+ */
 export function currentCell(s: ScenarioPreset): { x: number; y: number } {
   const f = s.faults[0];
-  const y = s.map.y.param === 'retries' ? s.retries : s.map.y.param === 'outageMs' ? f.endMs - f.startMs : s.rps;
+  const y = s.map.y.param === 'outageMs' ? f.endMs - f.startMs : s.rps;
   return { x: s.rps, y };
 }
 
@@ -54,6 +132,10 @@ export function draftProblems(d: Draft): string[] {
   const durationS = s.durationMs / 1000;
   const label = (id: string) => d.topology.layout[id]?.label ?? id;
   for (const f of s.faults) {
+    const tier = d.topology.tiers.find((t) => t.id === f.tier);
+    if (f.instance !== undefined && tier && (tier.instances < 2 || f.instance >= tier.instances)) {
+      problems.push(`${label(f.tier)} has only ${tier.instances} server${tier.instances === 1 ? '' : 's'}, so "one server goes down" would take it down completely; choose "goes down" instead.`);
+    }
     const endS = f.endMs / 1000;
     if (endS > durationS - JUDGE_AFTER_FAILURE_S) {
       problems.push(

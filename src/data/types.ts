@@ -18,6 +18,8 @@ export interface Axis {
   param: SweepParam;
   label: string;
   values: number[];
+  /** For a 'retries' axis: whose outgoing call it varies ('client' or a tier id). */
+  caller?: string;
 }
 
 /** A failure to inject into a topology, and how to explore it. Plain data. */
@@ -28,10 +30,10 @@ export interface ScenarioPreset {
   topology: string;
   rps: number;
   durationMs: number;
-  /** The tier whose downstream call the `retries` setting (and the map's retries axis) controls. */
-  retryCall: string;
-  /** Retries on `retryCall`'s downstream call. Every other call keeps the topology's own setting. */
-  retries: number;
+  /**
+   * The failures to inject (at least one). Retries are not part of the scenario: every call keeps
+   * its own retry count, set in the topology (and editable per layer).
+   */
   faults: Fault[];
   /** Tipping-point map axes: x is always traffic. */
   map: { x: Axis; y: Axis };

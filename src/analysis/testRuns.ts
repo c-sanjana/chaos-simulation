@@ -22,4 +22,10 @@ export function analyzed(config: RunConfig) {
   return cache.get(key)!;
 }
 
-export const retryStormRun = (overrides: ScenarioOverrides) => analyzed(buildRunConfig(webChain, retryStorm, overrides));
+/**
+ * The retry-storm failure with a single retrying layer: the API retries the DB `retries` times and
+ * no other call retries (the preset before per-layer retries). Mechanism tests use it because one
+ * retrying layer gives a clean stuck/recovered contrast (0 retries recovers, 3 gets stuck).
+ */
+export const retryStormRun = ({ retries = 0, ...overrides }: Omit<ScenarioOverrides, 'retries'> & { retries?: number }) =>
+  analyzed(buildRunConfig(webChain, retryStorm, { ...overrides, retries: { client: 0, gateway: 0, api: retries } }));

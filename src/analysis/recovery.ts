@@ -1,4 +1,5 @@
 import type { RunConfig } from '../engine/config';
+import { latencyBin } from '../engine/stats';
 import { STATUS_OK, STATUS_UNFINISHED, type RunResult } from '../engine/result';
 
 export type Verdict =
@@ -97,7 +98,7 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   const queueCeiling = Object.fromEntries(tierIds.map((id) => [id, maxIgnoringNaN(control.tiers[id].queueAvg)]));
   const healthy = (s: number) =>
     !mismatchedSeconds.has(s) &&
-    !(run.client.latencyP99Ms[s] > p99Ceiling) && // NaN (no successes) only passes if requests matched
+    !(latencyBin(run.client.latencyP99Ms[s]) > latencyBin(p99Ceiling)) && // NaN (no successes) only passes if requests matched
     tierIds.every((id) => run.tiers[id].queueAvg[s] <= queueCeiling[id]);
 
   // A failure starting after the judged range: nothing to judge, so nothing went wrong.

@@ -14,7 +14,7 @@ import { currentCell, nearestCell, onMap } from './draft';
 import { RunPlayer } from './RunPlayer';
 import { useFixRanking } from './useFixRanking';
 import { useAnalysis, useSweep } from './useSimulation';
-import { formatAxisValue, mapView, shortVerdict } from './viewModels';
+import { axisPhrase, formatAxisValue, mapView, shortVerdict } from './viewModels';
 
 export interface FixStepProps {
   pool: SimPool;
@@ -69,7 +69,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
 
   if (!original) return <p className="csl-status">Waiting for the original run…</p>;
   const { x: xAxis, y: yAxis } = scenario.map;
-  const where = `at your settings (${current.x} req/s · ${formatAxisValue(yAxis, current.y)} ${yAxis.label})`;
+  const where = `at your settings (${current.x} req/s, ${axisPhrase(yAxis, current.y)})`;
   const longerS = longerOutageSeconds(config);
   const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.robustness[f.candidate.id], where, longerS));
   const cellTitle = `${cell.x} req/s · ${formatAxisValue(yAxis, cell.y)} ${yAxis.label}`;
@@ -246,8 +246,8 @@ export function moveSummary(scenario: ScenarioPreset, before: SweepResult, after
   const rowY = nearestCell(scenario).y;
   const tip = (r: SweepResult) => tippingPoints(r).find((t) => t.y === rowY)?.tipsAtX ?? null;
   const [b, a] = [tip(before), tip(after)];
-  const fmt = (v: number) => `${formatAxisValue(scenario.map.y, v)} ${scenario.map.y.label}`;
-  const at = rowY === y ? `With ${fmt(y)}` : `Your ${fmt(y)} isn't on the map; with ${fmt(rowY)}`;
+  const fmt = (v: number) => axisPhrase(scenario.map.y, v);
+  const at = rowY === y ? `With ${fmt(y)}` : `Your setting (${fmt(y)}) isn't on the map; with ${fmt(rowY)}`;
   if (b === null && a === null) return `${at}, the system recovered at every traffic level shown, before and after.`;
   if (a === null) return `${at}, the system used to tip at ${b} req/s; with the fix it recovers at every traffic level shown.`;
   if (b === null) return `${at}, the fix makes it tip at ${a} req/s, where it used to recover everywhere shown.`;

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { retryStormRun } from '../analysis/testRuns';
 import { webChain } from '../data/topologies';
-import { RunPlayer } from './RunPlayer';
+import { failureOverText, RunPlayer } from './RunPlayer';
 
 vi.mock('uplot', () => import('./testing/fakeUplot'));
 
@@ -170,5 +170,20 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(screen.queryByText(/^Recovered \d+ s after/)).toBeNull();
     seek(r.lastFaultEndMs + (r.recoveryMs ?? 0));
     expect(screen.getByText(/^Recovered \d+ s after/)).toBeTruthy();
+  });
+
+  it('says what "the failure is over" means for whichever part failed last', () => {
+    const labels = { db: 'DB', cache: 'Cache', gateway: 'Gateway' };
+    expect(failureOverText([{ tier: 'db', kind: 'slow', factor: 8, startMs: 0, endMs: 5000 }], labels)).toBe('the database is back to normal speed');
+    expect(failureOverText([{ tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 0, endMs: 5000 }], labels)).toBe('the cache is back up, but empty');
+    expect(
+      failureOverText(
+        [
+          { tier: 'db', kind: 'slow', factor: 8, startMs: 0, endMs: 5000 },
+          { tier: 'gateway', kind: 'dead', startMs: 0, endMs: 9000 },
+        ],
+        labels,
+      ),
+    ).toBe('the gateway is back up');
   });
 });

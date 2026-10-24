@@ -14,7 +14,13 @@ vi.mock('uplot', () => import('./testing/fakeUplot'));
 
 const SLOW = { timeout: 30_000 };
 const labels = labelsOf(webChain);
-const config = buildRunConfig(webChain, retryStorm);
+// One retrying layer (the API retries the DB 3 times), so the canned physics below stays simple.
+const singleLayer = {
+  ...webChain,
+  clientCall: { ...webChain.clientCall, retries: 0 },
+  tiers: webChain.tiers.map((t) => (t.downstream ? { ...t, downstream: { ...t.downstream, retries: t.id === 'api' ? 3 : 0 } } : t)),
+};
+const config = buildRunConfig(singleLayer, retryStorm);
 const original = executeJob({ kind: 'analyze', config, labels });
 
 /** Canned physics for the fake pool: a retry budget or ≤ 1 API→DB retry recovers; otherwise stuck above 110 rps. */
@@ -27,7 +33,7 @@ function verdict(c: RunConfig): CellSummary {
 describe('FixStep', { timeout: 60_000 }, () => {
   it('ranks fixes, checks they hold up, and shows the chosen fix everywhere: details, maps and replay', async () => {
     const pool = new FakePool(verdict);
-    render(<FixStep pool={pool} topology={webChain} scenario={retryStorm} config={config} original={original} labels={labels} />);
+    render(<FixStep pool={pool} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     // Once every fix is tested and checked, the best is shown and the corner explains the map.
     await screen.findByText('◆ = shown on the right; click any cell', undefined, SLOW);
     // One tab per fix, reliable helpers first; the best one is shown straight away once checked.
@@ -40,36 +46,36 @@ describe('FixStep', { timeout: 60_000 }, () => {
     expect(screen.getByText('Shown on the right')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Retry budget of 10%' })).toBeTruthy();
     expect(screen.getByText('Stuck → recovers in 4 s')).toBeTruthy();
-    expect(screen.getByText('at your settings (200 req/s · 3 DB retries)')).toBeTruthy();
+    expect(screen.getByText('at your settings (200 req/s, a 5 s failure)')).toBeTruthy();
     // Checked on other random runs and with a slowdown twice as long (canned physics: both hold).
     expect(screen.getByText(/helped in 5 of 5 random runs · still helps if the slowdown lasts 10 s/)).toBeTruthy();
     expect(screen.getByText('How it helps')).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Cons' }).textContent).toMatch(/^Cons \(\d\)/);
     await screen.findByRole('heading', { name: /^Before vs after: Retry budget/ }, SLOW);
     await screen.findByText(/the system used to tip at 120 req\/s; with the fix it recovers at every traffic level shown/, undefined, SLOW);
-    expect(screen.getByText(/^200 req\/s · 3 DB retries \(your settings\) · only the fix differs$/)).toBeTruthy();
+    expect(screen.getByText(/^200 req\/s · 5s failure length \(your settings\) · only the fix differs$/)).toBeTruthy();
     // The "after" diagram labels what the fix changed.
     fireEvent.click(screen.getByRole('button', { name: 'After' }));
     expect(screen.getAllByText(/retry budget 10%/).length).toBeGreaterThan(0);
 
     // Clicking a cell in either map compares that cell, re-running it without and with the fix.
     const analyzedBefore = pool.analyzed.length;
-    fireEvent.click(screen.getAllByRole('button', { name: /^80 requests per second, 1 DB retries/ })[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^80 requests per second, 2s failure length/ })[1]);
     // The ◆ moves to the clicked cell in both maps; a link goes back to the current settings.
-    for (const b of screen.getAllByRole('button', { name: /^80 requests per second, 1 DB retries/ })) {
+    for (const b of screen.getAllByRole('button', { name: /^80 requests per second, 2s failure length/ })) {
       expect(b.getAttribute('aria-pressed')).toBe('true');
       expect(b.textContent).toBe('◆');
       expect(b.getAttribute('aria-label')).toMatch(/\(shown on the right\)$/);
     }
-    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 3 DB retries/ })) expect(b.textContent).toBe('');
-    expect(screen.getByText('Simulating 80 req/s · 1 DB retries without and with the fix…')).toBeTruthy();
-    await screen.findByText(/^80 req\/s · 1 DB retries · only the fix differs$/, undefined, SLOW);
+    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).toBe('');
+    expect(screen.getByText('Simulating 80 req/s · 2s failure length without and with the fix…')).toBeTruthy();
+    await screen.findByText(/^80 req\/s · 2s failure length · only the fix differs$/, undefined, SLOW);
     const reruns = pool.analyzed.slice(analyzedBefore);
     expect(reruns.map((c) => c.client.rps)).toEqual([80, 80]);
     expect(reruns.map((c) => c.tiers.find((t) => t.id === 'api')!.downstream!.retryBudget)).toEqual([undefined, 0.1]);
-    fireEvent.click(screen.getByRole('button', { name: 'Back to your settings (200 req/s · 3 DB retries)' }));
-    await screen.findByText(/^200 req\/s · 3 DB retries \(your settings\) · only the fix differs$/, undefined, SLOW);
-    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 3 DB retries/ })) expect(b.textContent).toBe('◆');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to your settings (200 req/s · 5s failure length)' }));
+    await screen.findByText(/^200 req\/s · 5s failure length \(your settings\) · only the fix differs$/, undefined, SLOW);
+    for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).toBe('◆');
     expect(screen.queryByRole('button', { name: /^Back to your settings/ })).toBeNull();
 
     // Choosing another tab shows that fix in the panel, the maps and the replay.
@@ -90,7 +96,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
       if (api.retries <= 1) return { verdict: 'recovered', recoveryMs: 4000, failedRequests: 10 };
       return { verdict: 'stuck', recoveryMs: null, failedRequests: 9000 };
     };
-    render(<FixStep pool={new FakePool(luck)} topology={webChain} scenario={retryStorm} config={config} original={original} labels={labels} />);
+    render(<FixStep pool={new FakePool(luck)} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText('◆ = shown on the right; click any cell', undefined, SLOW);
     const tabs = screen.getAllByRole('tab');
     expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries: helped/);
@@ -102,19 +108,19 @@ describe('FixStep', { timeout: 60_000 }, () => {
   });
 
   it('waits for the original run, and reports when no fix helped', async () => {
-    const { rerender } = render(<FixStep pool={new FakePool(verdict)} topology={webChain} scenario={retryStorm} config={config} original={null} labels={labels} />);
+    const { rerender } = render(<FixStep pool={new FakePool(verdict)} topology={singleLayer} scenario={retryStorm} config={config} original={null} labels={labels} />);
     expect(screen.getByText('Waiting for the original run…')).toBeTruthy();
     const neverHelps = new FakePool(() => ({ verdict: 'stuck', recoveryMs: null, failedRequests: 9000 }));
-    rerender(<FixStep pool={neverHelps} topology={webChain} scenario={retryStorm} config={config} original={original} labels={labels} />);
+    rerender(<FixStep pool={neverHelps} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText(/^\d+ fixes tested$/, undefined, SLOW);
     expect(screen.getByText('None of the fixes tried made this run recover.')).toBeTruthy();
     expect(screen.getByText('No fix helped, so there is nothing to compare.')).toBeTruthy();
   });
 
   it('explains when there is nothing to try, instead of waiting forever', async () => {
-    const calm = buildRunConfig(webChain, { ...retryStorm, faults: [] });
+    const calm = buildRunConfig(singleLayer, { ...retryStorm, faults: [] });
     const quiet = executeJob({ kind: 'analyze', config: calm, labels });
-    render(<FixStep pool={new FakePool(verdict)} topology={webChain} scenario={retryStorm} config={calm} original={quiet} labels={labels} />);
+    render(<FixStep pool={new FakePool(verdict)} topology={singleLayer} scenario={retryStorm} config={calm} original={quiet} labels={labels} />);
     await screen.findByText(/^0 fixes tested$/, undefined, SLOW);
     expect(screen.getByText(/nothing in it points to a fix worth trying|Nothing in this run points to a fix/)).toBeTruthy();
   });
@@ -123,7 +129,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     const pool = new FakePool(() => {
       throw new Error('worker crashed');
     });
-    render(<FixStep pool={pool} topology={webChain} scenario={retryStorm} config={config} original={original} labels={labels} />);
+    render(<FixStep pool={pool} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText(/worker crashed/, undefined, SLOW);
   });
 });
@@ -147,8 +153,9 @@ describe('moveSummary', () => {
   });
 
   it('says so when your setting is not one of the map rows, and describes the nearest row', () => {
-    expect(moveSummary({ ...retryStorm, retries: 7 }, result(120), result(null))).toBe(
-      "Your 7 DB retries isn't on the map; with 5 DB retries, the system used to tip at 120 req/s; with the fix it recovers at every traffic level shown.",
+    const sevenSeconds = { ...retryStorm, faults: [{ ...retryStorm.faults[0], endMs: retryStorm.faults[0].startMs + 7000 }] };
+    expect(moveSummary(sevenSeconds, result(120), result(null))).toBe(
+      "Your setting (a 7 s failure) isn't on the map; with an 8 s failure, the system used to tip at 120 req/s; with the fix it recovers at every traffic level shown.",
     );
   });
 });
@@ -156,7 +163,7 @@ describe('moveSummary', () => {
 describe('fixTab', () => {
   const candidate = { id: 'bound-queue', title: 't', name: 'Bound the queue', short: 'Bound queue', what: 'DB lets at most 93 wait.', how: 'It turns extra work away.', why: "requests waited in DB's queue", pros: ['p1', 'p2'], cons: ['c1', 'c2'], config };
   const original = { verdict: 'stuck' as const, recoveryMs: null, failedRequests: 1000 };
-  const where = 'at your settings (200 req/s · 3 DB retries)';
+  const where = 'at your settings (200 req/s, a 5 s failure)';
   const recovered = { verdict: 'recovered' as const, recoveryMs: 2000, failedRequests: 200 };
 
   it('reads as plain sentences, with the checks it passed', () => {

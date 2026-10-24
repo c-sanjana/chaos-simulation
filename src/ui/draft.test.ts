@@ -1,4 +1,21 @@
-import { currentCell, draftProblems, nearestCell, onMap, presetDraft, updateFault, updateScenario, updateTier, JUDGE_AFTER_FAILURE_S } from './draft';
+import {
+  addFault,
+  currentCell,
+  describeFault,
+  draftProblems,
+  faultKindOf,
+  nearestCell,
+  onMap,
+  presetDraft,
+  removeFault,
+  retryCalls,
+  updateFault,
+  updateRetries,
+  updateScenario,
+  updateTier,
+  withFaultKind,
+  JUDGE_AFTER_FAILURE_S,
+} from './draft';
 
 describe('draftProblems', () => {
   const preset = presetDraft('retry-storm');
@@ -23,15 +40,54 @@ describe('draftProblems', () => {
 });
 
 describe('map cells', () => {
-  const s = presetDraft('retry-storm').scenario;
+  const s = presetDraft('retry-storm').scenario; // traffic × failure length
 
   it('finds the current settings on the map, or the nearest cell when they fall between or beyond it', () => {
-    expect(currentCell(s)).toEqual({ x: 200, y: 3 });
+    expect(currentCell(s)).toEqual({ x: 200, y: 5000 });
     expect(onMap(s)).toBe(true);
-    expect(nearestCell(s)).toEqual({ x: 200, y: 3 });
-    const between = { ...s, rps: 150, retries: 50 };
+    expect(nearestCell(s)).toEqual({ x: 200, y: 5000 });
+    const between = { ...s, rps: 150, faults: [{ ...s.faults[0], endMs: s.faults[0].startMs + 6000 }] };
     expect(onMap(between)).toBe(false);
-    expect(nearestCell(between)).toEqual({ x: 140, y: 5 });
-    expect(nearestCell(s, { x: 1, y: -3 })).toEqual({ x: 60, y: 0 });
+    expect(nearestCell(between)).toEqual({ x: 140, y: 5000 });
+    expect(nearestCell(s, { x: 1, y: 60_000 })).toEqual({ x: 60, y: 12_000 });
+    expect(currentCell({ ...s, map: { ...s.map, y: { param: 'rps', label: 'traffic', values: [] } } })).toEqual({ x: 200, y: 200 });
+  });
+});
+
+describe('failures and retries', () => {
+  const d = presetDraft('retry-storm');
+
+  it('adds a slowdown of a part that is not failing yet, at the same time, and never removes the first', () => {
+    const two = addFault(d);
+    expect(two.scenario.faults[1]).toEqual({ tier: 'gateway', kind: 'slow', factor: 4, startMs: 30_000, endMs: 35_000 });
+    expect(addFault(addFault(addFault(addFault(two)))).scenario.faults.at(-1)!.tier).toBe('db'); // every part failing: reuse the first
+    expect(removeFault(two, 0)).toBe(two);
+    expect(removeFault(two, 1).scenario.faults).toHaveLength(1);
+    expect(updateFault(two, { factor: 2 }, 1).scenario.faults.map((f) => f.factor)).toEqual([8, 2]);
+  });
+
+  it('switches failure kinds in plain words, keeping where and when', () => {
+    const f = d.scenario.faults[0];
+    expect(faultKindOf(f)).toBe('slow');
+    const kinds = ['down', 'one-down', 'restart-empty', 'slow'] as const;
+    expect(kinds.map((k) => describeFault(withFaultKind(f, k), 4))).toEqual(['goes down', 'loses one of its 4 servers', 'goes down and restarts empty', 'slows 8×']);
+    expect(kinds.map((k) => faultKindOf(withFaultKind(f, k)))).toEqual([...kinds]);
+    expect(withFaultKind({ ...f, kind: 'dead', factor: undefined }, 'slow').factor).toBe(4);
+    expect(withFaultKind(f, 'one-down')).toEqual({ tier: 'db', startMs: 30_000, endMs: 35_000, kind: 'dead', instance: 0 });
+  });
+
+  it('lists and edits every layer\'s retries, front to back', () => {
+    expect(retryCalls(d.topology)).toEqual([
+      { caller: 'client', target: 'gateway', retries: 5 },
+      { caller: 'gateway', target: 'api', retries: 3 },
+      { caller: 'api', target: 'db', retries: 1 },
+    ]);
+    const edited = updateRetries(updateRetries(d, 'client', 0), 'api', 4);
+    expect(retryCalls(edited.topology).map((c) => c.retries)).toEqual([0, 3, 4]);
+  });
+
+  it('refuses "one server goes down" on a part with a single server', () => {
+    const cacheOneDown = updateFault(d, { tier: 'cache', kind: 'dead', instance: 0, factor: undefined });
+    expect(draftProblems(cacheOneDown)).toEqual(['Cache has only 1 server, so "one server goes down" would take it down completely; choose "goes down" instead.']);
   });
 });

@@ -27,8 +27,8 @@ export interface SweepSpec {
 
 /**
  * One cell per (x, y) on the scenario's map axes: the scenario with `base` overrides and the
- * cell's axis values (each axis param sets the override of the same name), then the optional
- * transform (used to apply a fix to every cell).
+ * cell's axis values (a retries axis varies its caller's retries; other params set the override of
+ * the same name), then the optional transform (used to apply a fix to every cell).
  */
 export function buildSweep(
   topology: TopologyPreset,
@@ -41,8 +41,11 @@ export function buildSweep(
   for (const y of yAxis.values) {
     for (const x of xAxis.values) {
       const overrides: ScenarioOverrides = { ...base };
-      overrides[xAxis.param] = x;
-      overrides[yAxis.param] = y;
+      for (const [axis, v] of [[xAxis, x], [yAxis, y]] as const) {
+        // A retries axis varies one caller's retries; the others set the override of the same name.
+        if (axis.param === 'retries') overrides.retries = { ...overrides.retries, [axis.caller ?? 'api']: v };
+        else overrides[axis.param] = v;
+      }
       cells.push({ x, y, config: transform(buildRunConfig(topology, scenario, overrides)) });
     }
   }

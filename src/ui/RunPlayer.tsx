@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { RunConfig } from '../engine/config';
+import { spokenName } from '../analysis/helpers';
+import type { Fault, RunConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
 import type { AnalyzeResult } from '../worker/jobs';
 import { ChartLegend } from './components/ChartLegend';
@@ -214,7 +215,7 @@ export function RunPlayer({
               {guide === 'paused' && (
                 <div className="csl-guide" role="status">
                   <span>
-                    ⏸ <b>The failure is over: the database is back to normal speed.</b> Watch whether the system recovers.
+                    ⏸ <b>The failure is over: {failureOverText(faults, labels)}.</b> Watch whether the system recovers.
                   </span>
                   <button type="button" className="csl-btn csl-btn--primary csl-btn--small" onClick={keepWatching}>
                     ▶ Keep watching
@@ -232,6 +233,15 @@ export function RunPlayer({
       {timelineTarget && createPortal(timeline, timelineTarget)}
     </section>
   );
+}
+
+/** What "the failure is over" means for the failure that ends last, e.g. "the database is back to normal speed". */
+export function failureOverText(faults: Fault[], labels: Record<string, string>): string {
+  const last = faults.reduce((a, f) => (f.endMs > a.endMs ? f : a));
+  const who = spokenName(last.tier, labels);
+  if (last.kind === 'slow') return `${who} is back to normal speed`;
+  if (last.flushAtEnd) return `${who} is back up, but empty`;
+  return `${who} is back up`;
 }
 
 /** When the replay has shown enough to state the verdict: recovery, or the end of what is judged. */

@@ -5,6 +5,7 @@ import type { RecoveryResult } from '../analysis/recovery';
 import {
   activeFault,
   answerTimes,
+  axisPhrase,
   bottleneckTier,
   busiestTier,
   chartView,
@@ -17,6 +18,7 @@ import {
   shortVerdict,
   timelineView,
   topologyView,
+  retriesPhrase,
   verdictView,
   waitingTier,
 } from './viewModels';
@@ -182,23 +184,41 @@ describe('verdicts, maps and helpers', { timeout: 60_000 }, () => {
   });
 
   it('maps sweep summaries to cells, marking pending and current', () => {
-    const { x, y } = retryStorm.map;
+    const { x, y } = retryStorm.map; // traffic × failure length (ms)
     const summaries: Record<string, { verdict: 'stuck' | 'recovered' | 'unaffected' | 'overloaded'; recoveryMs: number | null; failedRequests: number }> = {
-      '200,3': { verdict: 'stuck', recoveryMs: null, failedRequests: 5 },
-      '60,0': { verdict: 'unaffected', recoveryMs: null, failedRequests: 0 },
-      '80,1': { verdict: 'recovered', recoveryMs: 2_600, failedRequests: 0 },
-      '240,5': { verdict: 'overloaded', recoveryMs: null, failedRequests: 9 },
+      '200,5000': { verdict: 'stuck', recoveryMs: null, failedRequests: 5 },
+      '60,1000': { verdict: 'unaffected', recoveryMs: null, failedRequests: 0 },
+      '80,2000': { verdict: 'recovered', recoveryMs: 2_600, failedRequests: 0 },
+      '240,12000': { verdict: 'overloaded', recoveryMs: null, failedRequests: 9 },
     };
-    const m = mapView('Current settings', x, y, (cx, cy) => summaries[`${cx},${cy}`], { x: 200, y: 3 });
+    const m = mapView('Current settings', x, y, (cx, cy) => summaries[`${cx},${cy}`], { x: 200, y: 5000 });
     expect(m.cells).toHaveLength(x.values.length * y.values.length);
     const cell = (cx: number, cy: number) => m.cells.find((c) => c.x === cx && c.y === cy)!;
-    expect(cell(200, 3)).toMatchObject({ status: 'stuck', isCurrent: true });
-    expect(cell(60, 0)).toMatchObject({ status: 'recovered', recoverySeconds: 0 });
-    expect(cell(80, 1)).toMatchObject({ status: 'recovered', recoverySeconds: 3 });
-    expect(cell(240, 5).status).toBe('stuck');
-    expect(cell(100, 2).status).toBe('pending');
-    expect(m.formatY!(3)).toBe('3');
+    expect(cell(200, 5000)).toMatchObject({ status: 'stuck', isCurrent: true });
+    expect(cell(60, 1000)).toMatchObject({ status: 'recovered', recoverySeconds: 0 });
+    expect(cell(80, 2000)).toMatchObject({ status: 'recovered', recoverySeconds: 3 });
+    expect(cell(240, 12000).status).toBe('stuck');
+    expect(cell(100, 3000).status).toBe('pending');
+    expect(m.formatY!(5000)).toBe('5s');
     expect(mapView('x', x, y, () => undefined, null).cells.every((c) => !c.isCurrent)).toBe(true);
+  });
+
+  it('phrases map values and the retry cascade in words', () => {
+    expect(axisPhrase(retryStorm.map.y, 5000)).toBe('a 5 s failure');
+    expect(axisPhrase(retryStorm.map.y, 8000)).toBe('an 8 s failure');
+    expect(axisPhrase(retryStorm.map.x, 200)).toBe('200 req/s');
+    expect(axisPhrase({ param: 'retries', label: 'DB retries', values: [], caller: 'api' }, 3)).toBe('3 DB retries');
+    expect(
+      retriesPhrase(
+        [
+          { caller: 'client', retries: 5 },
+          { caller: 'gateway', retries: 0 },
+          { caller: 'api', retries: 1 },
+        ],
+        labels,
+      ),
+    ).toBe('Client 5×, API 1×');
+    expect(retriesPhrase([{ caller: 'api', retries: 0 }], labels)).toBeNull();
   });
 
   it('formats axes, labels and finds tiers and bottlenecks', () => {
