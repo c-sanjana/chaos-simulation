@@ -13,6 +13,7 @@ export type FixKind =
   | 'boundQueue'
   | 'dropExpired'
   | 'coalesceMisses'
+  | 'moreConsumers'
   | 'longerTimeout'
   | 'addInstances';
 
@@ -50,6 +51,7 @@ export const FIX_SETTINGS = {
   jitterBaseMs: 100,
   timeoutFactor: 3,
   instanceFactor: 1.5,
+  consumerFactor: 2,
 } as const;
 
 /** In display and tie-break order. */
@@ -171,6 +173,22 @@ export const FIX_CATALOG: FixDefinition[] = [
       'If that one read fails, every waiting request fails with it',
     ],
     signal: 'cacheHitDrop',
+  },
+  {
+    id: 'more-consumers',
+    kind: 'moreConsumers',
+    title: 'Twice as many consumers',
+    short: 'Consumers',
+    how: '{Caller} has twice as many consumers taking messages at once, so its backlog drains faster, as long as {target} keeps up. If {target} is the slow part, more consumers just send it more work at once.',
+    pros: [
+      'Drains a backlog faster when the consumers were the limit',
+      'Senders notice nothing: they are still answered as soon as a message is stored',
+    ],
+    cons: [
+      'No help, and possibly harm, when the part behind the queue is what is slow: it gets more work at once',
+      'Costs more: twice the consumers, running all the time',
+    ],
+    signal: 'queueBacklog',
   },
   {
     id: 'longer-timeout',

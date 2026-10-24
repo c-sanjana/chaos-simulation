@@ -104,12 +104,16 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
   const queue = chain.find((t) => t.queue && t.downstream);
   if (queue) {
     const worker = queue.downstream!.target;
+    // ASSUMPTION: slow it until each piece of work takes long enough that the consumers get through
+    // only about half the messages arriving (consumers ÷ time per message = rps ÷ 2). A part with
+    // room to spare barely notices a fixed 8×, and the backlog never builds.
+    const factor = Math.min(1000, Math.max(2, Math.round((2 * queue.queue!.consumers * 1000) / rps / meanMs(byId.get(worker)!))));
     out.push({
       ...base,
       id: 'custom-queue-backlog',
       title: `Work behind ${label(queue.id)} slows down`,
-      blurb: `${label(worker)} is 8× slower for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
-      faults: [{ tier: worker, kind: 'slow', factor: 8, startMs: START_MS, endMs: START_MS + 20_000 }],
+      blurb: `${label(worker)} is ${factor}× slower for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
+      faults: [{ tier: worker, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
       map: { x, y: lengths([40, 20, 10, 5, 2]) },
     });
   }

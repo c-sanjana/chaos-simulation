@@ -50,6 +50,13 @@ describe('validateGraph', () => {
     expect(validateGraph(withNode(g, 'spare', 'server'))).toEqual(["spare isn't reached from the Client: connect it or remove it."]);
   });
 
+  it('every part needs its own name', () => {
+    const g = chainGraph(['client', 'server', 'server', 'database']);
+    const named = (a: string, b: string) => ({ ...g, nodes: g.nodes.map((n) => (n.id === 'n1' ? { ...n, label: a } : n.id === 'n2' ? { ...n, label: b } : n)) });
+    expect(validateGraph(named('  ', 'API'))).toEqual(['Give the server a name.']);
+    expect(validateGraph(named('API', 'api '))).toEqual(['Two parts are called "API": give each its own name.', 'Two parts are called "api": give each its own name.']);
+  });
+
   it('settings that cannot be simulated', () => {
     const g = chainGraph(['client', 'server', 'queue', 'database'], 1);
     const set = (id: string, patch: object) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, settings: { ...n.settings, ...patch } } : n)) }) as BuilderGraph;

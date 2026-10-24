@@ -51,13 +51,17 @@ export function maxRequestMs(config: RunConfig): number {
  *      latency histogram's resolution (in the same bin or a lower one), and
  *   3. every tier's average queue is no higher than that tier's highest per-second queue in the control, and
  *   4. every queue tier's average backlog (messages waiting) is no higher than that tier's highest
- *      per-second backlog in the control.
+ *      per-second backlog in the control, and
+ *   5. every queue tier dead-letters (drops after its retries) no more messages than in the
+ *      control's worst second.
  * The run has recovered at the start of the first second from which every later judged second is
- * healthy. Bounds 2–4 come from the control run itself, so there is no tolerance to tune.
+ * healthy. Bounds 2–5 come from the control run itself, so there is no tolerance to tune.
  *
  * Why the backlog (4)? A message queue answers its producers as soon as a message is stored, so
  * users can see fast, successful answers while the work behind the queue piles up. Criteria 1–3
- * would call that healthy; with 4, "recovered" also means "the backlog drained".
+ * would call that healthy; with 4, "recovered" also means "the backlog drained". Users never see a
+ * dead-lettered message either, but it is work lost: with 5, a system still dropping messages has
+ * not recovered.
  *
  * Why compare p99 by histogram bin? p99 is read from a histogram with ~12%-wide bins. Measured on
  * the "cache restarts empty" preset at 160 req/s: one second's p99 came out 145.29 ms against the
@@ -104,7 +108,7 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   }
 
   const base = { failedRequests, judgedUntilMs, lastFaultEndMs };
-  if (controlFailures > 0) return { verdict: 'overloaded', recoveredAtMs: null, recoveryMs: null, ...base };
+  if (controlFailures > 0 || queueFallsBehind(control, config, firstFaultStartMs, judgedUntilMs)) return { verdict: 'overloaded', recoveredAtMs: null, recoveryMs: null, ...base };
 
   const maxIgnoringNaN = (xs: number[]) => xs.reduce((m, x) => (x > m ? x : m), 0);
   const p99CeilingBin = latencyBin(maxIgnoringNaN(control.client.latencyP99Ms));
@@ -112,11 +116,12 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   const queueCeiling = Object.fromEntries(tierIds.map((id) => [id, maxIgnoringNaN(control.tiers[id].queueAvg)]));
   const queueTierIds = config.tiers.filter((t) => t.queue).map((t) => t.id);
   const backlogCeiling = Object.fromEntries(queueTierIds.map((id) => [id, maxIgnoringNaN(control.tiers[id].backlogAvg)]));
+  const deadLetterCeiling = Object.fromEntries(queueTierIds.map((id) => [id, maxIgnoringNaN(control.tiers[id].deadLettered)]));
   const healthy = (s: number) =>
     !mismatchedSeconds.has(s) &&
     !(latencyBin(run.client.latencyP99Ms[s]) > p99CeilingBin) && // NaN (no successes) is bin 0: passes only if requests matched
     tierIds.every((id) => run.tiers[id].queueAvg[s] <= queueCeiling[id]) &&
-    queueTierIds.every((id) => run.tiers[id].backlogAvg[s] <= backlogCeiling[id]);
+    queueTierIds.every((id) => run.tiers[id].backlogAvg[s] <= backlogCeiling[id] && run.tiers[id].deadLettered[s] <= deadLetterCeiling[id]);
 
   // A failure starting after the judged range: nothing to judge, so nothing went wrong.
   const firstJudged = Math.min(Math.floor(firstFaultStartMs / bucketMs), lastSecond + 1);
@@ -128,6 +133,30 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   if (recoveredFrom > lastSecond || stillFailing) return { verdict: 'stuck', recoveredAtMs: null, recoveryMs: null, ...base };
   const recoveredAtMs = Math.max(recoveredFrom * bucketMs, lastFaultEndMs);
   return { verdict: 'recovered', recoveredAtMs, recoveryMs: recoveredAtMs - lastFaultEndMs, ...base };
+}
+
+/**
+ * Does some message queue fall further and further behind even without the failure? Its senders
+ * are all answered, so no request fails, but the work behind it can't keep up: too much traffic
+ * for this system, like failing requests in the control.
+ * ASSUMPTION: "falling behind" = over the last 10 judged seconds of the control, more than 4× its
+ * consumers' worth of messages wait on average, and more than twice as many as in the 10 s before
+ * the failure. A queue keeping up fluctuates around a small backlog; one that can't grows steadily
+ * (measured: 7,600 waiting after 110 s at 220 msg/s against ~160/s of work done).
+ */
+function queueFallsBehind(control: RunResult, config: RunConfig, firstFaultStartMs: number, judgedUntilMs: number): boolean {
+  const mean = (xs: number[], from: number, to: number) => {
+    const part = xs.slice(Math.max(0, from), Math.max(0, to));
+    return part.length ? part.reduce((a, b) => a + b, 0) / part.length : 0;
+  };
+  const before = Math.floor(firstFaultStartMs / control.bucketMs);
+  const end = Math.floor(judgedUntilMs / control.bucketMs);
+  return config.tiers.some((t) => {
+    if (!t.queue) return false;
+    const backlog = control.tiers[t.id].backlogAvg;
+    const late = mean(backlog, end - 10, end);
+    return late > 4 * t.queue.consumers && late > 2 * mean(backlog, before - 10, before);
+  });
 }
 
 /** The control for a config: identical except that nothing fails. */

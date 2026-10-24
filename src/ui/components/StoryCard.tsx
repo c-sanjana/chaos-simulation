@@ -4,7 +4,7 @@ export interface StoryStepView {
   /** The full sentence (tooltip and screen readers). */
   text: string;
   tone: 'fault' | 'bad' | 'good' | 'info';
-  kind?: 'fault' | 'giveup' | 'back' | 'overload' | 'waste' | 'cache' | 'recovered' | 'stuck' | 'info';
+  kind?: 'fault' | 'giveup' | 'back' | 'overload' | 'waste' | 'cache' | 'backlog' | 'recovered' | 'stuck' | 'info';
   /** A few words, e.g. "Database 8× slower"; the sentence is used when missing. */
   headline?: string;
   figure?: string;
@@ -20,6 +20,7 @@ const ICON: Record<NonNullable<StoryStepView['kind']>, string> = {
   overload: '▲',
   waste: '∅',
   cache: '◌',
+  backlog: '▤',
   recovered: '✓',
   stuck: '✕',
   info: '•',

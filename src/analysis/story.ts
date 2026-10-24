@@ -4,7 +4,7 @@ import type { Analysis } from './analyze';
 import { callPolicyInto, formatMs, formatSeconds, leafCapacityRps, percent, spokenName, sumRange } from './helpers';
 
 /** What kind of moment a story step is, for its picture in the infographic. */
-export type StoryKind = 'fault' | 'giveup' | 'back' | 'overload' | 'waste' | 'cache' | 'recovered' | 'stuck' | 'info';
+export type StoryKind = 'fault' | 'giveup' | 'back' | 'overload' | 'waste' | 'cache' | 'backlog' | 'recovered' | 'stuck' | 'info';
 
 /**
  * One step of a run's story, shown once the replay reaches `tMs`: a full sentence (`text`, for
@@ -89,8 +89,29 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
     }
     if (cache) steps.push(cache);
   }
+  const backlog = backlogStep(ctx);
+  if (backlog) steps.push(backlog);
   steps.push(verdict);
   return steps.sort((a, b) => a.tMs - b.tMs);
+}
+
+/**
+ * Messages piling up in a queue, told once more wait than its consumers can hold at once. Its
+ * senders are answered as soon as a message is stored, so users don't notice: this step is how
+ * the viewer learns that work is falling behind.
+ */
+function backlogStep(ctx: Context): StoryStep | null {
+  const signal = ctx.analysis.signals.queueBacklog;
+  if (!signal) return null;
+  const t = ctx.run.tiers[signal.tier];
+  const from = Math.floor(Math.min(...(ctx.config.faults ?? []).map((f) => f.startMs)) / ctx.bucketMs);
+  const s = t.backlogAvg.findIndex((b, i) => i >= from && b > t.consumers);
+  if (s < 0) return null;
+  const peak = Math.round(signal.value.peak).toLocaleString('en-US');
+  const dropped = Math.round(signal.value.deadLettered);
+  const lost = dropped === 1 ? ' One message kept failing and was dropped.' : dropped > 1 ? ` ${dropped.toLocaleString('en-US')} messages kept failing and were dropped.` : '';
+  const text = `Messages piled up in ${ctx.say(signal.tier)}: up to ${peak} waiting. The people sending them didn't notice: it answers as soon as it stores a message.${lost}`;
+  return { tMs: s * ctx.bucketMs, text, tone: 'bad', kind: 'backlog', headline: `${capitalise(noun(ctx.say(signal.tier)))} backing up`, figure: `${peak} waiting` };
 }
 
 interface Context {
@@ -435,13 +456,26 @@ function verdictStep(ctx: Context, pressure: string | null, hadPile: boolean): S
     }
     case 'unaffected':
       return { tMs: Math.min(r.lastFaultEndMs, ctx.run.durationMs), text: 'It coped: requests did just as well as they would have without the failure.', tone: 'good', kind: 'recovered', headline: 'Coped fine' };
-    case 'overloaded':
-      return { tMs: 0, text: 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.', tone: 'bad', kind: 'stuck', headline: 'Too much traffic anyway' };
+    case 'overloaded': {
+      // Behind a queue, too much traffic fails no request: the work just falls further behind.
+      const behind = ctx.analysis.signals.queueBacklog;
+      const text =
+        behind && r.failedRequests === 0
+          ? `Even without the failure, this much traffic is more than the system can handle: work piles up in ${ctx.say(behind.tier)} faster than it gets done.`
+          : 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.';
+      return { tMs: 0, text, tone: 'bad', kind: 'stuck', headline: 'Too much traffic anyway' };
+    }
     case 'stuck': {
       if (r.lastFaultEndMs >= r.judgedUntilMs) {
         return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover.', tone: 'bad', kind: 'stuck', headline: 'Still failing at the end' };
       }
       const peak = pressure === null ? 0 : peakLoad(ctx, pressure, r.lastFaultEndMs);
+      const backlog = ctx.analysis.signals.queueBacklog;
+      if (backlog && backlog.value.atEnd >= 1 && (r.failedRequests === 0 || peak <= 1)) {
+        // Users were answered all along; what never recovered is the work behind the queue.
+        const left = Math.round(backlog.value.atEnd).toLocaleString('en-US');
+        return { tMs: r.judgedUntilMs, text: `It never caught up: ${left} messages were still waiting in ${ctx.say(backlog.tier)} at the end of the run.`, tone: 'bad', kind: 'stuck', headline: 'Never caught up', figure: `${left} waiting` };
+      }
       return {
         tMs: r.judgedUntilMs,
         text: `It never recovered: still failing at the end of the run${peakAfter(ctx, pressure)}.`,

@@ -123,7 +123,7 @@ export function moveNode(graph: BuilderGraph, id: string, col: number, row: numb
   if (!inGrid(col, row)) return refused(graph, 'That is outside the canvas.');
   if (node.col === col && node.row === row) return { graph };
   const other = nodeAt(graph, col, row);
-  if (other) return refused(graph, `That spot is taken by ${other.label || KIND_LABELS[other.settings.kind]}.`);
+  if (other) return refused(graph, `That spot is taken by ${name(other)}.`);
   return { graph: { ...graph, nodes: graph.nodes.map((n) => (n.id === id ? { ...n, col, row } : n)) } };
 }
 

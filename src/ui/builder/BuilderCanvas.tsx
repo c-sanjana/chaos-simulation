@@ -77,8 +77,9 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
   };
 
   const onCanvasDragOver = (e: DragEvent) => {
-    if (drag?.type !== 'connect' || !ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
+    // Some environments (tests) send drag events without pointer coordinates.
+    if (drag?.type !== 'connect' || !Number.isFinite(e.clientX)) return;
+    const rect = ref.current!.getBoundingClientRect();
     setPointer({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
 
@@ -272,7 +273,8 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                 />
               )}
               {target && (
-                <span className={`csl-bnode__verdict${target.reason ? ' csl-bnode__verdict--no' : ''}`} role="status">
+                // Under the box, except on the bottom row, where it goes above so it stays on the canvas.
+                <span className={`csl-bnode__verdict${target.reason ? ' csl-bnode__verdict--no' : ''}${node.row === GRID_ROWS ? ' csl-bnode__verdict--above' : ''}`} role="status">
                   {target.reason ? `✕ ${target.reason}` : '✓ Drop to connect'}
                 </span>
               )}

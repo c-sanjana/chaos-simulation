@@ -78,7 +78,7 @@ export function BuilderScreen({ graph, onChange, problems, onUse }: BuilderScree
       const edge = graph.edges.find((e) => e.id === selection.id);
       if (edge) {
         onChange(removeEdge(graph, edge.id));
-        setStatus({ text: `Removed the call: ${edgeTitle(graph, edge)} no longer.`, refused: false });
+        setStatus({ text: `Removed the call. ${edgeTitle(graph, edge).replace(' calls ', ' no longer calls ')}.`, refused: false });
       }
     }
     setSelection(null);

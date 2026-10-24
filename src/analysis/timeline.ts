@@ -122,9 +122,30 @@ export function buildTimeline(
     }
   }
 
+  // Messages pile up behind a queue. Its senders are answered as soon as a message is stored, so
+  // users see nothing; the backlog and how late the work gets are the only signs.
+  if (signals.queueBacklog) {
+    const { tier, value } = signals.queueBacklog;
+    const t = run.tiers[tier];
+    const first = range(startSecond, endSecond).find((s) => t.backlogAvg[s] > t.consumers);
+    if (first !== undefined) {
+      const late = Math.max(0, ...range(startSecond, endSecond).map((s) => t.messageAgeP99Ms[s]).filter((x) => !Number.isNaN(x)));
+      const lateText = late >= 1000 ? `, some delivered ${formatSeconds(late)} late` : '';
+      entries.push({ tMs: at(first), text: `Messages pile up in ${name(tier)}: up to ${count(value.peak)} waiting${lateText}`, kind: 'bad' });
+    }
+    const dropped = range(startSecond, endSecond).find((s) => t.deadLettered[s] > 0);
+    if (dropped !== undefined) {
+      const n = value.deadLettered === 1 ? '1 message that' : `${count(value.deadLettered)} messages that`;
+      entries.push({ tMs: at(dropped), text: `${name(tier)} drops ${n} still failed after retries (dead-lettered)`, kind: 'bad' });
+    }
+  }
+
   entries.push(verdictEntry(recovery, signals, name, run.durationMs));
   return entries.sort((x, y) => x.tMs - y.tMs).slice(0, MAX_ENTRIES);
 }
+
+const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
+const count = (x: number) => Math.round(x).toLocaleString('en-US');
 
 /**
  * Estimated wait for a newly queued attempt at a tier in second s (Little's law: queue ÷ throughput),
@@ -159,7 +180,13 @@ function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) =>
         return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' };
       }
       const wasted = signals.wastedShare;
-      const detail = wasted && wasted.value >= 0.5 ? `: ${percent(wasted.value)} of ${name(wasted.tier)} work is for requests already given up on` : '';
+      const backlog = signals.queueBacklog;
+      const detail =
+        wasted && wasted.value >= 0.5
+          ? `: ${percent(wasted.value)} of ${name(wasted.tier)} work is for requests already given up on`
+          : backlog && backlog.value.atEnd >= 1
+            ? `: ${count(backlog.value.atEnd)} messages still waiting in ${name(backlog.tier)}`
+            : '';
       return { tMs: failureEndMs, endMs: r.judgedUntilMs, text: `Never returned to normal after the failure ended${detail}`, kind: 'bad' };
     }
   }

@@ -42,6 +42,17 @@ export function validateGraph(graph: BuilderGraph): string[] {
   const cycle = findCycle(graph);
   if (cycle) problems.push(`These call each other in a loop: ${cycle.map((id) => byId.get(id)?.label ?? id).join(' → ')}. A request would go round forever.`);
 
+  // Names are how the story, the timeline and the charts refer to each part.
+  const names = new Map<string, number>();
+  for (const n of graph.nodes) {
+    const key = n.label.trim().toLowerCase();
+    if (key === '') problems.push(`Give the ${KIND_LABELS[n.settings.kind].toLowerCase()} a name.`);
+    else names.set(key, (names.get(key) ?? 0) + 1);
+  }
+  for (const n of graph.nodes) {
+    if ((names.get(n.label.trim().toLowerCase()) ?? 0) > 1) problems.push(`Two parts are called "${n.label.trim()}": give each its own name.`);
+  }
+
   const reached = reachable(graph, clients[0].id);
   for (const n of graph.nodes) if (!reached.has(n.id)) problems.push(`${name(n)} isn't reached from the Client: connect it or remove it.`);
   return [...new Set(problems)];

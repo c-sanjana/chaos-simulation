@@ -43,7 +43,7 @@
 }
 .csl-builder__body {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 16px;
   min-width: 0;
 }
@@ -133,8 +133,6 @@
   background: var(--csl-card);
   border: 1px solid var(--csl-border);
   border-radius: 12px;
-  /* Keep the rounded corners clean over the cells. */
-  overflow: hidden;
 }
 .csl-bcanvas:focus-visible {
   outline: 2px solid var(--csl-focus);
@@ -330,6 +328,10 @@
   box-shadow: 0 2px 8px var(--csl-scrim);
   pointer-events: none;
 }
+.csl-bnode__verdict--above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
 .csl-bnode__verdict--no {
   background: var(--csl-chip-bad-bg);
   color: var(--csl-chip-bad-ink);
@@ -408,15 +410,19 @@
 
 /* ---------- Settings panel ---------- */
 .csl-bpanel {
+  position: relative;
   flex: 0 0 300px;
-  box-sizing: border-box;
-  /* Matches the palette + canvas + status height so the page doesn't scroll at 1440 × 900. */
-  max-height: 720px;
-  overflow-y: auto;
-  padding: 14px;
+  min-height: 360px;
   background: var(--csl-card);
   border: 1px solid var(--csl-border);
   border-radius: 12px;
+}
+/* Fills the panel, which stretches to the canvas column's height, and scrolls inside it. */
+.csl-bpanel__scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;

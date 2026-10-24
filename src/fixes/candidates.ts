@@ -182,6 +182,19 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
         what: `When several requests miss the cache for the same key at once, ${name(tier.id)} makes one read and shares the result.`,
       };
     }
+    case 'moreConsumers': {
+      const id = signals.queueBacklog?.tier;
+      const tier = id === undefined ? undefined : tierById(config, id);
+      if (!tier?.queue || !tier.downstream) return null;
+      const consumers = tier.queue.consumers * FIX_SETTINGS.consumerFactor;
+      return {
+        config: withTier(config, tier.id, { queue: { ...tier.queue, consumers } }),
+        caller: tier.id,
+        target: tier.downstream.target,
+        where: `${name(tier.id)}, ${tier.queue.consumers} → ${consumers} consumers`,
+        what: `${name(tier.id)} hands out ${consumers} messages at once instead of ${tier.queue.consumers}.`,
+      };
+    }
     case 'longerTimeout': {
       const id = bottleneck(signals);
       const ref = id === null ? null : callInto(config, id);
@@ -264,6 +277,11 @@ export function describeSignal(signal: keyof Signals, s: Signals, config: RunCon
     case 'cacheHitDrop': {
       const { tier, value } = s.cacheHitDrop!;
       return `${name(tier)} hit rate fell from ${percent(value.before)} to ${percent(value.during)}`;
+    }
+    case 'queueBacklog': {
+      const { tier, value } = s.queueBacklog!;
+      const busy = value.consumersBusy >= 0.99 ? ', with every consumer busy' : '';
+      return `up to ${Math.round(value.peak).toLocaleString('en-US')} messages waited in ${name(tier)}${busy}`;
     }
   }
 }

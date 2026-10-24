@@ -219,14 +219,13 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
   );
 }
 
-function EdgeSettings({ graph, edge, onChange, onDelete }: Pick<SettingsPanelProps, 'graph' | 'onChange' | 'onDelete'> & { edge: BuilderEdge }) {
-  const { from, to } = edgeEnds(graph, edge);
+function EdgeSettings({ edge, from, to, graph, onChange, onDelete }: Pick<SettingsPanelProps, 'graph' | 'onChange' | 'onDelete'> & { edge: BuilderEdge; from: BuilderNode; to: BuilderNode }) {
   const c = edge.call;
   const set = (patch: Partial<BuilderEdge['call']>) => onChange(updateCall(graph, edge.id, patch));
-  const fromName = from ? displayName(from) : edge.from;
-  const toName = to ? displayName(to) : edge.to;
+  const fromName = displayName(from);
+  const toName = displayName(to);
   // When the timeout is switched back on, start from the usual value for this pair.
-  const usualTimeout = (from && to && defaultCall(from.settings.kind, to.settings.kind).timeoutMs) || 1000;
+  const usualTimeout = defaultCall(from.settings.kind, to.settings.kind).timeoutMs ?? 1000;
 
   return (
     <>
@@ -264,12 +263,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const { graph, selection } = props;
   const node = selection?.type === 'node' ? graph.nodes.find((n) => n.id === selection.id) : undefined;
   const edge = selection?.type === 'edge' ? graph.edges.find((e) => e.id === selection.id) : undefined;
+  const ends = edge ? edgeEnds(graph, edge) : {};
 
   return (
     <aside className="csl-bpanel" aria-label="Settings">
+      {/* The panel is as tall as the canvas column and scrolls inside, so it never makes the page scroll. */}
+      <div className="csl-bpanel__scroll">
       {node && <NodeSettings key={node.id} {...props} node={node} />}
-      {edge && <EdgeSettings key={edge.id} {...props} edge={edge} />}
-      {!node && !edge && (
+      {edge && ends.from && ends.to && <EdgeSettings key={edge.id} {...props} edge={edge} from={ends.from} to={ends.to} />}
+      {!node && !(edge && ends.from && ends.to) && (
         <div className="csl-bpanel__intro">
           <h3 className="csl-bpanel__title">Settings</h3>
           <p>Select a box or an arrow's label to change its settings.</p>
@@ -280,6 +282,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
           </ul>
         </div>
       )}
+      </div>
     </aside>
   );
 }

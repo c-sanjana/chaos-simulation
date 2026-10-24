@@ -25,6 +25,13 @@ export interface Signals {
   idleSaturation: Signal | null;
   /** Cache hit rate during the incident vs before it. */
   cacheHitDrop: Signal<{ before: number; during: number }> | null;
+  /**
+   * The message queue whose backlog grew most during the incident: its peak (messages waiting),
+   * what was still waiting at the end of the judged range, the busiest its consumers got (share
+   * of the pool) and the messages it dead-lettered. Only when more messages waited than the
+   * consumers can hold at once.
+   */
+  queueBacklog: Signal<{ peak: number; atEnd: number; consumersBusy: number; deadLettered: number }> | null;
 }
 
 export function computeSignals(run: RunResult, config: RunConfig, recovery: RecoveryResult): Signals {
@@ -88,5 +95,17 @@ export function computeSignals(run: RunResult, config: RunConfig, recovery: Reco
       }),
   );
 
-  return { retryShare, wastedShare, queueWaitOverTimeout, idleSaturation, cacheHitDrop };
+  const queueBacklog = worst(
+    tiers
+      .filter((t) => t.consumers > 0)
+      .map((t) => {
+        let peak = 0;
+        let busy = 0;
+        for (let s = from; s < to; s++) (peak = Math.max(peak, t.backlogAvg[s])), (busy = Math.max(busy, t.busyConsumersAvg[s] / t.consumers));
+        const value = { peak, atEnd: t.backlogAvg[Math.max(from, to - 1)] ?? 0, consumersBusy: busy, deadLettered: sumRange(t.deadLettered, from, to) };
+        return { tier: t.id, value, score: peak > t.consumers ? peak : 0 };
+      }),
+  );
+
+  return { retryShare, wastedShare, queueWaitOverTimeout, idleSaturation, cacheHitDrop, queueBacklog };
 }

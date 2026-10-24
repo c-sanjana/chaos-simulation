@@ -10,7 +10,7 @@ import { FIX_CATALOG, type FixDefinition, type FixKind } from './catalog';
 
 const labels = Object.fromEntries(Object.entries(webChain.layout).map(([id, l]) => [id, l.label]));
 const def = (kind: FixKind): FixDefinition => FIX_CATALOG.find((d) => d.kind === kind)!;
-const noSignals: Signals = { retryShare: null, wastedShare: null, queueWaitOverTimeout: null, idleSaturation: null, cacheHitDrop: null };
+const noSignals: Signals = { retryShare: null, wastedShare: null, queueWaitOverTimeout: null, idleSaturation: null, cacheHitDrop: null, queueBacklog: null };
 const signalsWith = (s: Partial<Signals>): Signals => ({ ...noSignals, ...s });
 
 /** Paths of every leaf value that differs between two plain-data values. */
@@ -23,7 +23,7 @@ function diffPaths(a: unknown, b: unknown, path = ''): string[] {
 
 describe('FIX_CATALOG', () => {
   it('has one entry per kind, unique ids, a short tab name, and one-line pros and cons', () => {
-    const kinds: FixKind[] = ['retryBudget', 'capRetries', 'jitterBackoff', 'retryOneLayer', 'boundQueue', 'dropExpired', 'coalesceMisses', 'longerTimeout', 'addInstances'];
+    const kinds: FixKind[] = ['retryBudget', 'capRetries', 'jitterBackoff', 'retryOneLayer', 'boundQueue', 'dropExpired', 'coalesceMisses', 'moreConsumers', 'longerTimeout', 'addInstances'];
     expect(FIX_CATALOG.map((d) => d.kind).sort()).toEqual([...kinds].sort());
     expect(new Set(FIX_CATALOG.map((d) => d.id)).size).toBe(FIX_CATALOG.length);
     for (const d of FIX_CATALOG) {
@@ -68,7 +68,7 @@ describe('on the stuck retry storm, retrying at one layer (3 API → DB retries)
   const signals = analysis.signals;
   const snapshot = structuredClone(config);
 
-  const expectedChange: Record<Exclude<FixKind, 'retryOneLayer'>, [string, unknown]> = {
+  const expectedChange: Record<Exclude<FixKind, 'retryOneLayer' | 'moreConsumers'>, [string, unknown]> = {
     retryBudget: ['tiers.1.downstream.retryBudget', 0.1],
     capRetries: ['tiers.1.downstream.retries', 1],
     jitterBackoff: ['tiers.1.downstream.jitter', true],
@@ -79,7 +79,8 @@ describe('on the stuck retry storm, retrying at one layer (3 API → DB retries)
     addInstances: ['tiers.1.instances', 6],
   };
 
-  const oneSetting = FIX_CATALOG.filter((d) => d.kind !== 'retryOneLayer').map((d) => [d.kind as Exclude<FixKind, 'retryOneLayer'>, d] as const);
+  // No queue here, so no consumers to add (see candidates.queue.test.ts).
+  const oneSetting = FIX_CATALOG.filter((d) => d.kind !== 'retryOneLayer' && d.kind !== 'moreConsumers').map((d) => [d.kind as Exclude<FixKind, 'retryOneLayer' | 'moreConsumers'>, d] as const);
   it.each(oneSetting)('applyFix(%s) changes exactly one setting and leaves the original alone', (kind, d) => {
     const patched = applyFix(d, config, signals)!;
     expect(patched).not.toBeNull();
@@ -152,7 +153,7 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Gate
   const byId = Object.fromEntries(candidates.map((c) => [c.id, c]));
 
   it('suggests every fix, retrying at one layer included', () => {
-    expect(candidates.map((c) => c.id)).toEqual(FIX_CATALOG.map((d) => d.id));
+    expect(candidates.map((c) => c.id)).toEqual(FIX_CATALOG.filter((d) => d.kind !== 'moreConsumers').map((d) => d.id)); // no queue here
     // Retries arrived mostly at the Gateway (users' repeats), but the DB is where the pile is.
     expect(analysis.signals.retryShare!.tier).toBe('gateway');
     expect(analysis.signals.queueWaitOverTimeout!.tier).toBe('db');
