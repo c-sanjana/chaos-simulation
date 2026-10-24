@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { CheckboxField, NumberField } from './Fields';
+import { CheckboxField, limitsMessage, NumberField } from './Fields';
 
 describe('NumberField', () => {
   it('is a labelled number input showing value and unit', () => {
@@ -7,7 +7,7 @@ describe('NumberField', () => {
     const input = screen.getByRole('spinbutton', { name: 'User traffic req/s' }) as HTMLInputElement;
     expect(input.value).toBe('200');
     expect(input.min).toBe('1');
-    expect(input.step).toBe('10');
+    expect(input.step).toBe('10'); // an explicit step wins
     expect(input.getAttribute('aria-invalid')).toBe('false');
     expect(screen.getByText('req/s')).toBeTruthy();
   });
@@ -42,6 +42,34 @@ describe('NumberField', () => {
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '-4' } });
     expect(onChange).toHaveBeenCalledWith(-4);
     expect(container.querySelector('.csl-field__unit')).toBeNull();
+  });
+});
+
+describe('NumberField limits', () => {
+  it('explains an out-of-range or fractional value under the field, linked for screen readers', () => {
+    const onChange = vi.fn();
+    render(<NumberField label="Retries" value={3} onChange={onChange} min={0} max={10} integer />);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    expect(input.step).toBe('1');
+    expect(input.max).toBe('10');
+    for (const bad of ['11', '2.5', '-1']) {
+      fireEvent.change(input, { target: { value: bad } });
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    const message = screen.getByText('Enter a whole number from 0 to 10');
+    expect(input.getAttribute('aria-describedby')).toBe(message.id);
+    fireEvent.change(input, { target: { value: '7' } });
+    expect(onChange).toHaveBeenCalledWith(7);
+    expect(screen.queryByText(/Enter a whole number/)).toBeNull();
+  });
+
+  it('words every kind of limit, and allows any step for decimals', () => {
+    expect(limitsMessage({ min: 1 })).toBe('Enter a number of at least 1');
+    expect(limitsMessage({ max: 5, integer: true })).toBe('Enter a whole number of at most 5');
+    expect(limitsMessage({})).toBe('Enter a number');
+    render(<NumberField label="Skew" value={0.8} onChange={() => {}} min={0} />);
+    expect((screen.getByRole('spinbutton') as HTMLInputElement).step).toBe('any');
   });
 });
 

@@ -1,5 +1,8 @@
+import { buildRunConfig } from '../data/buildConfig';
+import { retryStorm } from '../data/scenarios';
+import { webChain } from '../data/topologies';
 import { call, singleTier, tier } from '../engine/testConfigs';
-import type { RunConfig } from '../engine/config';
+import type { Fault, RunConfig } from '../engine/config';
 import { controlConfig, maxRequestMs } from './recovery';
 import { analyzed, retryStormRun } from './testRuns';
 
@@ -60,6 +63,55 @@ describe('assessRecovery', { timeout: 60_000 }, () => {
     const r = analyzed(config).analysis.recovery;
     expect(r.judgedUntilMs).toBe(20_000);
     expect(r.verdict).toBe('recovered');
+  });
+});
+
+describe('assessRecovery judges only what happened inside the run', { timeout: 60_000 }, () => {
+  /** The default retry storm (DB 8× slower, 3 API → DB retries), with a different length and failure. */
+  const storm = (durationMs: number, fault: Partial<Fault>): RunConfig => {
+    const config = buildRunConfig(webChain, retryStorm);
+    return { ...config, durationMs, faults: [{ ...config.faults![0], ...fault }] };
+  };
+
+  it('a failure starting after the run ends leaves the run unaffected', () => {
+    const { analysis } = analyzed(storm(30_000, { startMs: 40_000, endMs: 45_000 }));
+    expect(analysis.recovery).toMatchObject({ verdict: 'unaffected', recoveredAtMs: null, recoveryMs: null, failedRequests: 0, judgedUntilMs: 30_000, lastFaultEndMs: 45_000 });
+    // Nothing on the timeline after the run, and no failure that never happened.
+    expect(analysis.timeline).toEqual([{ tMs: 30_000, text: 'Stayed within the normal range throughout', kind: 'good' }]);
+  });
+
+  it('a 30 s run with the failure at 30–35 s is unaffected: the failure starts as the run ends', () => {
+    const { analysis } = analyzed(storm(30_000, { startMs: 30_000, endMs: 35_000 }));
+    expect(analysis.recovery).toMatchObject({ verdict: 'unaffected', failedRequests: 0, judgedUntilMs: 30_000 });
+    expect(analysis.timeline.every((e) => e.tMs <= 30_000)).toBe(true);
+    expect(analysis.timeline.map((e) => e.text)).not.toContain('DB slows 8× (injected failure)');
+  });
+
+  it('a failure ending at the very end is judged up to the end, and its control is not overloaded', () => {
+    // Requests arriving in the last 3 s may still be running when the run ends, in the control too:
+    // they must not count as the control failing.
+    const { analysis } = analyzed(storm(40_000, { startMs: 30_000, endMs: 40_000 }));
+    const r = analysis.recovery;
+    expect(r).toMatchObject({ verdict: 'stuck', judgedUntilMs: 40_000, lastFaultEndMs: 40_000, recoveredAtMs: null });
+    expect(r.failedRequests).toBeGreaterThan(0);
+    expect(analysis.timeline.at(-1)).toEqual({ tMs: 40_000, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' });
+    expect(analysis.timeline.some((e) => e.text.startsWith('Failure ends'))).toBe(false);
+  });
+
+  it('a failure lasting past the end is judged only up to the end', () => {
+    const { analysis } = analyzed(storm(40_000, { startMs: 30_000, endMs: 50_000 }));
+    expect(analysis.recovery).toMatchObject({ verdict: 'stuck', judgedUntilMs: 40_000, lastFaultEndMs: 50_000 });
+    expect(analysis.timeline.every((e) => e.tMs <= 40_000 && (e.endMs ?? 0) <= 40_000)).toBe(true);
+  });
+
+  it('a harmless failure ending at the very end leaves the run unaffected, not overloaded', () => {
+    const config: RunConfig = {
+      ...singleTier(100, { kind: 'fixed', ms: 50 }, 30_000, { workersPerInstance: 20 }, { timeoutMs: 1000 }),
+      faults: [{ tier: 'svc', kind: 'slow', factor: 1.01, startMs: 25_000, endMs: 30_000 }],
+    };
+    const { analysis, control } = analyzed(config);
+    expect(control.client.requests.status).toContain(2); // a request cut off by the end of the control run
+    expect(analysis.recovery).toMatchObject({ verdict: 'unaffected', judgedUntilMs: 30_000, failedRequests: 0 });
   });
 });
 

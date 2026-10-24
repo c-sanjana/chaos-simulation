@@ -1,28 +1,48 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
-function parseValid(raw: string, min: number | undefined): number | null {
-  const n = Number(raw);
-  return raw.trim() !== '' && Number.isFinite(n) && (min === undefined || n >= min) ? n : null;
+interface Limits {
+  min?: number;
+  max?: number;
+  /** Whole numbers only. */
+  integer?: boolean;
 }
 
-export interface NumberFieldProps {
+function parseValid(raw: string, { min, max, integer }: Limits): number | null {
+  const n = Number(raw);
+  const ok = raw.trim() !== '' && Number.isFinite(n) && (min === undefined || n >= min) && (max === undefined || n <= max) && (!integer || Number.isInteger(n));
+  return ok ? n : null;
+}
+
+/** e.g. "Enter a whole number from 0 to 10", "Enter a number of at least 1". */
+export function limitsMessage({ min, max, integer }: Limits): string {
+  const what = integer ? 'a whole number' : 'a number';
+  if (min !== undefined && max !== undefined) return `Enter ${what} from ${min} to ${max}`;
+  if (min !== undefined) return `Enter ${what} of at least ${min}`;
+  if (max !== undefined) return `Enter ${what} of at most ${max}`;
+  return `Enter ${what}`;
+}
+
+export interface NumberFieldProps extends Limits {
   label: string;
   value: number;
   unit?: string;
   onChange: (value: number) => void;
-  min?: number;
+  /** Spinner step; defaults to 1 for whole numbers, otherwise any value is allowed. */
   step?: number;
 }
 
 /**
- * Labelled number input styled like the settings mockup. While the user is typing, the raw
- * text is kept locally so a half-typed value ("", "-", "1.") is not forced back to a number;
- * onChange fires only for valid numbers (at or above `min`). On blur the field shows `value` again.
+ * Labelled number input. While the user is typing, the raw text is kept locally so a half-typed
+ * value ("", "-", "1.") is not forced back to a number; onChange fires only for valid numbers.
+ * An invalid value is marked and explained under the field (and blocks the form it is in, through
+ * the input's native min/max/step validity); on blur the field shows the last valid value again.
  */
-export function NumberField({ label, value, unit, onChange, min, step }: NumberFieldProps) {
+export function NumberField({ label, value, unit, onChange, min, max, integer, step }: NumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
+  const id = useId();
   const shown = draft ?? String(value);
-  const valid = parseValid(shown, min) !== null;
+  const limits = { min, max, integer };
+  const valid = parseValid(shown, limits) !== null;
 
   return (
     <label className="csl-field">
@@ -34,18 +54,25 @@ export function NumberField({ label, value, unit, onChange, min, step }: NumberF
           inputMode="decimal"
           value={shown}
           min={min}
-          step={step}
+          max={max}
+          step={step ?? (integer ? 1 : 'any')}
           aria-invalid={!valid}
+          aria-describedby={valid ? undefined : `${id}-error`}
           onChange={(e) => {
             const raw = e.target.value;
             setDraft(raw);
-            const n = parseValid(raw, min);
+            const n = parseValid(raw, limits);
             if (n !== null) onChange(n);
           }}
           onBlur={() => setDraft(null)}
         />
         {unit && <span className="csl-field__unit">{unit}</span>}
       </span>
+      {!valid && (
+        <span className="csl-field__error" id={`${id}-error`}>
+          {limitsMessage(limits)}
+        </span>
+      )}
     </label>
   );
 }

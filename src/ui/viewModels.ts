@@ -40,8 +40,31 @@ const arrivals = (t: TierSeries, b: number) => t.arrivalsFirst[b] + t.arrivalsRe
 const BAD_ERROR_SHARE = 0.05;
 const BAD_CLIENT_ERRORS = 0.01;
 
-/** The topology diagram at time `tMs`: per-tier stats and per-call arrows. */
-export function topologyView(topology: TopologyPreset, config: RunConfig, run: RunResult, tMs: number): { nodes: TopologyNodeView[]; edges: TopologyEdgeView[] } {
+/** A setting a fix changed, as listed by fixes/changes.ts (a tier's own setting, or a call's). */
+export interface ChangeLabel {
+  tier?: string;
+  call?: { from: string; to: string };
+  text: string;
+}
+
+/** The injected failure on `tierId` at `tMs`, as a badge (e.g. "⚡ 8× slower"), or undefined. */
+export function activeFault(config: RunConfig, tierId: string, tMs: number): string | undefined {
+  const f = (config.faults ?? []).find((x) => x.tier === tierId && tMs >= x.startMs && tMs < x.endMs);
+  if (!f) return undefined;
+  return f.kind === 'slow' ? `⚡ ${f.factor}× slower` : '⚡ down';
+}
+
+/**
+ * The topology diagram at time `tMs`: per-tier stats and per-call arrows. `changes` (compare mode,
+ * "after" side) labels what the applied fix changed on each tier or call.
+ */
+export function topologyView(
+  topology: TopologyPreset,
+  config: RunConfig,
+  run: RunResult,
+  tMs: number,
+  changes: ChangeLabel[] = [],
+): { nodes: TopologyNodeView[]; edges: TopologyEdgeView[] } {
   const b = bucketAt(run, tMs);
   const c = run.client;
   const clientErrors = c.failed[b] / Math.max(1, c.ok[b] + c.failed[b]);
@@ -73,7 +96,10 @@ export function topologyView(topology: TopologyPreset, config: RunConfig, run: R
     if (tc.cache) lines = [`hit rate ${pct(t.hits[b] / Math.max(1, t.ok[b]))}`, `p99 ${Number.isNaN(t.latencyP99Ms[b]) ? '—' : formatMs(t.latencyP99Ms[b])}`];
     else if (leaf) lines = [`${Math.round(perSecond(run, arrivals(t, b)))} rps in`, `CPU ${pct(cpu)}`];
     else lines = [`workers ${pct(busy)}`, `CPU ${pct(cpu)}`];
-    const bad = busy >= 0.99 || errorShare(t, b) > BAD_ERROR_SHARE || (leaf && cpu >= 0.99) || (timeout !== null && t.latencyP99Ms[b] > timeout);
+    // Overloaded: all workers (or a leaf's cores) busy, or answers slower than the caller waits.
+    const overloaded = busy >= 0.99 || (leaf && cpu >= 0.99) || (timeout !== null && t.latencyP99Ms[b] > timeout);
+    const bad = overloaded || errorShare(t, b) > BAD_ERROR_SHARE;
+    const change = changes.filter((x) => x.tier === tc.id).map((x) => x.text).join(', ');
     nodes.push({
       id: tc.id,
       label: layout.label,
@@ -87,9 +113,16 @@ export function topologyView(topology: TopologyPreset, config: RunConfig, run: R
       errorShare: errorShare(t, b),
       rps: perSecond(run, arrivals(t, b)),
       busy,
+      fault: activeFault(config, tc.id, tMs),
+      overloaded,
+      change: change || undefined,
     });
   }
-  return { nodes, edges: edgesAt(topology, config, run, b) };
+  const edges = edgesAt(topology, config, run, b).map((e) => {
+    const change = changes.filter((x) => x.call && e.id === `${x.call.from}-${x.call.to}`).map((x) => x.text).join(', ');
+    return change ? { ...e, change } : e;
+  });
+  return { nodes, edges };
 }
 
 function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b: number): TopologyEdgeView[] {
@@ -151,22 +184,64 @@ export function bottleneckTier(config: RunConfig, run: RunResult): string {
   return best;
 }
 
-/** Tier whose workers were busiest on average: the natural default for "Workers & CPU". */
+/** Tier whose workers were busiest on average. */
 export function busiestTier(run: RunResult): string {
   const mean = (t: TierSeries) => t.busyWorkersAvg.reduce((a, v) => a + v, 0) / t.busyWorkersAvg.length / t.workers;
   return Object.values(run.tiers).reduce((a, t) => (mean(t) > mean(a) ? t : a)).id;
 }
 
-export interface ChartView {
-  spec: ChartSpec;
-  scopeLabel: string;
+/**
+ * Tier whose workers spent the most time occupied but not computing (workers busy minus CPU busy,
+ * averaged over the run): where "waiting, not working" shows. The default for "Workers & CPU".
+ */
+export function waitingTier(run: RunResult): string {
+  const mean = (xs: number[]) => xs.reduce((a, v) => a + v, 0) / Math.max(1, xs.length);
+  const gap = (t: TierSeries) => mean(t.busyWorkersAvg) / t.workers - mean(t.busyCoresAvg) / t.cores;
+  return Object.values(run.tiers).reduce((a, t) => (gap(t) > gap(a) ? t : a)).id;
 }
 
 /**
- * The chart for a metric tab. `scope` is the selected tier (null or 'client' = end to end).
- * With `after`, shows the primary series before (grey) and after (blue) a fix.
+ * How long users waited for an answer, success or error, per second of arrival: the slowest 1% (p99)
+ * and the typical (median) request. Unlike the success-only latency, this rises when requests fail
+ * by timing out, instead of looking fast because only a few quick requests got through.
+ * NaN for seconds where no request finished.
  */
-export function chartView(tab: MetricTab, config: RunConfig, run: RunResult, labels: Record<string, string>, scope: string | null, after?: RunResult, playheadS?: number): ChartView {
+export function answerTimes(run: RunResult): { p50: number[]; p99: number[] } {
+  const { arrivalMs, latencyMs } = run.client.requests;
+  const buckets: number[][] = run.client.sent.map(() => []);
+  for (let i = 0; i < arrivalMs.length; i++) {
+    if (!Number.isNaN(latencyMs[i])) buckets[Math.min(buckets.length - 1, Math.floor(arrivalMs[i] / run.bucketMs))]?.push(latencyMs[i]);
+  }
+  const quantile = (sorted: number[], q: number) => (sorted.length === 0 ? NaN : sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)]);
+  const sorted = buckets.map((b) => b.sort((x, y) => x - y));
+  return { p50: sorted.map((b) => quantile(b, 0.5)), p99: sorted.map((b) => quantile(b, 0.99)) };
+}
+
+export interface ChartView {
+  spec: ChartSpec;
+  /** What the chart shows, e.g. "DB" or "end to end, as users see it". */
+  scopeLabel: string;
+  /** Name for the default ("client") scope option: the tier it really shows on tabs that can't be end to end. */
+  defaultScopeLabel: string;
+}
+
+/**
+ * The chart for a metric tab. `scope` is the selected tier (null or 'client' = the tab's default:
+ * end to end where that makes sense, otherwise the most telling tier).
+ * With `after`, shows the primary series before (grey) and after (blue) a fix; "Load & retries"
+ * instead keeps the first-attempts vs retries split of the run being shown (`shownAfter`), with the
+ * other run's total as a dashed line, because that split is what the fix changes.
+ */
+export function chartView(
+  tab: MetricTab,
+  config: RunConfig,
+  run: RunResult,
+  labels: Record<string, string>,
+  scope: string | null,
+  after?: RunResult,
+  playheadS?: number,
+  shownAfter = true,
+): ChartView {
   const xsSeconds = run.client.sent.map((_, i) => (i * run.bucketMs) / 1000);
   const failureWindows = (config.faults ?? []).map((f) => [f.startMs / 1000, f.endMs / 1000] as [number, number]);
   const tierScope = scope && scope !== 'client' ? scope : null;
@@ -181,6 +256,7 @@ export function chartView(tab: MetricTab, config: RunConfig, run: RunResult, lab
   let series: TimeSeries[];
   let unit: string;
   let scopeLabel: string;
+  let defaultScopeLabel = 'End to end (users)';
 
   switch (tab) {
     case 'throughput':
@@ -189,27 +265,44 @@ export function chartView(tab: MetricTab, config: RunConfig, run: RunResult, lab
       series = [...pair('Succeeded', (r) => rate(r.client.ok)), ref('User traffic (sent)', rate(run.client.sent))];
       break;
     case 'load': {
-      const id = tierScope ?? bottleneckTier(config, run);
+      const bottleneck = bottleneckTier(config, run);
+      const id = tierScope ?? bottleneck;
       unit = 'rps';
       scopeLabel = name(id);
+      defaultScopeLabel = `${name(bottleneck)} (most overloaded)`;
       const capacity = leafCapacityRps(tierConfig(config, id));
       const total = (r: RunResult) => r.tiers[id].arrivalsFirst.map((f, b) => perSecond(r, f + r.tiers[id].arrivalsRetry[b]));
-      series = after
-        ? pair(`${name(id)} load`, total)
-        : [
-            { label: 'First attempts', values: rate(run.tiers[id].arrivalsFirst), color: COLORS.primary, area: true },
-            { label: 'Retries', values: rate(run.tiers[id].arrivalsRetry), color: COLORS.bad, area: true },
-          ];
+      const shown = after && shownAfter ? after : run;
+      const other = after ? (shownAfter ? run : after) : null;
+      series = [
+        { label: 'First attempts', values: shown.tiers[id].arrivalsFirst.map((f) => perSecond(shown, f)), color: COLORS.primary, area: true },
+        { label: 'Retries (repeats)', values: shown.tiers[id].arrivalsRetry.map((f) => perSecond(shown, f)), color: COLORS.bad, area: true },
+      ];
+      if (other) series.push({ label: shownAfter ? 'Total before the fix' : 'Total after the fix', values: total(other), color: COLORS.before, dashed: true });
       if (capacity !== null) series.push(ref(`${name(id)} capacity`, flat(capacity)));
       break;
     }
     case 'latency': {
       unit = 'ms';
-      const p = (r: RunResult, q: 'latencyP99Ms' | 'latencyP50Ms') => (tierScope ? r.tiers[tierScope][q] : r.client[q]);
-      scopeLabel = tierScope ? name(tierScope) : 'end to end';
-      series = after ? pair('p99', (r) => p(r, 'latencyP99Ms')) : [{ label: 'p99', values: p(run, 'latencyP99Ms'), color: COLORS.primary }, { label: 'p50', values: p(run, 'latencyP50Ms'), color: COLORS.secondary }];
-      const timeout = tierScope ? (callerOf(config, tierScope)?.timeoutMs ?? null) : config.client.call.timeoutMs;
-      if (timeout !== null) series.push(ref(`Timeout (${formatMs(timeout)})`, flat(timeout)));
+      if (tierScope) {
+        // A tier's own response times (of the requests it completed).
+        const p = (r: RunResult, q: 'latencyP99Ms' | 'latencyP50Ms') => r.tiers[tierScope][q];
+        scopeLabel = name(tierScope);
+        series = after
+          ? pair('Slowest 1% (p99)', (r) => p(r, 'latencyP99Ms'))
+          : [{ label: 'Slowest 1% (p99)', values: p(run, 'latencyP99Ms'), color: COLORS.primary }, { label: 'Typical (median)', values: p(run, 'latencyP50Ms'), color: COLORS.secondary }];
+      } else {
+        scopeLabel = 'end to end: time until users got an answer, errors included';
+        series = after
+          ? pair('Slowest 1% wait', (r) => answerTimes(r).p99)
+          : [
+              { label: 'Slowest 1% wait (p99)', values: answerTimes(run).p99, color: COLORS.primary },
+              { label: 'Typical wait (median)', values: answerTimes(run).p50, color: COLORS.secondary },
+            ];
+      }
+      const caller = tierScope ? callerOf(config, tierScope) : config.client.call;
+      const callerName = tierScope ? name(callerOwner(config, tierScope)) : 'User';
+      if (caller && caller.timeoutMs !== null) series.push(ref(`${callerName} gives up after ${formatMs(caller.timeoutMs)}`, flat(caller.timeoutMs)));
       break;
     }
     case 'errors': {
@@ -223,9 +316,11 @@ export function chartView(tab: MetricTab, config: RunConfig, run: RunResult, lab
       break;
     }
     case 'workers': {
-      const id = tierScope ?? busiestTier(run);
+      const waiting = waitingTier(run);
+      const id = tierScope ?? waiting;
       unit = '%';
       scopeLabel = name(id);
+      defaultScopeLabel = `${name(waiting)} (most workers waiting)`;
       const share = (r: RunResult, key: 'busyWorkersAvg' | 'busyCoresAvg', of: number) => r.tiers[id][key].map((v) => (100 * v) / of);
       const t = run.tiers[id];
       series = after
@@ -242,7 +337,14 @@ export function chartView(tab: MetricTab, config: RunConfig, run: RunResult, lab
   return {
     spec: { xsSeconds, series, unit, yMax, failureWindows, playheadS, ariaLabel: `${label} (${scopeLabel}) over ${Math.round(run.durationMs / 1000)} seconds${after ? ', before and after the fix' : ''}` },
     scopeLabel,
+    defaultScopeLabel,
   };
+}
+
+/** The id of the tier (or 'client') that calls `tierId`. */
+function callerOwner(config: RunConfig, tierId: string): string {
+  if (config.client.call.target === tierId) return 'client';
+  return config.tiers.find((t) => t.downstream?.target === tierId || t.cacheAside?.target === tierId)?.id ?? 'client';
 }
 
 export function timelineView(analysis: Analysis): TimelineEntryView[] {

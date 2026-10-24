@@ -31,10 +31,10 @@ export const tourStops: TourStop[] = [
     body: 'Play or scrub; the diagram and the metric charts update as it plays.',
   },
   {
-    target: 'timeline',
+    target: 'story',
     screen: 0,
-    title: 'Why it happened',
-    body: 'Explained with the run’s own numbers. Newest events on top; failures highlighted.',
+    title: 'What’s happening',
+    body: 'The story in plain words, revealed as the replay reaches each step.',
   },
   {
     target: 'map',

@@ -27,6 +27,8 @@
   --csl-bad-text: #b23f00;
   --csl-failure-tint: rgba(232, 89, 12, 0.14);
   --csl-good: #2f9e6e;
+  --csl-good-text: #1a7f52;
+  --csl-warn-text: #9a6700;
   --csl-info-dot: #aeb4bc;
   --csl-focus: #1f6feb;
   --csl-selected-ring: rgba(31, 111, 235, 0.35);
@@ -81,6 +83,8 @@
   --csl-bad-text: #ff9b5c;
   --csl-failure-tint: rgba(240, 116, 44, 0.2);
   --csl-good: #3fb984;
+  --csl-good-text: #3fb984;
+  --csl-warn-text: #e3b341;
   --csl-info-dot: #6e7681;
   --csl-focus: #4c8dff;
   --csl-selected-ring: rgba(76, 141, 255, 0.45);
@@ -1133,10 +1137,19 @@ button.csl-map__cell {
   background: var(--csl-alert-bg);
   box-shadow: inset 3px 0 0 var(--csl-bad);
 }
+/* The newest entry: a tinted background and a "NOW" tag, not an outline (which read as keyboard focus). */
 .csl-timeline__item--latest {
-  outline: 2px solid var(--csl-primary);
-  outline-offset: -2px;
+  background: var(--csl-selected-bg);
   animation: csl-timeline-in 0.35s ease-out;
+}
+.csl-timeline__item--latest .csl-timeline__time::after {
+  content: 'now';
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--csl-primary);
 }
 @keyframes csl-timeline-in {
   from { transform: translateY(-6px); opacity: 0; }
@@ -1501,7 +1514,7 @@ button.csl-map__cell {
   text-align: left;
 }
 .csl-fixtab__mark {
-  color: var(--csl-good);
+  color: var(--csl-good-text);
   font-weight: 700;
 }
 .csl-fixtab__badge {
@@ -1522,8 +1535,21 @@ button.csl-map__cell {
   border-color: var(--csl-ink);
   box-shadow: 0 0 0 1px var(--csl-ink);
 }
-.csl-fixtab--applied {
+.csl-fixtab[aria-selected='true'] {
   background: var(--csl-selected-bg);
+}
+.csl-fixtab--unreliable .csl-fixtab__mark,
+.csl-fixtabs__warn {
+  color: var(--csl-warn-text);
+}
+.csl-fixtabs__where {
+  color: var(--csl-muted);
+  font-size: 12.5px;
+}
+.csl-fixtabs__shown {
+  flex: none;
+  font-size: 11.5px;
+  padding: 4px 8px;
 }
 .csl-fixtabs__panel {
   display: flex;
@@ -1571,7 +1597,7 @@ button.csl-map__cell {
   margin: 0;
 }
 .csl-fixtabs__good {
-  color: var(--csl-good);
+  color: var(--csl-good-text);
 }
 .csl-fixtabs__bad {
   color: var(--csl-bad-text);
@@ -1613,10 +1639,10 @@ button.csl-map__cell {
   font-weight: 700;
 }
 .csl-procon--good .csl-procon__sign {
-  color: var(--csl-good);
+  color: var(--csl-good-text);
 }
 .csl-procon--bad .csl-procon__sign {
-  color: var(--csl-bad);
+  color: var(--csl-bad-text);
 }
 .csl-fix-maps__hint {
   font-size: 12px;
@@ -1766,4 +1792,95 @@ button.csl-map__cell {
   font-size: 12px;
   padding: 0;
   min-height: 0;
+}
+
+/* ---------- Plain-language story (step 1) ---------- */
+.csl-story {
+  flex: none;
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  background: var(--csl-card);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.csl-story__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.csl-story__empty,
+.csl-story__ahead {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--csl-muted);
+}
+.csl-story__list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.csl-story__step::marker {
+  font-weight: 600;
+  color: var(--csl-muted);
+}
+.csl-story__step--fault,
+.csl-story__step--bad {
+  color: var(--csl-bad-text);
+}
+.csl-story__step--good {
+  color: var(--csl-good-text);
+}
+.csl-story__step--latest {
+  font-weight: 600;
+  animation: csl-timeline-in 0.35s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .csl-story__step--latest { animation: none; }
+}
+
+/* ---------- Guided pause after the failure (step 1) ---------- */
+.csl-player__chart {
+  position: relative;
+}
+.csl-guide {
+  position: absolute;
+  z-index: 2;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 24px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--csl-card);
+  border: 1px solid var(--csl-primary);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.csl-guide button {
+  flex: none;
+}
+
+/* ---------- Form messages ---------- */
+.csl-field__error {
+  font-size: 12px;
+  color: var(--csl-bad-text);
+}
+.csl-problems {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 8px;
+  background: var(--csl-alert-bg);
+  color: var(--csl-bad-text);
+  font-size: 13px;
 }

@@ -2,7 +2,8 @@
  * Topology diagram: request flow, retries and failures (see TopologyDiagram.tsx).
  * Base layout (grid, boxes, arrows) lives in theme.css; this file adds the "what is happening"
  * layer on top. Colour meanings: neutral = normal traffic, orange = retries / stressed,
- * red = failing. Every colour is a token, defined for the light and dark themes.
+ * red = failing, purple = the injected failure (root cause), outlined blue = changed by a fix.
+ * Every colour is a token, defined for the light and dark themes.
  * Animations only touch transform and opacity, and stop under prefers-reduced-motion.
  */
 
@@ -17,6 +18,12 @@
   --csl-retry-text: var(--csl-bad-text);
   --csl-retry-stripe: rgba(255, 255, 255, 0.35);
   --csl-flow-dash: rgba(255, 255, 255, 0.85);
+  --csl-fault: #8250df;
+  --csl-on-fault: #ffffff;
+  --csl-overload-bg: var(--csl-chip-bad-bg);
+  --csl-overload-ink: var(--csl-chip-bad-ink);
+  --csl-change-bg: #f3f8ff;
+  --csl-change-ink: #0b57d0;
 }
 
 :root[data-theme='dark'] {
@@ -28,11 +35,15 @@
   --csl-fail-ring: rgba(248, 81, 73, 0.45);
   --csl-retry-stripe: rgba(0, 0, 0, 0.3);
   --csl-flow-dash: rgba(15, 18, 22, 0.75);
+  --csl-fault: #8957e5;
+  --csl-on-fault: #ffffff;
+  --csl-change-bg: #15233a;
+  --csl-change-ink: #8ab8ff;
 }
 
-/* Room for the error badges and pulsing rings, which sit just outside the boxes. */
+/* Room for the badges (which straddle the top and bottom borders) and the pulsing rings. */
 .csl-topology-scroll {
-  padding: 10px 4px 4px;
+  padding: 10px 4px;
 }
 
 /* ---------- Boxes ---------- */
@@ -63,19 +74,74 @@
     opacity: 1;
   }
 }
-.csl-node__badge {
+/* Each box is a size container so badges can shorten on narrow boxes (see Compact below). */
+.csl-node {
+  container: csl-node / inline-size;
+}
+/* Badges sit on the top and bottom borders, one per corner, above the pulsing ring. Only the
+   "changed by the fix" tag shrinks (with an ellipsis; its full text is in its tooltip). */
+.csl-node__edge {
   position: absolute;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.csl-node__edge--top {
   top: -9px;
-  right: 10px;
-  padding: 1px 7px;
+}
+.csl-node__edge--bottom {
+  bottom: -9px;
+}
+.csl-node__fault,
+.csl-node__badge,
+.csl-node__overload,
+.csl-change {
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--csl-fail-solid);
-  color: var(--csl-on-fail);
   font-family: var(--csl-font-mono);
   font-size: 11px;
   font-weight: 600;
   line-height: 15px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Root cause: solid purple, distinct from the red "failing" badge. It keeps its full text; the
+   badge beside it shortens instead. */
+.csl-node__fault {
+  flex: none;
+  max-width: 100%;
+  background: var(--csl-fault);
+  color: var(--csl-on-fault);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.csl-node__badge,
+.csl-node__overload {
+  flex: none;
+  margin-left: auto;
+}
+.csl-node__badge {
+  background: var(--csl-fail-solid);
+  color: var(--csl-on-fail);
+}
+.csl-node__overload {
+  border-color: var(--csl-retry);
+  background: var(--csl-overload-bg);
+  color: var(--csl-overload-ink);
+}
+/* What a fix changed: a quiet outlined tag in the primary colour. */
+.csl-change {
+  border-color: var(--csl-primary);
+  background: var(--csl-change-bg);
+  color: var(--csl-change-ink);
+  font-family: var(--csl-font-sans);
+  font-weight: 500;
 }
 .csl-node--failing .csl-node__line {
   color: var(--csl-fail-text);
@@ -111,6 +177,23 @@
 }
 .csl-edge__shaft-row {
   position: relative;
+}
+/* Under the arrow (or under the text of a vertical arrow); may use the cell's side padding, and
+   wraps rather than hiding words. */
+.csl-edge__change {
+  align-self: center;
+  max-width: calc(100% + 12px);
+  margin: 0 -6px;
+  font-size: 10.5px;
+  line-height: 14px;
+  white-space: normal;
+  text-align: center;
+}
+.csl-edge--vertical .csl-edge__change {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0;
+  text-align: left;
 }
 .csl-edge__shaft {
   position: relative;
@@ -183,9 +266,43 @@
 }
 
 /* ---------- Key ---------- */
+/* Key line on top, the note under it, the actions (if any) on the right spanning both, so the key
+   adds almost no height next to a button. The key wraps only on narrow screens. */
+.csl-topology-key.csl-topology-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 14px;
+  margin-top: 4px;
+  line-height: 15px;
+}
+.csl-topology-foot--actions {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.csl-topology-foot__actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.csl-topology-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin: 0;
+}
+.csl-topology-legend__title {
+  font-weight: 600;
+  color: var(--csl-ink-2);
+}
+.csl-topology-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
 .csl-key-arrow {
   display: inline-block;
-  width: 22px;
+  width: 18px;
   height: 6px;
   border-radius: 2px;
   background: var(--csl-arrow);
@@ -193,29 +310,80 @@
 .csl-key-arrow--retry {
   background: repeating-linear-gradient(135deg, var(--csl-retry) 0 4px, var(--csl-retry-stripe) 4px 6px), var(--csl-retry);
 }
-.csl-key-fail {
+.csl-key-fail,
+.csl-key-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--csl-fail-solid);
-  color: var(--csl-on-fail);
+  min-width: 15px;
+  height: 15px;
+  box-sizing: border-box;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 700;
+  line-height: 1;
+}
+.csl-key-fail {
+  background: var(--csl-fail-solid);
+  color: var(--csl-on-fail);
+}
+.csl-key-chip--fault {
+  background: var(--csl-fault);
+  color: var(--csl-on-fault);
+}
+.csl-key-chip--overload {
+  border: 1px solid var(--csl-retry);
+  background: var(--csl-overload-bg);
+  color: var(--csl-overload-ink);
+}
+.csl-key-chip--change {
+  padding: 0 2px;
+  border: 1px solid var(--csl-primary);
+  background: var(--csl-change-bg);
+}
+.csl-key-squares {
+  display: inline-flex;
+  gap: 2px;
+}
+.csl-topology-legend .csl-instance {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
 }
 
 /* ---------- Compact ---------- */
-.csl-topology-grid--compact .csl-node__badge {
+.csl-topology-grid--compact .csl-node__edge {
+  left: 5px;
+  right: 5px;
+}
+.csl-topology-grid--compact .csl-node__edge--top {
   top: -8px;
-  right: 6px;
+}
+.csl-topology-grid--compact .csl-node__edge--bottom {
+  bottom: -8px;
+}
+.csl-topology-grid--compact :is(.csl-node__fault, .csl-node__badge, .csl-node__overload, .csl-change) {
   padding: 0 5px;
   font-size: 10px;
-  line-height: 14px;
+  line-height: 13px;
+}
+.csl-topology-grid--compact .csl-edge__change {
+  font-size: 10px;
 }
 .csl-topology-grid--compact .csl-edge__label {
   padding: 0 5px;
+}
+/* Two badges on one edge of a narrow box: the right-hand one keeps only its symbol and number,
+   and on very narrow boxes only its symbol ("✕", "⚠"). */
+@container csl-node (max-width: 190px) {
+  .csl-node__tag--crowded .csl-node__badge-word {
+    display: none;
+  }
+}
+@container csl-node (max-width: 140px) {
+  .csl-node__tag--crowded .csl-node__badge-pct {
+    display: none;
+  }
 }
 .csl-edge__fail-word,
 .csl-topology-grid--compact .csl-edge__fail-pct {
@@ -234,8 +402,10 @@
   text-align: center;
 }
 
+/* The vertical rule sets animation-name with higher specificity, so it is listed too. */
 @media (prefers-reduced-motion: reduce) {
   .csl-edge__flow,
+  .csl-edge--vertical .csl-edge__flow,
   .csl-node--failing::after {
     animation: none;
   }

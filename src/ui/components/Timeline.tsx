@@ -23,14 +23,16 @@ const ALERT: ReadonlySet<TimelineEntryView['kind']> = new Set(['fault', 'tip', '
 /**
  * "Why" timeline: what happened during the run.
  * With `nowMs` (the replay position) it plays along, newest first: only events the replay has
- * reached are shown, the latest at the top, with a count of what is still ahead. Failure events
- * (injected failures, the tipping point, a stuck verdict) are highlighted.
+ * reached are shown, the latest at the top, with a count of what is still ahead. An event spanning
+ * a time range ("35–117 s") is shown once the replay reaches the end of the range, so it never
+ * states something the replay hasn't shown yet. Failure events are highlighted.
  */
 export function Timeline({ entries, nowMs }: { entries: TimelineEntryView[]; nowMs?: number }) {
   if (entries.length === 0) return <p className="csl-empty">Nothing notable detected.</p>;
-  const reached = nowMs === undefined ? entries : entries.filter((e) => e.tMs <= nowMs);
-  // Newest first by start time (a stable sort keeps same-time events in their given order).
-  const shown = nowMs === undefined ? reached : [...reached].sort((a, b) => b.tMs - a.tMs);
+  const revealAt = (e: TimelineEntryView) => e.endMs ?? e.tMs;
+  const reached = nowMs === undefined ? entries : entries.filter((e) => revealAt(e) <= nowMs);
+  // Newest first by when each entry appeared (a stable sort keeps same-time events in their given order).
+  const shown = nowMs === undefined ? reached : [...reached].sort((a, b) => revealAt(b) - revealAt(a));
   const ahead = entries.length - reached.length;
   return (
     <>

@@ -17,7 +17,10 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByRole('heading', { name: 'Chaos Simulation Lab' })).toBeTruthy();
     expect(screen.getByText(/Simulating 120 s of traffic/)).toBeTruthy();
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
-    expect(screen.getAllByText('Stuck: did not recover after the failure ended').length).toBeGreaterThan(0);
+    // The verdict isn't given away up front: the replay reveals it when it gets there.
+    expect(screen.queryByText('Stuck: did not recover after the failure ended')).toBeNull();
+    expect(screen.getByText('A short failure, replayed')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: "What's happening, in plain words" })).toBeTruthy();
     expect(pool.analyzed).toHaveLength(1);
     expect(pool.analyzed[0].client.rps).toBe(200);
   });
@@ -180,10 +183,61 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(within(tour).getByRole('button', { name: /Skip tour/ }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(localStorage.getItem('csl-tour-seen-v1')).toBe('skipped');
+    // The replay waits for the tour to close.
+    fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Show the guided tour' }));
     expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy(); // the tour jumps to step 1, replay held
+    fireEvent.keyDown(document, { key: 'Escape' });
+    // Closing the tour returns to the step it was started from.
+    expect(screen.getByRole('button', { name: /Where's the tipping point/ }).getAttribute('aria-current')).toBe('step');
     // The theme toggle sits beside it in the top bar.
     expect(screen.getByRole('button', { name: /Switch to (dark|light) mode/ })).toBeTruthy();
+  });
+
+  it('explains invalid input and blocks running it', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    const traffic = screen.getByLabelText(/^Traffic/);
+    fireEvent.change(traffic, { target: { value: '100000' } });
+    expect(screen.getByText('Enter a whole number from 1 to 5000')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run' }));
+    expect(pool.analyzed).toHaveLength(1); // nothing ran
+    fireEvent.change(traffic, { target: { value: '200' } });
+    fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '500' } });
+    expect(screen.getByRole('alert').textContent).toMatch(/The failure must end at least 20 s before the run ends/);
+    const run = screen.getByRole('button', { name: 'Run simulation' }) as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '30' } });
+    expect(run.disabled).toBe(false);
+  });
+
+  it('keeps a way out when a run cannot be simulated', async () => {
+    const pool = new FakePool();
+    const makeBatch = pool.batch.bind(pool);
+    // Any traffic but the preset's fails, as an invalid config would.
+    pool.batch = () => {
+      const b = makeBatch();
+      return { ...b, analyze: (c, l) => (c.client.rps !== 200 ? Promise.reject(new Error('Invalid config: db service p99Ms must exceed medianMs')) : b.analyze(c, l)) };
+    };
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '150' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    const alert = await screen.findByRole('alert', { name: 'Simulation error' }, SLOW);
+    expect(alert.textContent).toMatch(/These settings couldn't be simulated/);
+    expect(alert.textContent).toMatch(/db service p99Ms must exceed medianMs/);
+    expect(screen.getByText("Couldn't simulate these settings")).toBeTruthy(); // the step tab says so too
+    fireEvent.click(within(alert).getByRole('button', { name: '⚙ Edit settings' }));
+    expect(screen.getByRole('dialog', { name: 'All settings' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
+    fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
+    expect(screen.getByRole('alert', { name: 'Simulation error' })).toBeTruthy(); // not "waiting" forever
+    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation error' })).getByRole('button', { name: 'Reset to the preset' }));
+    await screen.findByRole('heading', { name: 'Did the tipping point move?' }, SLOW);
   });
 
   it('creates and disposes its own pool when none is injected (falls back in-process without Workers)', async () => {

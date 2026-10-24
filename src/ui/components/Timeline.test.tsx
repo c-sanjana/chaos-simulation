@@ -54,17 +54,21 @@ describe('Timeline', () => {
   it('plays along newest first, highlighting failures and the latest event', () => {
     const { rerender } = render(<Timeline entries={entries} nowMs={40_000} />);
     let items = screen.getAllByRole('listitem');
-    expect(items.map((i) => i.querySelector('.csl-timeline__time')!.textContent)).toEqual(['36–120 s', '34 s', '31 s', '30 s']);
+    // "36–120 s Still stuck" spans a range, so it waits until the replay reaches its end.
+    expect(items.map((i) => i.querySelector('.csl-timeline__time')!.textContent)).toEqual(['34 s', '31 s', '30 s']);
     expect(items[0].className).toContain('csl-timeline__item--latest');
-    expect(items[1].className).toContain('csl-timeline__item--alert'); // the tipping point
-    expect(items[3].className).toContain('csl-timeline__item--alert'); // the injected failure
-    expect(items[2].className).not.toContain('--alert');
-    expect(screen.getByText('2 more events ahead')).toBeTruthy();
+    expect(items[0].className).toContain('csl-timeline__item--alert'); // the point of no return
+    expect(items[2].className).toContain('csl-timeline__item--alert'); // the injected failure
+    expect(items[1].className).not.toContain('--alert');
+    expect(screen.getByText('3 more events ahead')).toBeTruthy();
     rerender(<Timeline entries={entries} nowMs={60_000} />);
-    expect(screen.getByText('1 more event ahead')).toBeTruthy();
+    expect(screen.getByText('2 more events ahead')).toBeTruthy();
     items = screen.getAllByRole('listitem');
     expect(items[0].textContent).toContain('Recovered in 12 s');
     rerender(<Timeline entries={entries} nowMs={120_000} />);
     expect(screen.queryByText(/more events? ahead/)).toBeNull();
+    items = screen.getAllByRole('listitem');
+    // Both entries revealed at 120 s come first, in their given order.
+    expect(items.slice(0, 2).map((i) => i.querySelector('.csl-timeline__time')!.textContent)).toEqual(['36–120 s', '120 s']);
   });
 });

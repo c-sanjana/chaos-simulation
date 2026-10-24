@@ -1,36 +1,56 @@
 import { NumberField } from './components/Fields';
-import { updateFault, updateScenario, type Draft } from './draft';
+import { draftProblems, LIMITS, updateFault, updateScenario, type Draft } from './draft';
 
-/** The editable sentence under the scenario cards: what fails, how badly, when, at what traffic. */
+/**
+ * The editable sentence under the scenario cards: what fails, how badly, when, at what traffic.
+ * A form: Run is blocked while a field holds an invalid value or the settings don't fit together.
+ */
 export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft; onChange: (d: Draft) => void; onRun: () => void; dirty: boolean }) {
   const s = draft.scenario;
   const f = s.faults[0];
   const label = draft.topology.layout[f.tier]?.label ?? f.tier;
+  const problems = draftProblems(draft);
   return (
-    <div className="csl-failure">
+    <form
+      className="csl-failure"
+      aria-label="Failure settings"
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (e.currentTarget.checkValidity() && problems.length === 0) onRun();
+      }}
+    >
       <p style={{ margin: 0, fontSize: 14, flexBasis: '100%' }}>
         <span style={{ color: 'var(--csl-muted)' }}>Failure: </span>
         <strong>{label}</strong> {f.kind === 'slow' ? 'slows down' : 'goes down'}
         {f.flushAtEnd ? ' and restarts empty' : ''}.
       </p>
       {f.kind === 'slow' && (
-        <NumberField label={`${label} slowdown`} unit="× slower" value={f.factor ?? 1} min={1} step={1} onChange={(v) => onChange(updateFault(draft, { factor: v }))} />
+        <NumberField label={`${label} slowdown`} unit="× slower" value={f.factor ?? 1} min={1} max={1000} onChange={(v) => onChange(updateFault(draft, { factor: v }))} />
       )}
-      <NumberField label="Lasting" unit="seconds" value={(f.endMs - f.startMs) / 1000} min={1} step={1} onChange={(v) => onChange(updateFault(draft, { endMs: f.startMs + v * 1000 }))} />
+      <NumberField label="Lasting" unit="seconds" value={(f.endMs - f.startMs) / 1000} min={1} max={LIMITS.maxDurationS} integer onChange={(v) => onChange(updateFault(draft, { endMs: f.startMs + v * 1000 }))} />
       <NumberField
         label="Starts at"
-        unit="s in"
+        unit="s into the run"
         value={f.startMs / 1000}
         min={0}
-        step={1}
+        max={LIMITS.maxDurationS}
+        integer
         onChange={(v) => onChange(updateFault(draft, { startMs: v * 1000, endMs: v * 1000 + (f.endMs - f.startMs) }))}
       />
-      <NumberField label="Traffic" unit="req/s" value={s.rps} min={1} step={10} onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
-      {s.map.y.param === 'retries' && <NumberField label={s.map.y.label} value={s.retries} min={0} step={1} onChange={(v) => onChange(updateScenario(draft, { retries: Math.round(v) }))} />}
-      <button type="button" className="csl-btn csl-btn--primary csl-failure__run" onClick={onRun}>
+      <NumberField label="Traffic" unit="req/s" value={s.rps} min={1} max={LIMITS.maxRps} integer step={10} onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
+      {s.map.y.param === 'retries' && <NumberField label={s.map.y.label} value={s.retries} min={0} max={10} integer onChange={(v) => onChange(updateScenario(draft, { retries: v }))} />}
+      <button type="submit" className="csl-btn csl-btn--primary csl-failure__run" disabled={problems.length > 0}>
         {dirty ? 'Run simulation' : 'Re-run'}
       </button>
-    </div>
+      {problems.length > 0 && (
+        <ul className="csl-problems" role="alert">
+          {problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+    </form>
   );
 }
 

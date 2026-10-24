@@ -3,6 +3,8 @@ import { retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RecoveryResult } from '../analysis/recovery';
 import {
+  activeFault,
+  answerTimes,
   bottleneckTier,
   busiestTier,
   chartView,
@@ -16,6 +18,7 @@ import {
   timelineView,
   topologyView,
   verdictView,
+  waitingTier,
 } from './viewModels';
 
 const labels = labelsOf(webChain);
@@ -47,6 +50,25 @@ describe('topologyView', { timeout: 60_000 }, () => {
     expect(nodes.find((n) => n.id === 'client')!.health).toBe('bad');
     expect(nodes.find((n) => n.id === 'db')!.health).toBe('bad');
     expect(edges.find((e) => e.id === 'api-cache')!.label).toMatch(/lookups\/s$/);
+    // The DB is the overloaded root cause (busy, not failing its own requests); upstream tiers fail.
+    expect(nodes.find((n) => n.id === 'db')!.overloaded).toBe(true);
+    expect(nodes.find((n) => n.id === 'db')!.fault).toBeUndefined(); // the slowdown is over by 60 s
+  });
+
+  it('marks the injected failure while it is active, and labels what a fix changed', () => {
+    const { config, run } = retryStormRun({ retries: 3 });
+    const during = topologyView(webChain, config, run, 32_000, [
+      { tier: 'db', text: 'queue limit 93' },
+      { call: { from: 'api', to: 'db' }, text: 'retry budget 10%' },
+    ]);
+    const db = during.nodes.find((n) => n.id === 'db')!;
+    expect(db.fault).toBe('⚡ 8× slower');
+    expect(db.change).toBe('queue limit 93');
+    expect(during.nodes.find((n) => n.id === 'api')!.change).toBeUndefined();
+    expect(during.edges.find((e) => e.id === 'api-db')!.change).toBe('retry budget 10%');
+    expect(during.edges.find((e) => e.id === 'gateway-api')!.change).toBeUndefined();
+    expect(activeFault({ ...config, faults: [{ kind: 'dead', tier: 'db', startMs: 0, endMs: 1000 }] }, 'db', 500)).toBe('⚡ down');
+    expect(activeFault({ ...config, faults: undefined }, 'db', 500)).toBeUndefined();
   });
 
   it('clamps time to the run and skips tiers the layout does not place', () => {
@@ -72,8 +94,29 @@ describe('chartView', { timeout: 60_000 }, () => {
       expect(v.spec.ariaLabel).toContain(tab.label);
     }
     expect(chartView('load', config, run, labels, null).scopeLabel).toBe('DB');
-    expect(chartView('workers', config, run, labels, null).scopeLabel).toBe(labels[busiestTier(run)]);
     expect(chartView('errors', config, run, labels, null).spec.yMax).toBe(100);
+  });
+
+  it('names the tier a tab really shows by default, and shows workers where they wait rather than work', () => {
+    const { config, run } = retryStormRun({ retries: 3 });
+    expect(chartView('throughput', config, run, labels, null).defaultScopeLabel).toBe('End to end (users)');
+    expect(chartView('load', config, run, labels, null).defaultScopeLabel).toBe('DB (most overloaded)');
+    // API workers are all occupied while its CPU is idle; the DB is busy computing (both at 100%).
+    expect(waitingTier(run)).toBe('api');
+    expect(busiestTier(run)).not.toBe('api');
+    const workers = chartView('workers', config, run, labels, null);
+    expect([workers.scopeLabel, workers.defaultScopeLabel]).toEqual(['API', 'API (most workers waiting)']);
+  });
+
+  it('measures end-to-end latency as time to an answer, errors included, so it rises when requests fail', () => {
+    const { config, run } = retryStormRun({ retries: 3 });
+    const { p50, p99 } = answerTimes(run);
+    expect(p99).toHaveLength(run.client.sent.length);
+    expect(p50[10]).toBeLessThan(100); // healthy: quick answers
+    expect(p99[80]).toBeGreaterThan(1900); // stuck: users wait ~2 s (the Gateway gives up on the API), then get an error
+    expect(run.client.latencyP99Ms[80]).not.toBeGreaterThan(p99[80]); // the success-only line looked faster
+    const lat = chartView('latency', config, run, labels, null).spec.series;
+    expect(lat.map((x) => x.label)).toEqual(['Slowest 1% wait (p99)', 'Typical wait (median)', 'User gives up after 3 s']);
   });
 
   it('stacks first attempts and retries under the capacity line on Load & retries', () => {
@@ -81,7 +124,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     const s = chartView('load', config, run, labels, 'db').spec.series;
     expect(s.map((x) => [x.label, !!x.area, !!x.dashed])).toEqual([
       ['First attempts', true, false],
-      ['Retries', true, false],
+      ['Retries (repeats)', true, false],
       ['DB capacity', false, true],
     ]);
     expect(s[1].color).toBe(COLORS.bad);
@@ -91,8 +134,9 @@ describe('chartView', { timeout: 60_000 }, () => {
     const { config, run } = retryStormRun({ retries: 3 });
     const lat = chartView('latency', config, run, labels, 'db');
     expect(lat.scopeLabel).toBe('DB');
-    expect(lat.spec.series.at(-1)!.label).toBe('Timeout (1 s)');
-    expect(chartView('latency', config, run, labels, 'client').spec.series.at(-1)!.label).toBe('Timeout (3 s)');
+    expect(lat.spec.series.map((x) => x.label)).toEqual(['Slowest 1% (p99)', 'Typical (median)', 'API gives up after 1 s']);
+    expect(chartView('latency', config, run, labels, 'client').spec.series.at(-1)!.label).toBe('User gives up after 3 s');
+    expect(chartView('latency', config, run, labels, 'gateway').spec.series.at(-1)!.label).toBe('Client gives up after 3 s');
     expect(chartView('errors', config, run, labels, 'api').scopeLabel).toBe('API');
     expect(chartView('load', config, run, labels, 'api').spec.series.some((x) => /capacity/.test(x.label))).toBe(false);
   });
@@ -100,12 +144,23 @@ describe('chartView', { timeout: 60_000 }, () => {
   it('overlays before (grey) and after (blue) when comparing', () => {
     const before = retryStormRun({ retries: 3 });
     const after = retryStormRun({ retries: 0 });
-    for (const tab of METRIC_TABS) {
+    for (const tab of METRIC_TABS.filter((t) => t.id !== 'load')) {
       const v = chartView(tab.id, before.config, before.run, labels, null, after.run);
       expect(v.spec.series[0].color).toBe(COLORS.before);
       expect(v.spec.series[1].color).toBe(COLORS.primary);
       expect(v.spec.ariaLabel).toMatch(/before and after/);
     }
+  });
+
+  it('keeps the first-attempts vs retries split of the run being shown when comparing load', () => {
+    const before = retryStormRun({ retries: 3 });
+    const after = retryStormRun({ retries: 0 });
+    const shownAfter = chartView('load', before.config, before.run, labels, null, after.run).spec.series;
+    expect(shownAfter.map((x) => x.label)).toEqual(['First attempts', 'Retries (repeats)', 'Total before the fix', 'DB capacity']);
+    expect(shownAfter[1].values.every((v) => v === 0)).toBe(true); // no retries after the fix
+    const shownBefore = chartView('load', before.config, before.run, labels, null, after.run, undefined, false).spec.series;
+    expect(shownBefore[2].label).toBe('Total after the fix');
+    expect(shownBefore[1].values.some((v) => v > 0)).toBe(true);
   });
 
   it('omits the timeout line when the caller waits forever', () => {

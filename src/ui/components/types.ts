@@ -19,6 +19,12 @@ export interface TopologyNodeView {
   rps?: number;
   /** 0..1 share of workers busy (tiers only). */
   busy?: number;
+  /** The injected failure, while it is active on this tier, e.g. "⚡ 8× slower". */
+  fault?: string;
+  /** More work is arriving than this tier can serve right now (shown as an "overloaded" badge, not just colour). */
+  overloaded?: boolean;
+  /** What the applied fix changed on this tier (compare mode, "after" side), e.g. "queue limit 93". */
+  change?: string;
 }
 
 export interface TopologyEdgeView {
@@ -37,6 +43,8 @@ export interface TopologyEdgeView {
   errorShare?: number;
   /** This arrow carries cache lookups. */
   cache?: boolean;
+  /** What the applied fix changed on this call (compare mode, "after" side), e.g. "retry budget 10%". */
+  change?: string;
 }
 
 export interface TimeSeries {

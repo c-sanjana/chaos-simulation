@@ -1,5 +1,5 @@
 import type { RunConfig } from '../engine/config';
-import { STATUS_OK, type RunResult } from '../engine/result';
+import { STATUS_OK, STATUS_UNFINISHED, type RunResult } from '../engine/result';
 
 export type Verdict =
   /** Never left the healthy range. */
@@ -19,8 +19,12 @@ export interface RecoveryResult {
   recoveryMs: number | null;
   /** Requests that failed (or never finished) in this run but succeeded in the control. */
   failedRequests: number;
-  /** Seconds after this one are not judged: requests arriving later may not have finished. */
+  /**
+   * Seconds after this one are not judged: requests arriving later may not have finished. Never
+   * later than the end of the run.
+   */
   judgedUntilMs: number;
+  /** When the last failure ends, as configured (it may be at or after the end of the run). */
   lastFaultEndMs: number;
 }
 
@@ -51,13 +55,24 @@ export function maxRequestMs(config: RunConfig): number {
  * measured: after a recovery, the cache holds slightly different keys than in the control until TTL
  * churn evens them out, so a few requests miss where the control hit, harmlessly, for up to a TTL.
  * Exact matching labelled clearly recovered runs as stuck. See PLAN.md decision log.
+ *
+ * Only what happened inside the run is judged:
+ * - The judged range ends at the end of the run at the latest, even when the failure lasts longer.
+ * - A request still unfinished (in either run) when the run ended is not judged if it arrived late
+ *   enough that it could have finished afterwards: how it would have ended is unknown.
+ * - A failure that starts at or after the end of the judged range never happened as far as the
+ *   judged seconds are concerned: the run is unaffected.
+ * - A failure still going on when the judged range ends leaves no time to see a recovery: the run
+ *   is stuck unless it never left the healthy range.
  */
 export function assessRecovery(run: RunResult, control: RunResult, config: RunConfig): RecoveryResult {
   const bucketMs = run.bucketMs;
   const faults = config.faults ?? [];
   const firstFaultStartMs = faults.length ? Math.min(...faults.map((f) => f.startMs)) : 0;
   const lastFaultEndMs = faults.length ? Math.max(...faults.map((f) => f.endMs)) : 0;
-  const judgedUntilMs = Math.max(lastFaultEndMs, run.durationMs - maxRequestMs(config));
+  // Requests arriving from here on may legitimately still be running when the run ends.
+  const settledBeforeMs = run.durationMs - maxRequestMs(config);
+  const judgedUntilMs = Math.min(run.durationMs, Math.max(lastFaultEndMs, settledBeforeMs));
   const lastSecond = Math.floor(judgedUntilMs / bucketMs) - 1;
 
   const a = run.client.requests;
@@ -66,6 +81,8 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   let failedRequests = 0;
   let controlFailures = 0;
   for (let i = 0; i < a.status.length && a.arrivalMs[i] < judgedUntilMs; i++) {
+    const cutOff = a.status[i] === STATUS_UNFINISHED || b.status[i] === STATUS_UNFINISHED;
+    if (cutOff && a.arrivalMs[i] >= settledBeforeMs) continue; // the run ended before it could
     if (b.status[i] !== STATUS_OK) controlFailures++;
     if ((a.status[i] === STATUS_OK) !== (b.status[i] === STATUS_OK)) mismatchedSeconds.add(Math.floor(a.arrivalMs[i] / bucketMs));
     if (a.status[i] !== STATUS_OK && b.status[i] === STATUS_OK) failedRequests++;
@@ -83,12 +100,14 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
     !(run.client.latencyP99Ms[s] > p99Ceiling) && // NaN (no successes) only passes if requests matched
     tierIds.every((id) => run.tiers[id].queueAvg[s] <= queueCeiling[id]);
 
-  const firstJudged = Math.floor(firstFaultStartMs / bucketMs);
+  // A failure starting after the judged range: nothing to judge, so nothing went wrong.
+  const firstJudged = Math.min(Math.floor(firstFaultStartMs / bucketMs), lastSecond + 1);
   let recoveredFrom = lastSecond + 1;
   for (let s = lastSecond; s >= firstJudged && healthy(s); s--) recoveredFrom = s;
 
   if (recoveredFrom === firstJudged) return { verdict: 'unaffected', recoveredAtMs: null, recoveryMs: null, ...base };
-  if (recoveredFrom > lastSecond) return { verdict: 'stuck', recoveredAtMs: null, recoveryMs: null, ...base };
+  const stillFailing = lastFaultEndMs >= judgedUntilMs;
+  if (recoveredFrom > lastSecond || stillFailing) return { verdict: 'stuck', recoveredAtMs: null, recoveryMs: null, ...base };
   const recoveredAtMs = Math.max(recoveredFrom * bucketMs, lastFaultEndMs);
   return { verdict: 'recovered', recoveredAtMs, recoveryMs: recoveredAtMs - lastFaultEndMs, ...base };
 }

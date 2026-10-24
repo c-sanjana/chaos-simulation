@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { buildStory } from '../analysis/story';
 import { buildRunConfig } from '../data/buildConfig';
 import { scenarios } from '../data/scenarios';
 import { createDefaultPool, type SimPool } from '../worker/pool';
@@ -6,7 +7,7 @@ import { Drawer } from './components/Drawer';
 import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
-import { presetDraft, type Draft } from './draft';
+import { draftProblems, presetDraft, type Draft } from './draft';
 import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
@@ -16,7 +17,7 @@ import { TippingStep } from './TippingStep';
 import { tourStops } from './tourStops';
 import { useTour } from './useTour';
 import { useAnalysis } from './useSimulation';
-import { labelsOf, verdictView } from './viewModels';
+import { labelsOf } from './viewModels';
 
 const DEFAULT_SCENARIO = 'retry-storm';
 
@@ -50,18 +51,28 @@ export function App({ pool: injected }: AppProps) {
   const labels = useMemo(() => labelsOf(applied.topology), [applied.topology]);
   const config = useMemo(() => buildRunConfig(applied.topology, applied.scenario), [applied]);
   const main = useAnalysis(pool, config, labels);
+  const story = useMemo(() => (main.status === 'done' ? buildStory(main.value.run, config, main.value.analysis, labels) : undefined), [main, config, labels]);
   // First visit: the walkthrough opens once the first run is ready (so its targets exist).
   const tour = useTour();
+  /** The step the tour was started from, to return to when it closes. */
+  const [tourFrom, setTourFrom] = useState(0);
+  const startTour = () => (setTourFrom(step), tour.start());
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied);
+  const problems = draftProblems(draft);
 
   const pickScenario = (id: string) => {
+    if (id === scenarioId && !dirty) return; // already showing this preset; don't wipe the viewer's settings
     const fresh = presetDraft(id);
     setScenarioId(id);
     setApplied(fresh);
     setDraft(fresh);
   };
   const run = () => (setApplied(structuredClone(draft)), setEditingFailure(false));
-  const verdict = main.status === 'done' ? verdictView(main.value.analysis.recovery) : null;
+  const resetToPreset = () => {
+    const fresh = presetDraft(scenarioId);
+    setApplied(fresh);
+    setDraft(fresh);
+  };
 
   return (
     <main className="csl-page">
@@ -74,7 +85,7 @@ export function App({ pool: injected }: AppProps) {
         </div>
         <div className="csl-topbar__actions">
           <ThemeToggle />
-          <TourButton onClick={tour.start} />
+          <TourButton onClick={startTour} />
         </div>
       </header>
       <Tour
@@ -82,7 +93,7 @@ export function App({ pool: injected }: AppProps) {
         open={tour.open && main.status === 'done'}
         onClose={(completed) => {
           tour.close(completed);
-          setStep(0);
+          setStep(tourFrom);
         }}
         onScreen={setStep}
       />
@@ -101,7 +112,8 @@ export function App({ pool: injected }: AppProps) {
       <StepTabs
         compact
         steps={[
-          { title: 'What happened', sub: verdict ? verdict.text : 'Simulating…' },
+          // The verdict is not given away here: the replay reveals it when it gets there.
+          { title: 'What happened', sub: main.status === 'error' ? "Couldn't simulate these settings" : 'A short failure, replayed' },
           { title: "Where's the tipping point?", sub: `Traffic × ${applied.scenario.map.y.label}` },
           { title: 'Does a fix help?', sub: 'Fixes re-run against the same traffic' },
         ]}
@@ -124,10 +136,13 @@ export function App({ pool: injected }: AppProps) {
                 compact
                 chartHeight={232}
                 timelineTarget={timelineEl}
+                holdPlayback={tour.open}
+                guided
+                story={story}
               />
             )}
             {main.status === 'running' && <p className="csl-status">Simulating {config.durationMs / 1000} s of traffic and its no-failure control…</p>}
-            {main.status === 'error' && <p className="csl-error">{main.message}</p>}
+            {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} />}
           </div>
           <aside className="csl-split__col csl-split__side--narrow">
             <div className="csl-split__slot" ref={setTimelineEl} />
@@ -136,7 +151,11 @@ export function App({ pool: injected }: AppProps) {
       )}
       {step === 1 && <TippingStep pool={pool} topology={applied.topology} scenario={applied.scenario} labels={labels} onEdit={openSettings} />}
       {step === 2 && (
-        <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} onEdit={openSettings} />
+        main.status === 'error' ? (
+          <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} />
+        ) : (
+          <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} onEdit={openSettings} />
+        )
       )}
 
       <Drawer
@@ -155,14 +174,51 @@ export function App({ pool: injected }: AppProps) {
                 Reset to preset
               </button>
             )}
-            <button type="button" className="csl-btn csl-btn--primary" onClick={() => (run(), closeSettings())}>
+            <button type="submit" form="csl-settings-form" className="csl-btn csl-btn--primary" disabled={problems.length > 0}>
               Re-run simulation
             </button>
           </>
         }
       >
-        <SettingsForm draft={draft} onChange={setDraft} only={settings.only} />
+        <form
+          id="csl-settings-form"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (e.currentTarget.checkValidity() && problems.length === 0) (run(), closeSettings());
+          }}
+        >
+          <SettingsForm draft={draft} onChange={setDraft} only={settings.only} />
+          {problems.length > 0 && (
+            <ul className="csl-problems" role="alert">
+              {problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          )}
+        </form>
       </Drawer>
     </main>
   );
 }
+
+/** A run that could not be simulated: say why in plain words and keep the way out (settings, preset) on screen. */
+function SimulationError({ message, onEdit, onReset }: { message: string; onEdit: () => void; onReset: () => void }) {
+  return (
+    <section className="csl-card csl-card--compact" role="alert" aria-label="Simulation error">
+      <h2 className="csl-card__title">These settings couldn't be simulated</h2>
+      <p className="csl-error" style={{ margin: 0 }}>
+        {message.replace(/^(Error: )?Invalid config: /, '')}
+      </p>
+      <div className="csl-row" style={{ gap: 8 }}>
+        <button type="button" className="csl-btn csl-btn--primary" onClick={onEdit}>
+          ⚙ Edit settings
+        </button>
+        <button type="button" className="csl-btn" onClick={onReset}>
+          Reset to the preset
+        </button>
+      </div>
+    </section>
+  );
+}
+

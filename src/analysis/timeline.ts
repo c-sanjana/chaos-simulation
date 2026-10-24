@@ -32,9 +32,10 @@ export function buildTimeline(
   const entries: TimelineEntry[] = [];
   const at = (s: number) => s * run.bucketMs;
 
+  // A failure starting or ending at or after the end of the run has no place on its timeline.
   for (const f of faults) {
-    entries.push({ tMs: f.startMs, text: `${describeFault(f, name)} (injected failure)`, kind: 'fault' });
-    entries.push({ tMs: f.endMs, text: describeFaultEnd(f, name), kind: 'fault' });
+    if (f.startMs < run.durationMs) entries.push({ tMs: f.startMs, text: `${describeFault(f, name)} (injected failure)`, kind: 'fault' });
+    if (f.endMs < run.durationMs) entries.push({ tMs: f.endMs, text: describeFaultEnd(f, name), kind: 'fault' });
   }
 
   // A tier's slowest responses outgrow its caller's patience: the caller starts timing out.
@@ -51,7 +52,8 @@ export function buildTimeline(
   }
 
   // Retries push a leaf tier past what it can serve; if that outlasts the failure, the backlog can
-  // never drain: the tipping point into a stuck state.
+  // never drain: the point of no return into a stuck state. (Not called a "tipping point": step 2
+  // uses that for the traffic level at which runs start getting stuck.)
   for (const t of Object.values(run.tiers)) {
     const capacity = leafCapacityRps(config.tiers.find((c) => c.id === t.id)!);
     if (capacity === null) continue;
@@ -71,7 +73,7 @@ export function buildTimeline(
     if (recovery.verdict === 'stuck' && afterLoad > capacity) {
       entries.push({
         tMs: recovery.lastFaultEndMs,
-        text: `Tipping point: the failure is over, but retries keep ${name(t.id)} load at ${(afterLoad / capacity).toFixed(1)}× its capacity, so the backlog can never drain`,
+        text: `Point of no return: the failure is over, but retries keep ${name(t.id)} load at ${(afterLoad / capacity).toFixed(1)}× its capacity, so the backlog can never drain`,
         kind: 'tip',
       });
     }
@@ -118,7 +120,7 @@ export function buildTimeline(
     }
   }
 
-  entries.push(verdictEntry(recovery, signals, name));
+  entries.push(verdictEntry(recovery, signals, name, run.durationMs));
   return entries.sort((x, y) => x.tMs - y.tMs).slice(0, MAX_ENTRIES);
 }
 
@@ -141,18 +143,22 @@ function describeFaultEnd(f: Fault, name: (id: string) => string): string {
   return f.kind === 'slow' ? `Failure ends; ${name(f.tier)} back to normal speed` : `Failure ends; ${name(f.tier)} back up`;
 }
 
-function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) => string): TimelineEntry {
+function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) => string, durationMs: number): TimelineEntry {
+  const failureEndMs = Math.min(r.lastFaultEndMs, durationMs);
   switch (r.verdict) {
     case 'recovered':
       return { tMs: r.recoveredAtMs!, text: `Back to normal: recovered ${formatSeconds(r.recoveryMs!)} after the failure ended`, kind: 'good' };
     case 'unaffected':
-      return { tMs: r.lastFaultEndMs, text: 'Stayed within the normal range throughout', kind: 'good' };
+      return { tMs: failureEndMs, text: 'Stayed within the normal range throughout', kind: 'good' };
     case 'overloaded':
       return { tMs: 0, text: 'Too much traffic for this system even without the failure', kind: 'bad' };
     case 'stuck': {
+      if (r.lastFaultEndMs >= r.judgedUntilMs) {
+        return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' };
+      }
       const wasted = signals.wastedShare;
       const detail = wasted && wasted.value >= 0.5 ? `: ${percent(wasted.value)} of ${name(wasted.tier)} work is for requests already given up on` : '';
-      return { tMs: r.lastFaultEndMs, endMs: r.judgedUntilMs, text: `Never returned to normal after the failure ended${detail}`, kind: 'bad' };
+      return { tMs: failureEndMs, endMs: r.judgedUntilMs, text: `Never returned to normal after the failure ended${detail}`, kind: 'bad' };
     }
   }
 }

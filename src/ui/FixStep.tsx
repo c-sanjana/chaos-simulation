@@ -3,13 +3,14 @@ import type { RunConfig } from '../engine/config';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { applyFix } from '../fixes/candidates';
 import { FIX_CATALOG } from '../fixes/catalog';
-import type { FixOutcome, RankedFix } from '../fixes/rank';
+import { configChanges } from '../fixes/changes';
+import { isReliable, withLongerOutage, type FixOutcome, type RankedFix, type Robustness } from '../fixes/rank';
 import { buildSweep, tippingPoints, type SweepResult, type SweepSpec } from '../sweep/sweep';
 import type { AnalyzeResult } from '../worker/jobs';
 import type { SimPool } from '../worker/pool';
 import { FixTabs, type FixTab } from './components/FixTabs';
 import { TippingMap } from './components/TippingMap';
-import { currentCell } from './draft';
+import { currentCell, nearestCell, onMap } from './draft';
 import { RunPlayer } from './RunPlayer';
 import { useFixRanking } from './useFixRanking';
 import { useAnalysis, useSweep } from './useSimulation';
@@ -26,19 +27,26 @@ export interface FixStepProps {
   onEdit?: (tierId: string | null) => void;
 }
 
-/** Step 3: fixes ranked by measured effect; apply one to compare runs and maps before and after. */
+/**
+ * Step 3: fixes ranked by measured effect and how well they hold up. Choosing a fix shows it
+ * everywhere: its details, the before/after maps and the before/after replay (of any map cell).
+ */
 export function FixStep({ pool, topology, scenario, config, original, labels, onEdit }: FixStepProps) {
   const ranking = useFixRanking(pool, config, original?.analysis ?? null, labels);
-  const [appliedId, setAppliedId] = useState<string | null>(null);
-  const [touched, setTouched] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const apply = (id: string | null) => (setTouched(true), setAppliedId(id));
+  /** The viewer's pick; until then the best fix is shown once the checks are done. */
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  useEffect(() => setChosenId(null), [config]);
+  const allTested = ranking.original !== null && ranking.tested === ranking.candidates.length;
+  const helped = ranking.ranked.filter((f) => f.helped);
+  const best = allTested && !ranking.checking && helped.length > 0 ? helped[0].candidate.id : null;
+  const appliedId = chosenId ?? best;
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
-  // The map cell shown before vs after on the right; the current settings until the viewer clicks another.
+  // The map cell shown before vs after on the right: the current settings (or the nearest cell)
+  // until the viewer clicks another.
   const current = currentCell(scenario);
-  const [cell, setCell] = useState(current);
-  useEffect(() => setCell(currentCell(scenario)), [scenario]);
-  const atCurrent = cell.x === current.x && cell.y === current.y;
+  const [cell, setCell] = useState(() => nearestCell(scenario));
+  useEffect(() => setCell(nearestCell(scenario)), [scenario]);
+  const atCurrent = onMap(scenario) && cell.x === current.x && cell.y === current.y;
 
   const signals = original?.analysis.signals ?? null;
   const beforeSpec = useMemo(() => (applied ? buildSweep(topology, scenario) : null), [applied, topology, scenario]);
@@ -57,22 +65,23 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const beforeOther = useAnalysis(pool, atCurrent ? null : beforeConfig, labels);
   const fixed = useAnalysis(pool, afterConfig, labels);
   const beforeRun = atCurrent ? (original ? { status: 'done' as const, value: original } : beforeOther) : beforeOther;
-
-  const helped = ranking.ranked.filter((f) => f.helped);
-  const allTested = ranking.candidates.length > 0 && ranking.tested === ranking.candidates.length;
-  // Once every fix is tested, show the best one side by side straight away (until the viewer picks).
-  const best = allTested && helped.length > 0 ? helped[0].candidate.id : null;
-  useEffect(() => {
-    if (!touched && best !== null) {
-      setAppliedId(best);
-      setSelectedId(best);
-    }
-  }, [best, touched]);
+  const changes = useMemo(() => (beforeConfig && afterConfig ? configChanges(beforeConfig, afterConfig) : []), [beforeConfig, afterConfig]);
 
   if (!original) return <p className="csl-status">Waiting for the original run…</p>;
-  const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.seeds[f.candidate.id]));
   const { x: xAxis, y: yAxis } = scenario.map;
-  const cellTitle = `${cell.x} rps · ${formatAxisValue(yAxis, cell.y)} ${yAxis.label}`;
+  const where = `at your settings (${current.x} req/s · ${formatAxisValue(yAxis, current.y)} ${yAxis.label})`;
+  const longerS = longerOutageSeconds(config);
+  const tabs = ranking.ranked.map((f) => fixTab(f, ranking.original!, ranking.robustness[f.candidate.id], where, longerS));
+  const cellTitle = `${cell.x} req/s · ${formatAxisValue(yAxis, cell.y)} ${yAxis.label}`;
+  const status = ranking.error ? (
+    <span className="csl-error">{ranking.error}</span>
+  ) : !allTested ? (
+    `Testing fixes: ${ranking.tested} of ${ranking.candidates.length}`
+  ) : ranking.checking ? (
+    'Checking which fixes hold up…'
+  ) : (
+    `${ranking.candidates.length} fixes tested`
+  );
 
   return (
     <div className="csl-split csl-split--stretch">
@@ -83,9 +92,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
               <h2 className="csl-section-title" style={{ margin: 0 }}>
                 Did the tipping point move?
               </h2>
-              <span className="csl-status" aria-live="polite">
-                {ranking.error ? <span className="csl-error">{ranking.error}</span> : allTested ? `${ranking.candidates.length} fixes tested` : `Testing fixes: ${ranking.tested} of ${ranking.candidates.length}`}
-              </span>
+              <span className="csl-status">{status}</span>
             </div>
             {applied && before.result && after.result ? (
               <>
@@ -103,9 +110,9 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                 {/* Here the ◆ follows the clicked cell (it marks what the replay shows), so it moves with every click. */}
                 <span className="csl-fix-maps__hint">
                   ◆ shown on the right. Click any cell to compare it there.{' '}
-                  {!atCurrent && (
+                  {!atCurrent && onMap(scenario) && (
                     <button type="button" className="csl-btn csl-btn--link csl-fix-maps__back" onClick={() => setCell(current)}>
-                      Back to your settings ({current.x} rps · {formatAxisValue(yAxis, current.y)} {yAxis.label})
+                      Back to your settings ({current.x} req/s · {formatAxisValue(yAxis, current.y)} {yAxis.label})
                     </button>
                   )}
                 </span>
@@ -115,24 +122,33 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
               </>
             ) : (
               <span className="csl-status">
-                {!allTested ? 'Testing fixes; the best one is applied automatically.' : helped.length === 0 ? 'None of the fixes tried made this run recover.' : 'Apply a fix to see whether it moves the tipping point.'}
+                {!allTested
+                  ? 'Testing fixes; the most reliable one is shown automatically.'
+                  : ranking.candidates.length === 0
+                    ? noFixesMessage(original)
+                    : helped.length === 0
+                      ? original.analysis.recovery.verdict === 'recovered' || original.analysis.recovery.verdict === 'unaffected'
+                        ? 'This run already recovers on its own, and none of the fixes made it recover faster.'
+                        : 'None of the fixes tried made this run recover.'
+                      : ranking.checking
+                        ? 'Checking which fixes hold up: other random runs and a longer slowdown…'
+                        : 'Choose a fix to see whether it moves the tipping point.'}
               </span>
             )}
           </div>
-          <div data-tour="fix-tabs">
-            {allTested && <FixTabs tabs={tabs} selectedId={selectedId ?? appliedId} onSelect={setSelectedId} appliedId={appliedId} onApply={apply} />}
-          </div>
+          <div data-tour="fix-tabs">{allTested && <FixTabs tabs={tabs} selectedId={appliedId} onSelect={setChosenId} />}</div>
         </section>
       </div>
       <div className="csl-split__main" data-tour="replay">
         {applied && afterConfig && beforeConfig && fixed.status === 'done' && beforeRun.status === 'done' && (
           <RunPlayer
             title={`Before vs after: ${applied.candidate.name}`}
-            subtitle={`${cellTitle}${atCurrent ? ' (current settings)' : ''}. Same traffic, failure and seed; only the fix differs.`}
+            subtitle={`${cellTitle}${atCurrent ? ' (your settings)' : ''}. Same traffic, failure and seed; only the fix differs.`}
             topology={topology}
             config={beforeConfig}
             result={beforeRun.value}
             after={{ config: afterConfig, result: fixed.value }}
+            changes={changes}
             onEdit={onEdit}
             compact
             chartHeight={155}
@@ -146,7 +162,9 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         )}
         {!applied && (
           <section className="csl-card csl-card--compact">
-            <p className="csl-status">{allTested ? 'Pick a fix and press Apply & compare to see it side by side with the original run.' : 'Testing fixes…'}</p>
+            <p className="csl-status">
+              {!allTested || ranking.checking ? 'Testing fixes…' : helped.length > 0 ? 'Choose a fix to see it side by side with the original run.' : 'No fix helped, so there is nothing to compare.'}
+            </p>
           </section>
         )}
       </div>
@@ -154,51 +172,87 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   );
 }
 
+/** Why there is nothing to try, in plain words. */
+function noFixesMessage(original: AnalyzeResult): string {
+  const v = original.analysis.recovery.verdict;
+  if (v === 'unaffected' || v === 'recovered') return 'This run recovers on its own, and nothing in it points to a fix worth trying.';
+  return 'Nothing in this run points to a fix in the catalogue.';
+}
+
+/** How long the slowdown lasts in the "longer slowdown" check, in seconds (null when it can't be checked). */
+function longerOutageSeconds(config: RunConfig): number | null {
+  const longer = withLongerOutage(config);
+  const f = longer?.faults?.[0];
+  return f ? Math.round((f.endMs - f.startMs) / 1000) : null;
+}
+
 /** A map cell's run config from a sweep spec (null until the spec exists). */
 function cellConfig(spec: SweepSpec | null, cell: { x: number; y: number }): RunConfig | null {
   return spec?.cells.find((c) => c.x === cell.x && c.y === cell.y)?.config ?? null;
 }
 
-/** The tab and panel for one tested fix. Cons measured in this run come before the general ones. */
-export function fixTab(f: RankedFix, original: FixOutcome, seeds: { helped: number; of: number } | undefined): FixTab {
+/**
+ * The tab and panel for one tested fix, measured at the viewer's settings (`where`). Drawbacks
+ * measured in this run (more failures, helping only sometimes, not holding up with a longer
+ * slowdown) come before the catalogue's general cons.
+ */
+export function fixTab(f: RankedFix, original: FixOutcome, robustness: Robustness | undefined, where: string, longerS: number | null): FixTab {
   const o = f.outcome;
+  const seeds = robustness?.seeds;
+  const reliable = isReliable(robustness);
+  const status: FixTab['status'] = !f.helped ? 'no' : reliable === null ? 'checking' : reliable ? 'reliable' : 'unreliable';
   const measured: string[] = [];
   if (o.failedRequests > original.failedRequests) {
     measured.push(`In this run more requests failed with it than without (${o.failedRequests.toLocaleString()} vs ${original.failedRequests.toLocaleString()})`);
   }
-  if (f.helped && seeds && seeds.helped < seeds.of) {
-    measured.push(`Helped on only ${seeds.helped} of ${seeds.of} random seeds, so the result depends on timing`);
+  if (f.helped && seeds && seeds.helped < seeds.of) measured.push(`Helped in only ${seeds.helped} of ${seeds.of} random runs, so the result depends on luck`);
+  if (f.helped && robustness?.longer === false && longerS !== null) measured.push(`Didn't help when the slowdown lasted ${longerS} s`);
+  const checks: string[] = [];
+  if (f.helped) {
+    if (seeds) checks.push(`helped in ${seeds.helped} of ${seeds.of} random runs`);
+    if (robustness?.longer !== undefined && longerS !== null) checks.push(robustness.longer ? `still helps if the slowdown lasts ${longerS} s` : `doesn't help if it lasts ${longerS} s`);
+    if (!seeds || (robustness?.longer === undefined && longerS !== null)) checks.push('checking whether it holds up…');
   }
+  const unchanged = o.verdict === original.verdict && o.recoveryMs === original.recoveryMs;
   return {
     id: f.candidate.id,
     short: f.candidate.short,
     name: f.candidate.name,
     what: f.candidate.what,
+    how: f.candidate.how,
     why: `${capitalise(f.candidate.why)}.`,
-    result: `${capitalise(shortVerdict(original))} → ${shortVerdict(o)}`,
-    failed: `${o.failedRequests.toLocaleString()} failed requests instead of ${original.failedRequests.toLocaleString()}`,
-    seeds: f.helped ? (seeds ? `helped on ${seeds.helped} of ${seeds.of} random seeds` : 'checking other seeds…') : '',
-    // A fix that left the run stuck needs no badge: the tab's ✕ already says it did not help.
-    badge: o.verdict === 'recovered' ? `${Math.round((o.recoveryMs ?? 0) / 1000)}s` : f.helped ? o.verdict : '',
-    helped: f.helped,
+    result: unchanged && !f.helped ? `No improvement: still ${shortVerdict(o)}` : `${capitalise(shortVerdict(original))} → ${shortVerdict(o)}`,
+    where,
+    failed:
+      o.failedRequests === original.failedRequests
+        ? `no change: ${o.failedRequests.toLocaleString()} failed requests`
+        : `${o.failedRequests.toLocaleString()} failed requests instead of ${original.failedRequests.toLocaleString()}`,
+    checks,
+    // Only fixes that helped get a badge: the time back to normal after the failure ended.
+    badge: f.helped && o.verdict === 'recovered' ? `${Math.round((o.recoveryMs ?? 0) / 1000)} s` : f.helped && o.verdict === 'unaffected' ? '0 s' : '',
+    status,
     pros: f.candidate.pros,
     cons: [...measured, ...f.candidate.cons],
   };
 }
 
-
-/** One sentence on how the boundary moved for the current y value. */
+/**
+ * One sentence on how the boundary moved for the current y value. When that value isn't one of
+ * the map's rows (e.g. 7 retries on a 0–5 map), it says so and describes the nearest row instead.
+ */
 export function moveSummary(scenario: ScenarioPreset, before: SweepResult, after: SweepResult): string {
   const y = currentCell(scenario).y;
-  const tip = (r: SweepResult) => tippingPoints(r).find((t) => t.y === y)?.tipsAtX ?? null;
+  const rowY = nearestCell(scenario).y;
+  const tip = (r: SweepResult) => tippingPoints(r).find((t) => t.y === rowY)?.tipsAtX ?? null;
   const [b, a] = [tip(before), tip(after)];
-  const at = `With ${formatAxisValue(scenario.map.y, y)} ${scenario.map.y.label}`;
+  const fmt = (v: number) => `${formatAxisValue(scenario.map.y, v)} ${scenario.map.y.label}`;
+  const at = rowY === y ? `With ${fmt(y)}` : `Your ${fmt(y)} isn't on the map; with ${fmt(rowY)}`;
   if (b === null && a === null) return `${at}, the system recovered at every traffic level shown, before and after.`;
-  if (a === null) return `${at}, the system used to tip at ${b} requests/s; with the fix it recovers at every traffic level shown.`;
-  if (b === null) return `${at}, the fix makes it tip at ${a} requests/s, where it used to recover everywhere shown.`;
-  if (a > b) return `${at}, the tipping point moves from ${b} to ${a} requests/s.`;
-  if (a < b) return `${at}, the tipping point moves down from ${b} to ${a} requests/s: the fix makes this worse.`;
-  return `${at}, the tipping point stays at ${b} requests/s.`;
+  if (a === null) return `${at}, the system used to tip at ${b} req/s; with the fix it recovers at every traffic level shown.`;
+  if (b === null) return `${at}, the fix makes it tip at ${a} req/s, where it used to recover everywhere shown.`;
+  if (a > b) return `${at}, the tipping point moves from ${b} to ${a} req/s.`;
+  if (a < b) return `${at}, the tipping point moves down from ${b} to ${a} req/s: the fix makes this worse.`;
+  return `${at}, the tipping point stays at ${b} req/s.`;
 }
 
 function capitalise(s: string): string {

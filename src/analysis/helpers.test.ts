@@ -1,6 +1,6 @@
 import { call, tier } from '../engine/testConfigs';
 import type { RunConfig } from '../engine/config';
-import { callerOf, formatMs, formatSeconds, leafCapacityRps, nameOf, percent, sumRange } from './helpers';
+import { callPolicyInto, callerOf, formatMs, formatSeconds, leafCapacityRps, nameOf, percent, spokenName, sumRange } from './helpers';
 
 const config: RunConfig = {
   seed: 1,
@@ -19,6 +19,19 @@ describe('analysis helpers', () => {
     expect(callerOf(config, 'cache')).toEqual({ id: 'api', timeoutMs: 50 });
     expect(callerOf(config, 'db')).toEqual({ id: 'api', timeoutMs: 1000 });
     expect(callerOf(config, 'nobody')).toBeNull();
+    expect(callPolicyInto(config, 'db')).toEqual({ id: 'api', policy: config.tiers[0].downstream });
+    expect(callPolicyInto(config, 'api')).toEqual({ id: 'client', policy: config.client.call });
+    expect(callPolicyInto(config, 'nobody')).toBeNull();
+  });
+
+  it('says names the way a newcomer would', () => {
+    const labels = { db: 'DB', api: 'API', gateway: 'Gateway', cache: 'Cache', client: 'Client' };
+    expect(spokenName('db', labels)).toBe('the database');
+    expect(spokenName('api', labels)).toBe('the API');
+    expect(spokenName('gateway', labels)).toBe('the gateway');
+    expect(spokenName('cache', labels)).toBe('the cache');
+    expect(spokenName('client', labels)).toBe('the client');
+    expect(spokenName('svc', {})).toBe('the svc');
   });
 
   it('computes leaf capacity from the binding resource', () => {

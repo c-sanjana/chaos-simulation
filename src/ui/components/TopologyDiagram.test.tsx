@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { TopologyDiagram, arrowThickness, edgeKind, errorWash, flowDurationS, instanceColor, nodeAriaLabel } from './TopologyDiagram';
+import { TopologyDiagram, arrowThickness, edgeAriaLabel, edgeEnds, edgeKind, errorWash, flowDurationS, instanceColor, nodeAriaLabel, withoutIcon } from './TopologyDiagram';
 import type { TopologyEdgeView, TopologyNodeView } from './types';
 
 const nodes: TopologyNodeView[] = [
@@ -38,6 +38,51 @@ describe('nodeAriaLabel', () => {
     expect(nodeAriaLabel(nodes[0])).toBe('Client: 200 rps sent, 93% errors; unhealthy');
     expect(nodeAriaLabel({ ...nodes[0], errorShare: 0.93 })).toBe('Client: 200 rps sent, 93% errors; unhealthy; failing, 93% errors');
     expect(nodeAriaLabel(nodes[2])).toBe('Cache (1 instance): hit rate 70%, p99 2 ms; healthy');
+  });
+
+  it('adds the injected failure, overload and fix change in words, without the badge symbols', () => {
+    const db: TopologyNodeView = { ...nodes[2], id: 'db', label: 'DB', lines: ['467 rps in', 'CPU 100%'], health: 'bad', errorShare: 0.12, fault: '⚡ 8× slower', overloaded: true, change: 'queue limit 93' };
+    expect(nodeAriaLabel(db)).toBe(
+      'DB (1 instance): 467 rps in, CPU 100%; unhealthy; injected failure: 8× slower; failing, 12% errors; overloaded: more work is arriving than it can serve; changed by the fix: queue limit 93',
+    );
+    expect(nodeAriaLabel({ ...nodes[2], fault: 'down', change: '🔧 TTL 30 s' })).toBe('Cache (1 instance): hit rate 70%, p99 2 ms; healthy; injected failure: down; changed by the fix: TTL 30 s');
+  });
+});
+
+describe('withoutIcon', () => {
+  it('drops one leading badge symbol (with or without the emoji variation selector)', () => {
+    expect(withoutIcon('⚡ 8× slower')).toBe('8× slower');
+    expect(withoutIcon('⚡\uFE0F 8× slower')).toBe('8× slower');
+    expect(withoutIcon('🔧 retry budget 10%')).toBe('retry budget 10%');
+    expect(withoutIcon('⚠overloaded')).toBe('overloaded');
+    expect(withoutIcon('queue limit 93')).toBe('queue limit 93');
+    expect(withoutIcon('8× slower ⚡')).toBe('8× slower ⚡');
+  });
+});
+
+describe('edgeEnds and edgeAriaLabel', () => {
+  const tiers: TopologyNodeView[] = [
+    ...nodes,
+    { id: 'db', label: 'DB', col: 7, row: 3, instanceCountLabel: '1 instance', instanceBusy: [1], lines: ['467 rps in', 'CPU 100%'], health: 'bad' },
+  ];
+
+  it('reads the ends off the grid the way the arrow is drawn', () => {
+    expect(edgeEnds(edges[2], tiers)).toEqual({ from: tiers[1], to: tiers[3] });
+    // Vertical (cache) arrows go up from the caller below.
+    expect(edgeEnds(edges[1], tiers)).toEqual({ from: tiers[1], to: tiers[2] });
+    expect(edgeEnds(edges[0], tiers)).toEqual({ from: tiers[0], to: undefined });
+  });
+
+  it('names source and target, the rate, the repeats, failures and the fix change', () => {
+    const storm: TopologyEdgeView = { ...edges[2], rps: 264.4, retryShare: 191 / 264.4, errorShare: 1 };
+    expect(edgeAriaLabel(storm, tiers)).toBe('API to DB: 264 requests a second, including 191 repeats (retries); 100% failing');
+    expect(edgeAriaLabel({ ...edges[2], change: '🔧 retry budget 10%' }, tiers)).toBe('API to DB: 60 requests a second; changed by the fix: retry budget 10%');
+    expect(edgeAriaLabel({ ...edges[2], rps: 1, retryShare: 1, errorShare: 0.04 }, tiers)).toBe('API to DB: 1 request a second, including 1 repeat (retries)');
+    expect(edgeAriaLabel({ ...edges[2], rps: 0 }, tiers)).toBe('API to DB: 0 requests a second');
+    expect(edgeAriaLabel({ ...edges[1], cache: true }, tiers)).toBe('API to Cache: 480 lookups a second, 70% hits');
+    expect(edgeAriaLabel({ ...edges[1], cache: true, rps: 1 }, tiers)).toBe('API to Cache: 1 lookup a second, 70% hits');
+    // Without both boxes on the grid, the name is just the numbers.
+    expect(edgeAriaLabel(edges[0], tiers)).toBe('200 requests a second');
   });
 });
 
@@ -108,17 +153,111 @@ describe('TopologyDiagram', () => {
     expect(within(v).getByTestId('edge-shaft').style.width).toBe('11px');
     expect(within(v).getByText('480 lookups/s')).toBeTruthy();
     expect(within(v).getByText('70% hits')).toBeTruthy();
+    expect(within(v).queryByTestId('edge-retry')).toBeNull();
   });
 
-  it('wraps the grid in a horizontal scroll box and shows the key with an optional note', () => {
+  it('runs the retry band along the side of a vertical arrow', () => {
+    render(<TopologyDiagram nodes={[]} edges={[{ ...edges[1], retryShare: 0.3 }]} selectedId={null} onSelect={() => {}} />);
+    expect(screen.getByTestId('edge-retry').style.width).toBe('30%');
+  });
+
+  it('wraps the grid in a horizontal scroll box and shows the one-line key with an optional note and actions', () => {
     const { container, rerender } = render(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} />);
     expect(container.querySelector('.csl-topology-scroll > .csl-topology-grid')).not.toBeNull();
-    expect(screen.getByText(/Arrow thickness = requests\/s/)).toBeTruthy();
-    expect(screen.getByText(/Orange band ↻ = retries/)).toBeTruthy();
-    expect(screen.getByText(/Red = failing/)).toBeTruthy();
+    const key = container.querySelector('.csl-topology-legend') as HTMLElement;
+    expect(Array.from(key.children).map((c) => c.textContent)).toEqual([
+      'Key:',
+      'arrow width = requests/s',
+      'stripes = retries (repeats)',
+      '✕red = failing',
+      '⚠ = overloaded',
+      '⚡ = injected failure',
+      'squares = server copies',
+    ]);
+    // The key never talks about motion, so it holds with reduced motion too.
+    expect(key.textContent).not.toMatch(/mov|dash|anim/i);
     expect(screen.queryByText(/Snapshot at/)).toBeNull();
-    rerender(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} note="Snapshot at t = 60 s." />);
-    expect(screen.getByText('Snapshot at t = 60 s.')).toBeTruthy();
+    expect(container.querySelector('.csl-topology-foot--actions')).toBeNull();
+    rerender(
+      <TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} note="Snapshot at t = 60 s." actions={<button type="button">Edit all settings</button>} />,
+    );
+    expect(screen.getByText('Snapshot at t = 60 s.').className).toBe('csl-topology-foot__note');
+    expect(container.querySelector('.csl-topology-foot--actions .csl-topology-foot__actions')!.textContent).toBe('Edit all settings');
+  });
+
+  it('adds a 🔧 entry to the key only when a box or arrow was changed by a fix', () => {
+    const keyText = (container: HTMLElement) => container.querySelector('.csl-topology-legend')!.textContent;
+    const { container, rerender } = render(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} />);
+    expect(keyText(container)).not.toContain('🔧');
+    rerender(<TopologyDiagram nodes={[{ ...nodes[1], change: 'queue limit 93' }]} edges={edges} selectedId={null} onSelect={() => {}} />);
+    expect(keyText(container)).toContain('🔧 = changed by the fix');
+    rerender(<TopologyDiagram nodes={nodes} edges={[{ ...edges[2], change: 'retry budget 10%' }]} selectedId={null} onSelect={() => {}} />);
+    expect(keyText(container)).toContain('🔧 = changed by the fix');
+  });
+
+  it('marks the injected failure, overload and fix change with badges on the box border', () => {
+    const db: TopologyNodeView = { ...nodes[2], id: 'db', label: 'DB', col: 7, row: 3, health: 'bad', fault: '⚡ 8× slower', overloaded: true };
+    const api: TopologyNodeView = { ...nodes[1], errorShare: 0.62, overloaded: true, change: 'queue limit 93' };
+    render(<TopologyDiagram nodes={[db, api, nodes[2]]} edges={[]} selectedId={null} onSelect={() => {}} />);
+
+    const dbBox = screen.getByRole('button', { name: /^DB .*injected failure: 8× slower; overloaded/ });
+    expect(dbBox.className).toContain('csl-node--overloaded');
+    const top = dbBox.querySelector('.csl-node__edge--top') as HTMLElement;
+    expect(top.getAttribute('aria-hidden')).toBe('true');
+    expect(top.querySelector('.csl-node__fault')!.textContent).toBe('⚡ 8× slower');
+    expect(top.querySelector('.csl-node__badge')).toBeNull();
+    const overload = dbBox.querySelector('.csl-node__edge--bottom .csl-node__overload') as HTMLElement;
+    expect(overload.textContent).toBe('⚠ overloaded');
+    expect(overload.className).not.toContain('crowded');
+    expect(dbBox.querySelector('.csl-change')).toBeNull();
+
+    // Failing and overloaded: both shown, on different corners; the fix change shares the bottom edge.
+    const apiBox = screen.getByRole('button', { name: /^API .*failing, 62% errors; overloaded.*; changed by the fix: queue limit 93$/ });
+    expect(apiBox.querySelector('.csl-node__fault')).toBeNull();
+    const badge = apiBox.querySelector('.csl-node__edge--top .csl-node__badge') as HTMLElement;
+    expect(badge.textContent).toBe('✕ 62% errors');
+    expect(badge.className).not.toContain('crowded');
+    const change = apiBox.querySelector('.csl-node__edge--bottom .csl-change') as HTMLElement;
+    expect(change.textContent).toBe('🔧 queue limit 93');
+    expect(change.title).toBe('Changed by the fix: queue limit 93');
+    expect(apiBox.querySelector('.csl-node__overload')!.className).toContain('csl-node__tag--crowded');
+
+    const cache = screen.getByRole('button', { name: /^Cache/ });
+    expect(cache.querySelector('.csl-node__edge')).toBeNull();
+    expect(cache.className).not.toContain('csl-node--overloaded');
+  });
+
+  it('lets the error badge shorten when it shares the top edge with the injected failure', () => {
+    const db: TopologyNodeView = { ...nodes[2], id: 'db', label: 'DB', errorShare: 0.12, fault: '8× slower' };
+    render(<TopologyDiagram nodes={[db]} edges={[]} selectedId={null} onSelect={() => {}} />);
+    const box = screen.getByRole('button', { name: /^DB/ });
+    expect(box.querySelector('.csl-node__fault')!.textContent).toBe('⚡ 8× slower');
+    const badge = box.querySelector('.csl-node__badge') as HTMLElement;
+    expect(badge.className).toContain('csl-node__tag--crowded');
+    expect(badge.querySelector('.csl-node__badge-pct')!.textContent).toBe(' 12%');
+    expect(badge.querySelector('.csl-node__badge-word')!.textContent).toBe(' errors');
+  });
+
+  it('gives every arrow an accessible name with its source and target', () => {
+    const tiers: TopologyNodeView[] = [...nodes, { ...nodes[2], id: 'db', label: 'DB', col: 7, row: 3 }];
+    const storm: TopologyEdgeView = { ...edges[2], label: '264 rps', detail: 'incl. 191 retries', rps: 264, retryShare: 191 / 264, errorShare: 1, health: 'bad' };
+    render(<TopologyDiagram nodes={tiers} edges={[storm, { ...edges[1], cache: true }]} selectedId={null} onSelect={() => {}} />);
+    const arrow = screen.getByRole('img', { name: 'API to DB: 264 requests a second, including 191 repeats (retries); 100% failing' });
+    expect(arrow).toBe(screen.getByTestId('edge-a-d'));
+    expect(screen.getByRole('img', { name: 'API to Cache: 480 lookups a second, 70% hits' })).toBe(screen.getByTestId('edge-a-c'));
+  });
+
+  it('shows what a fix changed under a horizontal arrow and beside a vertical one', () => {
+    const budget: TopologyEdgeView = { ...edges[2], change: 'retry budget 10%' };
+    const ttl: TopologyEdgeView = { ...edges[1], change: '🔧 TTL 30 s' };
+    render(<TopologyDiagram nodes={[]} edges={[budget, ttl, edges[0]]} selectedId={null} onSelect={() => {}} />);
+    const h = screen.getByTestId('edge-a-d');
+    expect(h.lastElementChild!.textContent).toBe('🔧 retry budget 10%');
+    expect(h.lastElementChild!.className).toBe('csl-change csl-edge__change');
+    expect(h.getAttribute('aria-label')).toBe('60 requests a second; changed by the fix: retry budget 10%');
+    const v = screen.getByTestId('edge-a-c');
+    expect(v.querySelector('.csl-edge__vtext .csl-edge__change')!.textContent).toBe('🔧 TTL 30 s');
+    expect(screen.getByTestId('edge-c-g').querySelector('.csl-change')).toBeNull();
   });
 
   it('marks failing boxes with a class, a red wash, an error badge and words in the aria-label', () => {
@@ -129,6 +268,7 @@ describe('TopologyDiagram', () => {
     expect(api.className).toContain('csl-node--failing');
     expect(api.style.getPropertyValue('--csl-node-wash')).toBe('96%');
     expect(api.querySelector('.csl-node__badge')!.textContent).toBe('✕ 93% errors');
+    expect(api.querySelector('.csl-node__badge')!.className).not.toContain('crowded');
     expect(within(api).getByText('✎')).toBeTruthy();
 
     const cache = screen.getByRole('button', { name: /^Edit Cache settings/ });

@@ -3,7 +3,7 @@ import { call, tier } from '../engine/testConfigs';
 import { analyzed, retryStormRun } from './testRuns';
 
 describe('buildTimeline', { timeout: 60_000 }, () => {
-  it('tells the stuck retry storm in order, with the tipping point and a stuck verdict', () => {
+  it('tells the stuck retry storm in order, with the point of no return and a stuck verdict', () => {
     const { analysis, run } = retryStormRun({ retries: 3 });
     const t = analysis.timeline;
     expect(t.length).toBeLessThanOrEqual(10);
@@ -14,7 +14,9 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
 
     const tip = t.find((e) => e.kind === 'tip')!;
     expect(tip.tMs).toBe(35_000);
-    expect(tip.text).toMatch(/retries keep DB load at \d+\.\d× its capacity/);
+    // Not "Tipping point": step 2 uses that name for a traffic level.
+    expect(tip.text).toMatch(/^Point of no return: the failure is over, but retries keep DB load at \d+\.\d× its capacity/);
+    expect(t.some((e) => /tipping point/i.test(e.text))).toBe(false);
 
     const verdict = t.find((e) => e.kind === 'bad')!;
     expect(verdict.endMs).toBe(analysis.recovery.judgedUntilMs);
@@ -28,7 +30,7 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
     expect(peak).toBeCloseTo(maxLoad / capacity, 1);
   });
 
-  it('tells the recovered run with a good verdict and no tipping point', () => {
+  it('tells the recovered run with a good verdict and no point of no return', () => {
     const { analysis } = retryStormRun({ retries: 0 });
     const t = analysis.timeline;
     expect(t.some((e) => e.kind === 'tip')).toBe(false);

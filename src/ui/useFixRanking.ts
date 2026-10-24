@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Analysis } from '../analysis/analyze';
 import type { RunConfig } from '../engine/config';
 import { candidateFixes, type FixCandidate } from '../fixes/candidates';
-import { rankFixes, seedAgreement, seedVariants, type FixOutcome, type RankedFix, type SeedAgreement } from '../fixes/rank';
+import { fixHelped, rankFixes, seedAgreement, seedVariants, withLongerOutage, type FixOutcome, type RankedFix, type Robustness } from '../fixes/rank';
 import { CancelledError, type SimPool } from '../worker/pool';
 
 /** Every fix that helped is re-checked on this many seeds (the original seed included). */
@@ -13,17 +13,21 @@ export interface FixRankingState {
   candidates: FixCandidate[];
   ranked: RankedFix[];
   tested: number;
-  /** "Helps in N of 5 seeds" for every fix that helped, by fix id, once known. */
-  seeds: Record<string, SeedAgreement>;
+  /** For every fix that helped, by fix id: how it did on other random seeds and with a longer slowdown, once known. */
+  robustness: Record<string, Robustness>;
+  /** True while those checks are running (after every fix has been tested once). */
+  checking: boolean;
   error: string | null;
 }
 
-const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tested: 0, seeds: {}, error: null };
+const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tested: 0, robustness: {}, checking: false, error: null };
 
 /**
  * Tries every candidate fix for a run in the worker pool, ranking them by what actually happened as
- * results arrive; then re-checks every fix that helped on other random seeds. Each run is the fixed config
- * compared with its own no-failure control (see fixes/rank.ts).
+ * results arrive; then checks whether every fix that helped holds up: on other random seeds, and
+ * with a slowdown twice as long (a fix tuned to exactly this failure may not survive a worse one).
+ * Fixes that hold up rank first. Each run is the fixed config compared with its own no-failure
+ * control (see fixes/rank.ts).
  */
 export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analysis | null, labels: Record<string, string>): FixRankingState {
   const key = analysis ? JSON.stringify(config) : null;
@@ -37,7 +41,12 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
     const original: FixOutcome = { verdict: r.verdict, recoveryMs: r.recoveryMs, failedRequests: r.failedRequests };
     const candidates = candidateFixes(config, analysis.signals, labels);
     const results: Array<{ candidate: FixCandidate; outcome: FixOutcome }> = [];
+    const robustness: Record<string, Robustness> = {};
     setState({ ...EMPTY, original, candidates });
+    const update = (id: string, r: Robustness) => {
+      robustness[id] = { ...robustness[id], ...r };
+      setState((s) => ({ ...s, robustness: { ...robustness }, ranked: rankFixes(original, results, robustness) }));
+    };
     const batch = pool.batch();
     const fail = (e: unknown) => {
       if (!(e instanceof CancelledError)) setState((s) => ({ ...s, error: String(e) }));
@@ -54,13 +63,22 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
       .then(async () => {
         const top = rankFixes(original, results).filter((f) => f.helped);
         if (top.length === 0) return;
-        const originals = await Promise.all(seedVariants(config, SEEDS).map((c) => batch.cell(c)));
+        setState((s) => ({ ...s, checking: true }));
+        const longerConfig = withLongerOutage(config);
+        const [originals, longerOriginal] = await Promise.all([
+          Promise.all(seedVariants(config, SEEDS).map((c) => batch.cell(c))),
+          longerConfig ? batch.cell(longerConfig) : Promise.resolve(null),
+        ]);
         await Promise.all(
-          top.map(async (f) => {
-            const fixed = await Promise.all(seedVariants(f.candidate.config, SEEDS).map((c) => batch.cell(c)));
-            setState((s) => ({ ...s, seeds: { ...s.seeds, [f.candidate.id]: seedAgreement(originals, fixed) } }));
+          top.flatMap((f) => {
+            const longerFixed = withLongerOutage(f.candidate.config);
+            return [
+              Promise.all(seedVariants(f.candidate.config, SEEDS).map((c) => batch.cell(c))).then((fixed) => update(f.candidate.id, { seeds: seedAgreement(originals, fixed) })),
+              longerOriginal && longerFixed ? batch.cell(longerFixed).then((o) => update(f.candidate.id, { longer: fixHelped(longerOriginal, o) })) : Promise.resolve(),
+            ];
           }),
         );
+        setState((s) => ({ ...s, checking: false }));
       })
       .catch(fail);
     return () => batch.cancel();
