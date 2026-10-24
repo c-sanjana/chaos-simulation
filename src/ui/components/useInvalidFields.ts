@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /** A number field showing text that isn't a valid value (yet): its label, and the input itself. */
 export interface InvalidField {
@@ -25,11 +25,22 @@ function labelOf(input: HTMLInputElement): string {
  */
 export function useInvalidFields(root: HTMLElement | null): InvalidField[] {
   const [fields, setFields] = useState<InvalidField[]>([]);
+  // The list last reported, so DOM changes that don't change it cause no update at all.
+  const current = useRef<InvalidField[]>([]);
   useEffect(() => {
-    if (!root) return setFields([]);
+    const set = (next: InvalidField[]) => {
+      current.current = next;
+      setFields(next);
+    };
+    if (!root) {
+      if (current.current.length > 0) set([]);
+      return;
+    }
     const read = () => {
       const now = [...root.querySelectorAll<HTMLInputElement>(SELECTOR)];
-      setFields((before) => (before.length === now.length && before.every((f, i) => f.input === now[i]) ? before : now.map((input) => ({ label: labelOf(input), input }))));
+      const before = current.current;
+      if (before.length === now.length && before.every((f, i) => f.input === now[i])) return;
+      set(now.map((input) => ({ label: labelOf(input), input })));
     };
     read();
     const observer = new MutationObserver(read);

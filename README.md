@@ -68,19 +68,32 @@ light unless you choose dark).
 ### Build your own system
 
 **✎ Build your own system** (top right) opens a canvas with the current system drawn on it. Drag
-components from the palette (or use their **Add** buttons): **client, load balancer, app server,
-cache, database, queue**. Each starts with realistic defaults, and every setting can be changed in
-the panel beside the canvas, in plain words. Connect parts by dragging from a box's handle to
-another box, or with **Calls…**; select an arrow to set its timeout and retries. Problems are
-listed in plain words ("Server has a cache but nothing to ask when the cache doesn't have the
-answer"), and **Use this topology** runs all three steps on it.
+components from the palette (or use their **Add** buttons, which leave a gap so arrows stay
+visible): **client, load balancer, app server, cache, database, queue**. Each starts with
+realistic defaults, and every setting can be changed in the panel beside the canvas, in plain
+words. Connect parts by dragging from a box's handle to another box, or by keyboard with
+**Calls…** and **Connect**; select an arrow to set its timeout and retries. Removals can be
+undone. Problems are listed in plain words with how to fix them ("App server has a cache but
+nothing to ask when the cache doesn't have the answer: connect it to a database or another
+component"), the count is on **Use this topology**, and once there are none it runs all three
+steps on the system, keeping the current failure if its parts are still there.
 
+- **Remembered in this browser.** The built system, what runs on it (failure, traffic, settings
+  edits) and the drawing are saved in localStorage and come back on reload. Cancel keeps a changed
+  drawing for next time; "Use the example system instead" can be undone.
+- **One set of words.** The settings drawer uses the builder's labels and limits, and can say "no
+  timeout" and "entries never expire". For a built system it says "Your system" and "Reset to how
+  you built it".
 - **Chains for now.** Each part calls one next part, plus one cache for an app server. Branching (an
   app server calling several parts, a load balancer splitting over several pools) is next.
 - **Scenarios are picked by what each part is:** the database slows down; the cache restarts
-  empty; the front door slows down enough to serve about half the traffic; the work behind a
-  queue slows down. The map's traffic range comes from the system's own capacity without cache
-  help (for the example system that is the DB's ~160 req/s, giving the preset's 60–240).
+  empty; the front door slows down enough to serve about half the traffic (described per request,
+  e.g. "takes ~250 ms a request instead of ~4 ms"); the work behind a queue slows down.
+- **The map is centred on your traffic.** Whole numbers in round steps from about a third of the
+  client's traffic to about twice it, widened to take in the capacity estimate (without cache help)
+  when it is nearby, stopping at 1.25× that estimate for a system without a cache (further right
+  is plain overload), never above 5,000 req/s. The example system at 200 req/s gets 50–400.
+  A run of more than 3 million requests (5,000 req/s × 600 s) is refused in plain words.
 - **The queue is an asynchronous message queue.** The sender is answered as soon as the message is
   stored. Consumers take messages in order and call the next part with its timeout and retries; a
   message that still fails is dropped ("dead-lettered"). Users never see a backlog, so the story,
