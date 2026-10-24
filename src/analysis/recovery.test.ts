@@ -164,7 +164,7 @@ describe('assessRecovery judges only what happened inside the run', { timeout: 6
     const r = analysis.recovery;
     expect(r).toMatchObject({ verdict: 'stuck', judgedUntilMs: 40_000, lastFaultEndMs: 40_000, recoveredAtMs: null });
     expect(r.failedRequests).toBeGreaterThan(0);
-    expect(analysis.timeline.at(-1)).toEqual({ tMs: 40_000, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' });
+    expect(analysis.timeline.at(-1)).toEqual({ tMs: 40_000, atEnd: true, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' });
     expect(analysis.timeline.some((e) => e.text.startsWith('Failure ends'))).toBe(false);
   });
 

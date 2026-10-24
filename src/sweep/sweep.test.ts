@@ -112,49 +112,55 @@ describe('tippingPoints', () => {
   }
   const xs = [100, 200, 300, 400];
 
+  /** A row's expected tipping point; the extra fields default to those of a plain row. */
+  const tp = (y: number, tipsAtX: number | null, irregular = false, extra: { firstStuckX?: number | null; overloadedFromX?: number | null } = {}) => ({
+    y,
+    tipsAtX,
+    irregular,
+    firstStuckX: extra.firstStuckX !== undefined ? extra.firstStuckX : tipsAtX,
+    overloadedFromX: extra.overloadedFromX ?? null,
+  });
+
   it('finds a clean step', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'rrss']]))).toEqual([{ y: 1, tipsAtX: 300, irregular: false }]);
+    expect(tippingPoints(fromRows(xs, [[1, 'rrss']]))).toEqual([tp(1, 300)]);
   });
 
   it('reports null for a row that never tips', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'rrrr']]))).toEqual([{ y: 1, tipsAtX: null, irregular: false }]);
+    expect(tippingPoints(fromRows(xs, [[1, 'rrrr']]))).toEqual([tp(1, null)]);
   });
 
   it('reports the first x for a row stuck everywhere', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'ssss']]))).toEqual([{ y: 1, tipsAtX: 100, irregular: false }]);
+    expect(tippingPoints(fromRows(xs, [[1, 'ssss']]))).toEqual([tp(1, 100)]);
   });
 
-  it('flags a row that flips more than once, and tips where it stays stuck', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'rsrs'], [2, 'srss']]))).toEqual([
-      { y: 1, tipsAtX: 400, irregular: true },
-      { y: 2, tipsAtX: 300, irregular: true },
-    ]);
+  it('flags a row that flips more than once, tips where it stays stuck, and keeps the first stuck cell', () => {
+    expect(tippingPoints(fromRows(xs, [[1, 'rsrs'], [2, 'srss']]))).toEqual([tp(1, 400, true, { firstStuckX: 200 }), tp(2, 300, true, { firstStuckX: 100 })]);
   });
 
   it('flags a row that goes from stuck back to recovered as traffic rises', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'ssrr']]))).toEqual([{ y: 1, tipsAtX: null, irregular: true }]);
+    expect(tippingPoints(fromRows(xs, [[1, 'ssrr']]))).toEqual([tp(1, null, true, { firstStuckX: 100 })]);
   });
 
-  it('counts overloaded as stuck and unaffected as recovered', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'uroo'], [2, 'uusr']]))).toEqual([
-      { y: 1, tipsAtX: 300, irregular: false },
-      { y: 2, tipsAtX: null, irregular: true },
+  it('never calls overload a tipping point: it is reported separately', () => {
+    expect(tippingPoints(fromRows(xs, [[1, 'uroo'], [2, 'uusr'], [3, 'rsoo'], [4, 'roso']]))).toEqual([
+      tp(1, null, false, { overloadedFromX: 300 }),
+      tp(2, null, true, { firstStuckX: 300 }),
+      tp(3, 200, false, { overloadedFromX: 300 }),
+      tp(4, 300, false, { overloadedFromX: 400 }),
     ]);
+  });
+
+  it('counts overloaded as the failing side when deciding whether a row is a clean step', () => {
+    expect(tippingPoints(fromRows(xs, [[1, 'orss']]))).toEqual([tp(1, 300, true)]);
   });
 
   it('reads rows in ascending traffic whatever the axis order, keeping the y axis order', () => {
     const result = fromRows([400, 300, 200, 100], [[5, 'ssrr'], [0, 'rrrr']]);
-    expect(tippingPoints(result)).toEqual([
-      { y: 5, tipsAtX: 300, irregular: false },
-      { y: 0, tipsAtX: null, irregular: false },
-    ]);
+    expect(tippingPoints(result)).toEqual([tp(5, 300), tp(0, null)]);
   });
 
   it('uses only the finished cells of a partly finished map', () => {
-    expect(tippingPoints(fromRows(xs, [[1, 'r.s.'], [2, '....']]))).toEqual([
-      { y: 1, tipsAtX: 300, irregular: false },
-      { y: 2, tipsAtX: null, irregular: false },
-    ]);
+    expect(tippingPoints(fromRows(xs, [[1, 'r.s.'], [2, '....']]))).toEqual([tp(1, 300), tp(2, null)]);
   });
 });
 

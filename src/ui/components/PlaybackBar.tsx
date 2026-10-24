@@ -1,3 +1,5 @@
+import { mergeWindows } from './windows';
+
 export interface PlaybackBarProps {
   tMs: number;
   durationMs: number;
@@ -39,7 +41,7 @@ export function PlaybackBar({ tMs, durationMs, playing, speed, speeds, failureWi
       </button>
       <div className="csl-scrubber">
         <div className="csl-scrubber__track">
-          {failureWindows.map(([from, to], i) => (
+          {mergeWindows(failureWindows).map(([from, to], i) => (
             <div
               key={i}
               className="csl-scrubber__window"

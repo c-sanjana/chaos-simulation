@@ -17,24 +17,38 @@ export type FixKind =
   | 'longerTimeout'
   | 'addInstances';
 
+/**
+ * Something a run can show that makes a pro or con untrue for that run (see fixes/explain.ts,
+ * which measures it):
+ * - 'loadOverDouble': the struggling part got more than twice its normal load with the fix;
+ * - 'noFailures': no request failed with the fix;
+ * - 'failedMore': more requests failed with the fix than without.
+ */
+export type Refutation = 'loadOverDouble' | 'noFailures' | 'failedMore';
+
 export interface FixDefinition {
   id: string;
   kind: FixKind;
   title: string;
-  /** Tab label, e.g. "Bound queue". */
+  /** Tab label, e.g. "Bound the queue": a full name (the tab wraps rather than cutting it off). */
   short: string;
   /**
-   * How the change breaks the retry-storm loop (the mechanism, not the benefit), in one or two
-   * plain sentences; for fixes that usually don't break it, what they change and why that may not
-   * be enough. May use {caller} and {target} ({Caller}/{Target} at the start of a sentence): the
-   * caller and the called tier the change is about, filled in by candidateFixes with this config's
-   * names ("the API", "the database").
+   * How the change works: the mechanism only, never the outcome, in one or two plain sentences
+   * (whether it worked in this run is said separately, from what was measured: see
+   * fixes/explain.ts). May use {caller} and {target} ({Caller}/{Target} at the start of a
+   * sentence): the caller and the called tier the change is about, filled in by candidateFixes
+   * with this config's names ("the API", "the database").
    */
   how: string;
   /** Benefits, in plain words; cost is called out where it matters. */
   pros: string[];
   /** Drawbacks and caveats; the first is the most important. */
   cons: string[];
+  /**
+   * Pros and cons (by their exact text) that a run can contradict, and what would contradict them.
+   * They are shown only once the run with the fix has been measured, and only if it didn't.
+   */
+  refutable?: Record<string, Refutation>;
   /** which signal makes it relevant; null = a common instinct that is always tried */
   signal: keyof Signals | null;
 }
@@ -54,22 +68,27 @@ export const FIX_SETTINGS = {
   consumerFactor: 2,
 } as const;
 
+const AT_MOST_DOUBLE = 'Repeats from this layer can at most double its calls to the struggling service';
+const ONE_LAYER_HIDES = 'One layer still retries, so brief errors stay hidden from users';
+const USERS_STILL_ERRORS = 'The caller may now wait longer than its own caller waits for it, so users still get errors while it keeps working for nobody';
+
 /** In display and tie-break order. */
 export const FIX_CATALOG: FixDefinition[] = [
   {
     id: 'retry-budget',
     kind: 'retryBudget',
     title: 'Retry budget of 10%',
-    short: 'Retry budget',
-    how: 'Once repeats reach 10% of first tries, {caller} stops asking {target} again. A slowdown then adds only a little extra work, so the pile drains.',
+    short: 'Retry budget 10%',
+    how: 'Once repeats reach 10% of first tries, {caller} stops asking {target} again, so its repeats add at most a tenth more work.',
     pros: [
-      'Stops retries from multiplying load while a dependency is struggling',
+      "Stops this caller's retries from multiplying load while a dependency is struggling",
       'Retries still happen as normal while things are healthy',
       'Cheap: a client setting, no new servers',
     ],
     cons: [
       'Once the budget is spent, callers see errors sooner during a real outage',
       'The calling code must count its retries (many libraries can)',
+      'Other layers that retry are not limited by it',
     ],
     signal: 'retryShare',
   },
@@ -77,31 +96,29 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'cap-retries',
     kind: 'capRetries',
     title: 'Cap retries at 1',
-    short: 'Cap retries',
-    how: "Each request tries {target} at most twice, so repeats add less work. Sometimes that's enough for the pile to drain; near the limit it isn't.",
-    pros: [
-      'The simplest change: one number',
-      'Repeats can at most double the calls to the struggling service',
-    ],
+    short: 'Cap retries at 1',
+    how: 'Each request asks {target} at most twice: one try and one more, so this layer adds at most one extra call per request.',
+    pros: ['The simplest change: one number', AT_MOST_DOUBLE],
     cons: [
       'A genuinely brief error reaches the user more often',
       'Still doubles the calls at exactly the wrong moment',
       'Load can still climb further if the cache empties meanwhile',
     ],
+    refutable: { [AT_MOST_DOUBLE]: 'loadOverDouble' },
     signal: 'retryShare',
   },
   {
     id: 'jitter-backoff',
     kind: 'jitterBackoff',
     title: 'Exponential backoff with full jitter',
-    short: 'Jitter',
-    how: '{Caller} waits a random, growing pause before asking again, so repeats arrive spread out. But every repeat is still sent, so the pile usually keeps growing.',
+    short: 'Backoff + jitter',
+    how: '{Caller} waits a random, growing pause before asking again, so its repeats arrive spread out instead of together. Every repeat is still sent.',
     pros: [
       'Spreads retries out so they stop arriving in synchronised waves',
       'Cheap: a client library setting',
     ],
     cons: [
-      'Sends just as many retries, so total load is the same',
+      'Every retry is still sent; only their timing changes',
       'Helps only when repeats arrive in bursts, not when they pile up steadily',
     ],
     signal: 'retryShare',
@@ -110,11 +127,11 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'retry-one-layer',
     kind: 'retryOneLayer',
     title: 'Retry at one layer only',
-    short: 'One layer',
-    how: '{Caller} is the only one that asks {target} again; every other layer passes errors straight back. Repeats no longer multiply from layer to layer, so a slowdown adds a little extra work instead of many times more.',
+    short: 'Retry at one layer',
+    how: '{Caller} is the only one that asks {target} again; every other layer passes errors straight back, so repeats no longer multiply from layer to layer.',
     pros: [
       'Repeats no longer multiply from layer to layer',
-      'One layer still retries, so brief errors stay hidden from users',
+      ONE_LAYER_HIDES,
       'Cheap: a setting on each caller, no new servers',
     ],
     cons: [
@@ -122,14 +139,15 @@ export const FIX_CATALOG: FixDefinition[] = [
       'Every team must agree which layer retries',
       'Does not help when the extra load comes from elsewhere, such as an emptied cache',
     ],
+    refutable: { [ONE_LAYER_HIDES]: 'failedMore' },
     signal: 'retryShare',
   },
   {
     id: 'bound-queue',
     kind: 'boundQueue',
     title: 'Bound the queue (load shedding)',
-    short: 'Bound queue',
-    how: '{Target} turns requests away when its short queue is full instead of letting them wait, so it rarely works on requests nobody is waiting for, and no pile builds up.',
+    short: 'Bound the queue',
+    how: '{Target} turns requests away when its short queue is full instead of letting them wait, so it spends its time on requests it can answer before the caller gives up.',
     pros: [
       'At normal speed, anything it accepts is served before the caller gives up',
       'The backlog can no longer grow without limit',
@@ -146,8 +164,8 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'drop-expired',
     kind: 'dropExpired',
     title: 'Drop requests whose caller gave up',
-    short: 'Drop expired',
-    how: '{Target} skips requests {caller} has already given up on, so its time goes to requests someone still wants and it catches up instead of being buried.',
+    short: 'Drop expired work',
+    how: '{Target} skips requests {caller} has already given up on, so its time goes to requests someone is still waiting for.',
     pros: [
       'Stops spending capacity on answers nobody will read',
       'Never drops a request whose caller is still waiting',
@@ -162,8 +180,8 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'coalesce-misses',
     kind: 'coalesceMisses',
     title: 'Coalesce concurrent cache misses',
-    short: 'Coalesce',
-    how: 'When requests miss the cache for the same entry at once, one goes to {target} and the rest share its answer. Repeats still happen, so the loop usually goes on.',
+    short: 'Merge cache misses',
+    how: 'When requests miss the cache for the same entry at once, one goes to {target} and the rest share its answer.',
     pros: [
       'One database read per key instead of one per request during a stampede',
       'Invisible to callers',
@@ -178,8 +196,8 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'more-consumers',
     kind: 'moreConsumers',
     title: 'Twice as many consumers',
-    short: 'Consumers',
-    how: '{Caller} has twice as many consumers taking messages at once, so its backlog drains faster, as long as {target} keeps up. If {target} is the slow part, more consumers just send it more work at once.',
+    short: 'More consumers',
+    how: '{Caller} hands out twice as many messages at once, so up to twice as much work reaches {target} at the same time.',
     pros: [
       'Drains a backlog faster when the consumers were the limit',
       'Senders notice nothing: they are still answered as soon as a message is stored',
@@ -194,25 +212,26 @@ export const FIX_CATALOG: FixDefinition[] = [
     id: 'longer-timeout',
     kind: 'longerTimeout',
     title: 'Longer timeout (×3)',
-    short: 'Timeout',
-    how: '{Caller} waits three times longer before giving up and asking again, so a shorter slowdown causes few repeats. A longer one starts the same pile-up.',
+    short: 'Longer timeout ×3',
+    how: '{Caller} waits three times longer before giving up and asking again, so an answer slower than before but within the new wait causes no repeat.',
     pros: [
       'Fewer requests are given up on during a short slowdown',
       'One setting to change',
     ],
     cons: [
       'Only helps if the slowdown is shorter than the new wait',
-      'The caller may now wait longer than its own caller waits for it, so users still get errors while it keeps working for nobody',
+      USERS_STILL_ERRORS,
       'Each request holds its worker up to three times longer',
     ],
+    refutable: { [USERS_STILL_ERRORS]: 'noFailures' },
     signal: null,
   },
   {
     id: 'add-instances',
     kind: 'addInstances',
     title: 'Add instances (+50%)',
-    short: 'Scale out',
-    how: '{Caller} gets more servers, but {target} can handle no more than before, so the repeats still pile up there and the loop usually goes on.',
+    short: 'Scale out +50%',
+    how: '{Caller} gets more servers; {target} can handle no more than before.',
     pros: [
       'More headroom for normal peaks too',
       'No code change',

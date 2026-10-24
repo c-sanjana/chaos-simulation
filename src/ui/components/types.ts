@@ -76,12 +76,15 @@ export interface TimelineEntryView {
   endMs?: number;
   text: string;
   kind: 'fault' | 'tip' | 'bad' | 'good' | 'info';
+  /** Known only once the run has ended: labelled "end of run" instead of a time. */
+  atEnd?: boolean;
 }
 
 export interface MapCellView {
   x: number;
   y: number;
-  status: 'recovered' | 'stuck' | 'pending';
+  /** 'overloaded': too much traffic even without the failure (not the same as stuck). */
+  status: 'recovered' | 'stuck' | 'overloaded' | 'pending';
   recoverySeconds?: number;
   isCurrent: boolean;
 }

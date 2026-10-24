@@ -68,4 +68,10 @@ describe('EventTrack', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Icons' }));
     expect(document.querySelector('.csl-track__steps')).not.toBeNull();
   });
+
+  it('labels a verdict known only at the end of the run "end", in the same words as the story', () => {
+    render(<EventTrack entries={[{ tMs: 98_900, atEnd: true, kind: 'bad', text: 'Still stuck: never returned to normal after the failure ended' }]} nowMs={120_000} failureWindows={[]} />);
+    expect(screen.getByText('end')).toBeTruthy();
+    expect(detail().textContent).toBe('end of run Still stuck: never returned to normal after the failure ended');
+  });
 });

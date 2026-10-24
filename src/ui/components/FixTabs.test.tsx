@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { FixTabs, tabLabel, type FixTab } from './FixTabs';
+import { FixTabs, rankedFirstReason, tabLabel, type FixTab } from './FixTabs';
 
 const tab = (over: Partial<FixTab>): FixTab => ({
   id: 'retry-budget',
@@ -14,14 +14,16 @@ const tab = (over: Partial<FixTab>): FixTab => ({
   checks: ['helped in 5 of 5 random runs', 'still helps if the slowdown lasts 10 s'],
   badge: '3 s',
   status: 'reliable',
+  recoverySeconds: 3,
+  failedCount: 40,
   pros: ['Stops retries from multiplying load', 'Cheap: a client setting, no new servers'],
   cons: ['Callers see errors sooner during a real outage', 'The calling code must count its retries', 'A third con'],
   ...over,
 });
 const tabs = [
   tab({}),
-  tab({ id: 'cap-retries', short: 'Cap retries', name: 'Cap retries at 1', badge: '13 s', status: 'unreliable', result: 'Stuck → recovers in 13 s' }),
-  tab({ id: 'jitter', short: 'Jitter', name: 'Exponential backoff with full jitter', result: 'No improvement: still stuck', badge: '', status: 'no', checks: [] }),
+  tab({ id: 'cap-retries', short: 'Cap retries', name: 'Cap retries at 1', badge: '13 s', status: 'unreliable', result: 'Stuck → recovers in 13 s', recoverySeconds: 13 }),
+  tab({ id: 'jitter', short: 'Jitter', name: 'Exponential backoff with full jitter', result: 'No improvement: still stuck', badge: '', status: 'no', checks: [], recoverySeconds: null }),
 ];
 
 describe('FixTabs', () => {
@@ -44,7 +46,7 @@ describe('FixTabs', () => {
     expect(panel.getAttribute('aria-labelledby')).toBe('fix-tab-retry-budget');
     expect(within(panel).getByRole('heading', { name: 'Retry budget of 10%' })).toBeTruthy();
     expect(within(panel).getByText('Shown in the replay')).toBeTruthy();
-    expect(within(panel).getByText('How it helps').nextElementSibling!.textContent).toBe('Repeats stop piling up, so the database can catch up.');
+    expect(within(panel).getByText('How it works').nextElementSibling!.textContent).toBe('Repeats stop piling up, so the database can catch up.');
     expect(within(panel).getByText('Why try it').nextElementSibling!.textContent).toBe("Retries made up 74% of DB's load.");
     const result = within(panel).getByText('Result').nextElementSibling!;
     expect(result.textContent).toBe(
@@ -79,6 +81,42 @@ describe('FixTabs', () => {
   it('renders nothing when there are no fixes (the step explains why)', () => {
     const { container } = render(<FixTabs tabs={[]} selectedId={null} onSelect={() => {}} />);
     expect(container.innerHTML).toBe('');
+  });
+
+  it('explains its marks and numbers on screen, and why the first fix is first', () => {
+    render(<FixTabs tabs={tabs} selectedId={null} onSelect={() => {}} />);
+    expect(document.getElementById('fix-tabs-key')!.textContent).toBe("✓ held up in the checks⚠ only sometimes✕ didn't help (or only by luck)12 s = time to recover after the failure ended");
+    expect(screen.getByRole('tablist').getAttribute('aria-describedby')).toBe('fix-tabs-key');
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByText("Why it's ranked first").nextElementSibling!.textContent).toBe('It held up in the checks; Cap retries helped only sometimes.');
+  });
+
+  it("shows the run's own reason it worked or didn't, and the rank reason only on the first fix", () => {
+    const verdict = { title: "Why it didn't help here", text: "Users' apps (5×) still retry, so the database still had up to 3.2× the work it can handle." };
+    const { rerender } = render(<FixTabs tabs={[tabs[0], { ...tabs[2], verdict }]} selectedId="jitter" onSelect={() => {}} />);
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByText("Why it didn't help here").nextElementSibling!.textContent).toBe(verdict.text);
+    expect(within(panel).queryByText("Why it's ranked first")).toBeNull();
+    rerender(<FixTabs tabs={[tab({ status: 'rare', badge: '2 s' })]} selectedId={null} onSelect={() => {}} />);
+    const rare = screen.getByRole('tab');
+    expect(rare.textContent).toMatch(/^✕/); // helped once in five: luck, marked like no help
+    expect(rare.className).toContain('csl-fixtab--rare');
+    expect(rare.getAttribute('aria-label')).toBe('Retry budget: helped only by luck, back to normal 2 s after the failure ended');
+    expect(within(screen.getByRole('tabpanel')).getByText('Stuck → recovers in 3 s').className).toBe('csl-fixtabs__bad');
+  });
+});
+
+describe('rankedFirstReason', () => {
+  const a = tab({ id: 'a', short: 'A' });
+  it('names the key that puts the first fix ahead of the runner-up', () => {
+    expect(rankedFirstReason([a])).toBe('It is the only fix that held up here.');
+    expect(rankedFirstReason([tab({ status: 'unreliable' }), tab({ status: 'no' })])).toBe('It is the only fix that helped at all, though only sometimes.');
+    expect(rankedFirstReason([a, tab({ short: 'B', status: 'rare' })])).toBe('It is the only fix that held up here.');
+    expect(rankedFirstReason([a, tab({ short: 'B', recoverySeconds: 9 })])).toBe('It got back to normal soonest: 3 s after the failure ended, against 9 s for B.');
+    expect(rankedFirstReason([a, tab({ short: 'B', recoverySeconds: null })])).toBe('It got back to normal soonest: 3 s after the failure ended, against never for B.');
+    expect(rankedFirstReason([a, tab({ short: 'B', recoverySeconds: 4, failedCount: 1200 })])).toBe('It got back to normal about as soon as B (3 s and 4 s) but failed fewer requests (40 against 1,200).');
+    expect(rankedFirstReason([a, tab({ short: 'B', recoverySeconds: 3, failedCount: 40 })])).toMatch(/^It ranks first by the checks it passed/);
+    expect(rankedFirstReason([tab({ status: 'no' })])).toBeNull();
   });
 });
 

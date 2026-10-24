@@ -23,19 +23,36 @@ describe('NumberField', () => {
     expect(onChange).toHaveBeenLastCalledWith(0);
   });
 
-  it('keeps an empty or out-of-range draft without reporting it, then restores the value on blur', () => {
+  it('keeps an empty or out-of-range entry visible and marked, without reporting it, even after leaving the field', () => {
     const onChange = vi.fn();
-    render(<NumberField label="Retries" value={3} onChange={onChange} min={0} />);
+    const { rerender } = render(<NumberField label="Retries" value={3} onChange={onChange} min={0} />);
     const input = screen.getByRole('spinbutton') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '' } });
     expect(input.value).toBe('');
     expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.validity.valid).toBe(false); // blocks its form
     fireEvent.change(input, { target: { value: '-2' } });
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.blur(input);
-    expect(input.value).toBe('3');
+    expect(input.value).toBe('-2'); // no silent snap back
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    // A new value from outside (a reset) replaces the invalid entry.
+    rerender(<NumberField label="Retries" value={4} onChange={onChange} min={0} />);
+    expect(input.value).toBe('4');
     expect(input.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('tidies a valid entry when leaving the field', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<NumberField label="Retries" value={3} onChange={onChange} min={0} />);
+    const input = screen.getByRole('spinbutton') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '05' } });
+    expect(onChange).toHaveBeenCalledWith(5);
+    rerender(<NumberField label="Retries" value={5} onChange={onChange} min={0} />);
+    expect(input.value).toBe('05');
+    fireEvent.blur(input);
+    expect(input.value).toBe('5');
   });
 
   it('accepts any number when no minimum is set, and has no unit by default', () => {

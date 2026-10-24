@@ -27,7 +27,7 @@ describe('FIX_CATALOG', () => {
     expect(FIX_CATALOG.map((d) => d.kind).sort()).toEqual([...kinds].sort());
     expect(new Set(FIX_CATALOG.map((d) => d.id)).size).toBe(FIX_CATALOG.length);
     for (const d of FIX_CATALOG) {
-      expect(d.short.length).toBeLessThanOrEqual(12); // four tabs share a row
+      expect(d.short.length).toBeLessThanOrEqual(18); // a full name that wraps on two lines at most
       expect(d.pros.length).toBeGreaterThanOrEqual(2);
       expect(d.cons.length).toBeGreaterThanOrEqual(2);
       for (const line of [...d.pros, ...d.cons]) {
@@ -46,7 +46,17 @@ describe('FIX_CATALOG', () => {
       expect(d.how).toMatch(/\.$/);
       expect(d.how.replace(/\{(caller|target|Caller|Target)\}/g, '')).not.toMatch(/[{}]/); // only known placeholders
       expect(d.how).not.toMatch(/p99|rps|tier|timeout|retr|latency/i);
+      // The mechanism only: whether it worked is measured per run (fixes/explain.ts), so `how`
+      // never promises or denies an outcome next to a result that might say otherwise.
+      expect(d.how).not.toMatch(/drain|usually|goes on|recover|enough|stuck|keeps growing|the loop/i);
     }
+  });
+
+  it('marks only its own pros and cons as contradictable by a run', () => {
+    for (const d of FIX_CATALOG) {
+      for (const claim of Object.keys(d.refutable ?? {})) expect([...d.pros, ...d.cons]).toContain(claim);
+    }
+    expect(FIX_CATALOG.find((d) => d.id === 'cap-retries')!.refutable).toEqual({ 'Repeats from this layer can at most double its calls to the struggling service': 'loadOverDouble' });
   });
 
   it('keeps its pros and cons true to what was measured', () => {
@@ -128,14 +138,14 @@ describe('on the stuck retry storm, retrying at one layer (3 App server → DB r
       'longer-timeout': 'App server waits up to 3 s for DB before giving up (instead of 1 s).',
       'add-instances': 'App server runs 6 instances instead of 4.',
     });
-    // How each one breaks the loop (or why it may not), with this config's names filled in.
+    // How each one works (the mechanism, not the outcome), with this config's names filled in.
     const how = Object.fromEntries(candidates.map((c) => [c.id, c.how]));
     expect(how['bound-queue']).toBe(
-      'The database turns requests away when its short queue is full instead of letting them wait, so it rarely works on requests nobody is waiting for, and no pile builds up.',
+      'The database turns requests away when its short queue is full instead of letting them wait, so it spends its time on requests it can answer before the caller gives up.',
     );
     expect(how['retry-budget']).toMatch(/^Once repeats reach 10% of first tries, the app server stops asking the database again/);
     expect(how['coalesce-misses']).toMatch(/one goes to the database and the rest share its answer/);
-    expect(how['add-instances']).toMatch(/^The app server gets more servers, but the database can handle no more than before/);
+    expect(how['add-instances']).toBe('The app server gets more servers; the database can handle no more than before.');
     for (const c of candidates) expect(c.how).not.toMatch(/[{}]/);
     expect(config).toEqual(snapshot);
   });
@@ -174,7 +184,7 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Gate
     const fix = byId['retry-one-layer'];
     expect(fix.what).toBe("Only the App server asks the DB again (once); users' apps and the Gateway no longer retry.");
     expect(fix.how).toBe(
-      'The app server is the only one that asks the database again; every other layer passes errors straight back. Repeats no longer multiply from layer to layer, so a slowdown adds a little extra work instead of many times more.',
+      'The app server is the only one that asks the database again; every other layer passes errors straight back, so repeats no longer multiply from layer to layer.',
     );
     expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Gateway's load`);
     expect(diffPaths(config, fix.config).sort()).toEqual(['client.call.retries', 'tiers.0.downstream.retries']);

@@ -306,7 +306,7 @@ describe('buildStory pictures: a few words, a number, a meter or the cascade per
       { kind: 'overload', headline: expect.any(String), figure: expect.stringMatching(/^\d+\.\d×$/) },
       { kind: 'back', headline: expect.any(String), figure: 'pile remains' },
       { kind: 'waste', headline: expect.any(String), figure: expect.any(String) },
-      { kind: 'stuck', headline: 'Never recovered', figure: '3.2× peak' },
+      { kind: 'stuck', headline: 'Still stuck', figure: '3.2× peak' },
     ]);
     expect(story[1].cascade).toEqual([
       { who: "users' apps", retries: 5 },

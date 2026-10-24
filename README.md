@@ -21,22 +21,26 @@ part can fail (slow down, go down, lose one server, or for the cache restart emp
 failures can be combined. On a first visit a one-minute guided demo follows the retry storm on
 the default system: it plays the replay forward and pauses at each moment that matters (calm
 traffic, the database slowing down, repeats piling up, the failure ending, stuck for good), then
-shows the tipping point and a fix that holds up, introducing each part of the page as it goes.
-Skip it, or replay it any time with **?** at the top right; started with other settings, the demo
-sets them aside and puts them back afterwards. ☾ beside it switches to dark mode (the page stays
-light unless you choose dark).
+shows the tipping point and a fix that holds up, introducing each part of the page as it goes
+(stops about results say "Getting results…" until they are on screen). Finishing it leaves the
+replay paused at its end with the verdict. Skip it, or replay it any time with the **?** button at
+the top right; started with other settings, the demo sets them aside and puts them back
+afterwards. **Words** beside it explains the jargon (req/s, timeout, retry, p99, workers, queue,
+random run #), and ☾ switches to dark mode (the page stays light unless you choose dark).
 
 1. **What happened.** The system never recovers, even though the failure is over. The side panel
    builds up as the replay reaches each moment, as pictures more than text: one row per step with
    an icon, a few words and the key number ("Database 8× slower · 5 s"), a meter of load against
-   capacity, and blocks showing how many times each layer asks again (hover a row for the full
-   sentence). The verdict is revealed only when the replay gets there, and the first replay pauses
+   capacity, and blocks showing how many times each layer asks again. The newest row also shows
+   the sentence that explains it; older rows show theirs on **Why?**. The verdict is revealed only when the replay gets there, and the first replay pauses
    just after the failure ends: "the database is back to normal speed; watch whether the system
    recovers". Below it, the measured details as a row of icons in order (those during the failure
    tinted), the newest spelled out underneath; **List** shows them all as text. With numbers from
    the run:
    - DB p99 exceeds the app server's 1 s timeout, and every layer starts asking again.
-   - Retries push DB load past its capacity, up to 3.2× at the peak.
+   - Retries push DB load past its capacity (1.3× in the second it happens; every number is the
+     value at the moment shown, and whole-run peaks say so).
+   - A stuck run says "Still stuck" at the end of the run, not at a time that looks like an event.
    - The point of no return: the failure is over, but retries keep the DB overloaded, so the
      backlog can never drain.
    - Most DB work is for requests the app server had already given up on, and the cache empties because
@@ -45,8 +49,10 @@ light unless you choose dark).
    After you change a setting and re-run, once the replay reaches the end a "Compared with your
    last run" panel shows what you changed (chips) and how the results moved, each as a dot moving
    from before (grey) to now (blue) with a ▲/▼ change (failed requests, retries sent, peak load on
-   the most overloaded part, busy workers), and a plain takeaway, e.g. "A lot changed inside the
-   system, but users see about the same: it was stuck either way."
+   the most overloaded part, busy workers, messages dropped behind a queue), and a plain takeaway.
+   After changing only retries it says why, from the run: "Users retried less, so more failures
+   reached them directly. It was still stuck because users' apps (1×), the Gateway (3×) and the
+   App server (1×) still multiply the load."
 
    The diagram marks the injected slowdown (⚡), overloaded parts (⚠) and failing calls (✕), with
    a key. End-to-end latency is measured as how long users waited for an answer, errors
@@ -54,14 +60,20 @@ light unless you choose dark).
 2. **Where's the tipping point?** The same failure, re-run at 60 combinations of traffic and how
    long the failure lasts. Each cell is a full simulation, and you can click one to replay it
    inline. For the retry storm: a slowdown of up to 2 s always recovers; 3 s tips at 160 req/s,
-   5 s at 100 and 8 s at 80, so the default 200 req/s is far past it.
+   5 s at 100 and 8 s at 80, so the default 200 req/s is far past it. Stuck cells carry a ✕, each
+   row's tipping point is drawn as a bar, and "too much traffic even without the failure" has its
+   own hatched colour: it is never called a tipping point. A noisy row says "around X–Y req/s".
 3. **Does a fix help?** Candidate fixes are chosen from what the run showed. Each one is a single
    setting change, re-run against the same traffic and the same failure, and ranked by what
    actually happened. Every fix that helped is then checked to see whether it holds up: on 5 random
-   seeds, and with a slowdown twice as long. Fixes that hold up rank first; the others are marked
-   ⚠ "helped only sometimes". Each fix says in plain words what it changes, how that breaks the
-   loop, why it was suggested, what happened, and its pros and cons (including cost, and drawbacks
-   measured in the run itself). Choosing a fix shows it before and after side by side, with what it
+   seeds, and with a slowdown twice as long. Fixes that hold up rank first (✓); the others are
+   marked ⚠ "helped only sometimes", or ✕ when they helped in only 1 of 5 runs (luck); a key under
+   the tabs explains the marks and numbers, and the first fix says why it is first. Each fix says
+   what happened, **why it worked or didn't here** (measured: e.g. "Users' apps (5×), the Gateway
+   (3×) and the app server (1×) still retry, so the database still had up to 3.2× the work it can
+   handle after the failure ended"), how it works, why it was suggested, and its pros and cons
+   (including cost and drawbacks measured in the run; a pro or con the run contradicts is left
+   out). Choosing a fix shows it before and after side by side, with what it
    changed labelled on the diagram, and whether the tipping point moved; click any cell of either
    map to replay that cell before and after.
 

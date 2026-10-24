@@ -41,12 +41,13 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(scope.options[0].text).toBe('DB (most overloaded)');
     fireEvent.click(screen.getByRole('button', { name: 'Latency' }));
     expect(scope.options[0].text).toBe('End to end (users)');
-    expect(screen.getByText('User gives up after 3 s')).toBeTruthy();
+    expect(screen.getByText("Users' apps give up on one try after 3 s")).toBeTruthy();
+    expect(screen.getByText(/The wait includes every retry/)).toBeTruthy(); // the note under the legend
     fireEvent.change(scope, { target: { value: 'db' } });
     expect(scope.value).toBe('db');
     expect(screen.getByText('App server gives up after 1 s')).toBeTruthy();
     fireEvent.change(scope, { target: { value: 'client' } });
-    expect(screen.getByText('User gives up after 3 s')).toBeTruthy();
+    expect(screen.getByText("Users' apps give up on one try after 3 s")).toBeTruthy();
   });
 
   it('opens settings for a clicked box, or all settings, when editing is enabled', () => {
@@ -86,10 +87,10 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     seek(120_000);
     fireEvent.click(screen.getByRole('button', { name: 'List' }));
     expect(screen.getByText(/^Stuck → recovers in \d+ s$/)).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Why: live timeline (after the fix)' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Details: what was measured (after the fix)' })).toBeTruthy();
     expect(screen.getByText(/Back to normal: recovered/)).toBeTruthy();
     fireEvent.click(within(screen.getByRole('group', { name: 'Show run' })).getByRole('button', { name: 'Before' }));
-    expect(screen.getByRole('heading', { name: 'Why: live timeline (before the fix)' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Details: what was measured (before the fix)' })).toBeTruthy();
     expect(screen.getByText(/Point of no return/)).toBeTruthy();
     expect(screen.getByText(/before the fix\./)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'After' }));
@@ -108,6 +109,35 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     await act(async () => {});
     expect(screen.getByText(/Snapshot at t = 0 s/)).toBeTruthy();
     vi.unstubAllGlobals();
+  });
+
+  it('opens paused at a given moment (the end, after the tour), and replays from the start on request', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const { rerender } = render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} openAtMs={120_000} guided />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+    expect(screen.getByText(/Snapshot at t = 120 s/)).toBeTruthy();
+    expect(screen.getByText('Stuck: did not recover after the failure ended')).toBeTruthy();
+    // Same run, new restart key: from the start, playing.
+    rerender(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} restartKey={1} guided />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+    expect(screen.getByText(/Snapshot at t = 0 s/)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('tells the run shown in a compact story when asked (step 2 and 3 replays)', () => {
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} after={{ config: recovered.config, result: result(recovered) }} autoPlay={false} sideTimeline compactStory />);
+    const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
+    expect(story.className).toContain('csl-story--compact');
+    expect(story.closest('.csl-player__sidestack')).not.toBeNull();
+    seek(120_000);
+    // The "after" run (shown by default) recovered: its newest step says so.
+    expect(within(story).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(story).getByText(/back to normal/i, { selector: '.csl-flow__text' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Before' }));
+    expect(within(screen.getByRole('region', { name: 'What is happening, in plain words' })).getByText('Still stuck')).toBeTruthy();
   });
 
   it('waits while held (e.g. under the guided tour) and plays from the start when released', async () => {

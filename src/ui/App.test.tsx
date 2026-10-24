@@ -48,7 +48,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     expect(screen.queryByLabelText(/^Traffic/)).toBeNull(); // the editor starts closed
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    expect(screen.getByRole('button', { name: 'Re-run' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Replay from the start' })).toBeTruthy();
     const traffic = screen.getByLabelText(/^Traffic/);
     fireEvent.change(traffic, { target: { value: '80' } });
     expect(pool.analyzed).toHaveLength(1);
@@ -80,7 +80,7 @@ describe('App', { timeout: 60_000 }, () => {
       { tier: 'db', kind: 'slow', factor: 4, startMs: 20_000, endMs: 30_000 },
       { tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 20_000, endMs: 30_000 },
     ]);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*retries 2 \/ 3 \/ 0/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*asks again: users' apps 2× · Gateway 3× · App server 0×/);
     // Extra failures can be removed; the first stays.
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     expect(screen.queryByRole('button', { name: 'Remove failure 1' })).toBeNull();
@@ -103,7 +103,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: '120000' } });
     const panel = await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
     expect(within(panel).getByText('App server → DB retries 1 → 5')).toBeTruthy();
-    expect(within(panel).getByText(/^A lot changed inside the system, but users see about the same/)).toBeTruthy();
+    expect(within(panel).getByText(/^The App server retried more, adding repeats\. It was stuck either way because/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
     // A different preset isn't comparable.
@@ -146,8 +146,9 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
     await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    // Side by side: map on the left; the replay on the right, with its live timeline beside the chart.
-    const timeline = screen.getByRole('region', { name: 'Live timeline' });
+    // Side by side: map on the left; the replay on the right, with its compact story and details beside the chart.
+    expect(screen.getByRole('region', { name: 'What is happening, in plain words' }).closest('.csl-player__timeline--side')).not.toBeNull();
+    const timeline = screen.getByRole('region', { name: 'Details: what was measured' });
     expect(timeline.closest('.csl-player__timeline--side')).not.toBeNull();
     expect(screen.getByRole('region', { name: 'Tipping point' }).contains(timeline)).toBe(false);
   });
@@ -157,7 +158,7 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
-    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · retries 5 \/ 3 \/ 1/);
+    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · asks again: users' apps 5× · Gateway 3× · App server 1×/);
     const toggle = within(summary).getByRole('button', { name: 'Change failure' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
@@ -328,6 +329,20 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByRole('button', { name: /Switch to (dark|light) mode/ })).toBeTruthy();
   });
 
+  it('finishing the tour lands on the end of the replay, with the verdict shown', async () => {
+    localStorage.clear();
+    render(<App pool={new FakePool()} />);
+    await screen.findByRole('dialog', {}, SLOW);
+    for (let i = 0; i < 10; i++) fireEvent.keyDown(document, { key: 'ArrowRight' });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Done' }));
+    expect(localStorage.getItem('csl-tour-seen-v2')).toBe('completed');
+    expect(screen.getByRole('button', { name: /What happened/ }).getAttribute('aria-current')).toBe('step');
+    // The steps the tour visited stay mounted (hidden); only step 1's replay is visible.
+    await waitFor(() => expect(Number((screen.getByRole('slider', { name: 'Playback position' }) as HTMLInputElement).value)).toBe(120_000), SLOW);
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy(); // paused there, not replaying from the start
+    expect(screen.getByText('Stuck: did not recover after the failure ended')).toBeTruthy();
+  });
+
   it('the tour is a demo of the default retry storm: other settings are set aside for it and come back after', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
@@ -361,18 +376,55 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    const traffic = screen.getByLabelText(/^Traffic/);
+    const traffic = screen.getByLabelText(/^Traffic/) as HTMLInputElement;
     fireEvent.change(traffic, { target: { value: '100000' } });
     expect(screen.getByText('Enter a whole number from 1 to 5000')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Re-run' }));
+    // The invalid entry stays visible (no snap back) and Run is disabled until it is fixed.
+    fireEvent.blur(traffic);
+    expect(traffic.value).toBe('100000');
+    const replay = screen.getByRole('button', { name: 'Replay from the start' }) as HTMLButtonElement;
+    expect(replay.disabled).toBe(true);
+    fireEvent.click(replay);
     expect(pool.analyzed).toHaveLength(1); // nothing ran
     fireEvent.change(traffic, { target: { value: '200' } });
-    fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '500' } });
-    expect(screen.getByRole('alert').textContent).toMatch(/The failure must end at least 20 s before the run ends/);
+    expect(replay.disabled).toBe(false);
+    // "Starts at" is bounded by the run: the failure must end 20 s before it does (120 s run, 5 s failure).
+    const start = screen.getByLabelText(/^Starts at/) as HTMLInputElement;
+    expect(start.max).toBe('95');
+    fireEvent.change(start, { target: { value: '500' } });
+    expect(screen.getByText('Enter a whole number from 0 to 95')).toBeTruthy();
+    expect(replay.disabled).toBe(true);
+    fireEvent.change(start, { target: { value: '40' } });
     const run = screen.getByRole('button', { name: 'Run simulation' }) as HTMLButtonElement;
-    expect(run.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/^Starts at/), { target: { value: '30' } });
     expect(run.disabled).toBe(false);
+    // A run that ends too soon for the failure is explained in words.
+    fireEvent.change(start, { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText(/^Lasting/), { target: { value: '80' } });
+    expect(screen.getByText('Enter a whole number from 1 to 70')).toBeTruthy();
+  });
+
+  it('replays the same run from the start when nothing changed, labels edited presets, and caps added failures', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    const position = () => Number((screen.getByLabelText('Playback position') as HTMLInputElement).value);
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: '60000' } });
+    expect(position()).toBe(60_000);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replay from the start' }));
+    await waitFor(() => expect(position()).toBeLessThan(60_000));
+    expect(pool.analyzed).toHaveLength(1); // the same run, replayed: nothing re-simulated
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).not.toMatch(/\(edited\)/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/asks again: users' apps 5× · Gateway 3× · App server 1×/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    const add = screen.getByRole('button', { name: '+ Add another failure' }) as HTMLButtonElement;
+    for (let i = 0; i < 3; i++) fireEvent.click(add); // gateway, app server, cache: every part fails
+    expect(add.disabled).toBe(true);
+    expect(screen.getByText('Every part already has a failure.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/Retry storm \(edited\)/));
   });
 
   it('keeps a way out when a run cannot be simulated', async () => {
@@ -647,9 +699,9 @@ describe('App: long runs', { timeout: 60_000 }, () => {
     await screen.findByText('40%', undefined, SLOW);
     expect(started).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Stop this run' }));
-    // Running the same settings again from the editor runs them again too.
+    // Running the same settings again from the editor ("Replay from the start") runs them again too.
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Re-run' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replay from the start' }));
     await screen.findByText('40%', undefined, SLOW);
     expect(started).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: 'Stop this run' }));

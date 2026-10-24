@@ -3,6 +3,7 @@ import { cacheRestart, gatewaySlow } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, tier } from '../engine/testConfigs';
+import { admittedIn } from './helpers';
 import { analyzed, retryStormRun } from './testRuns';
 
 describe('buildTimeline', { timeout: 60_000 }, () => {
@@ -21,16 +22,28 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
     expect(tip.text).toMatch(/^Point of no return: the failure is over, but retries keep DB load at \d+\.\d× its capacity/);
     expect(t.some((e) => /tipping point/i.test(e.text))).toBe(false);
 
-    const verdict = t.find((e) => e.kind === 'bad')!;
-    expect(verdict.endMs).toBe(analysis.recovery.judgedUntilMs);
-    expect(verdict.text).toMatch(/Never returned to normal.*\d+% of DB work/);
+    // The verdict comes last, at the end of what is judged, labelled "end of run" rather than with a time.
+    const verdict = t.at(-1)!;
+    expect(verdict).toMatchObject({ kind: 'bad', tMs: analysis.recovery.judgedUntilMs, atEnd: true });
+    expect(verdict.endMs).toBeUndefined();
+    expect(verdict.text).toMatch(/^Still stuck: after the failure ended, \d+% of DB work was for requests already given up on$/);
 
-    // The quoted peak load matches the metrics.
-    const peak = Number(/peak (\d+\.\d)×/.exec(t.find((e) => /peak/.test(e.text))!.text)![1]);
+    // Every load quoted is the load in the second the entry is shown at, never a peak still to come.
     const db = run.tiers.db;
     const capacity = (4 * 1000) / (20 * Math.exp(Math.log(5) ** 2 / (2 * 2.3263478740408408 ** 2)));
-    const maxLoad = Math.max(...db.arrivalsFirst.map((f, s) => f + db.arrivalsRetry[s]).slice(30, 107));
-    expect(peak).toBeCloseTo(maxLoad / capacity, 1);
+    // Admitted load (arrivals less any turned away), as the timeline measures it.
+    const loadAt = (tMs: number) => admittedIn(db, tMs / 1000) / capacity;
+    const push = t.find((e) => /^Retries push DB load past its capacity/.test(e.text))!;
+    expect(Number(/(\d+\.\d)× in this second/.exec(push.text)![1])).toBeCloseTo(loadAt(push.tMs), 1);
+    expect(Number(/at (\d+\.\d)× its capacity/.exec(tip.text)![1])).toBeCloseTo(loadAt(tip.tMs), 1);
+    expect(t.some((e) => /peak/.test(e.text))).toBe(false);
+  });
+
+  it('keeps the verdict when there are more events than fit', () => {
+    const { analysis } = analyzed(buildRunConfig(webChain, cacheRestart));
+    expect(analysis.timeline.length).toBeLessThanOrEqual(10);
+    expect(analysis.recovery.verdict).toBe('stuck');
+    expect(analysis.timeline.at(-1)).toMatchObject({ kind: 'bad', atEnd: true });
   });
 
   it('tells the recovered run with a good verdict and no point of no return', () => {

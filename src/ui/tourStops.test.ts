@@ -41,6 +41,31 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
     expect(at('…but it never recovers')).toBeLessThanOrEqual(run.durationMs);
   });
 
+  it('at "The database slows down", the app server, the Gateway and users’ apps have all started asking again', () => {
+    const s = Math.floor(at('The database slows down') / run.bucketMs);
+    // Repeats arriving at a tier come from its caller: the app server's at the DB, the Gateway's at
+    // the app server, users' apps' at the Gateway.
+    expect(run.tiers.db.arrivalsRetry[s]).toBeGreaterThan(0);
+    expect(run.tiers.api.arrivalsRetry[s]).toBeGreaterThan(0);
+    expect(run.tiers.gateway.arrivalsRetry[s]).toBeGreaterThan(0);
+    // Users' first repeats arrive at 33 s, after the app server's and the Gateway's.
+    expect(run.tiers.gateway.arrivalsRetry.findIndex((n) => n > 0)).toBe(33);
+    expect(run.tiers.gateway.arrivalsRetry.findIndex((n) => n > 0)).toBeGreaterThan(run.tiers.api.arrivalsRetry.findIndex((n) => n > 0));
+  });
+
+  it('names what is on screen instead of colours, waits for results, and points at the ? button', () => {
+    for (const s of tourStops) {
+      expect(s.body).not.toMatch(/\b(orange|red|blue|green|grey|gray|purple|yellow)\b/i);
+      expect(s.body).not.toMatch(/Press \?/);
+    }
+    expect(tourStops.at(-1)!.body).toMatch(/Use the \? button/);
+    // Every stop on steps 2 and 3 that describes results waits for them.
+    for (const s of tourStops.filter((x) => x.screen > 0 && x.target !== 'help')) expect(s.waitForResults).toBe(true);
+    expect(tourStops.find((s) => s.target === 'map')!.body).toMatch(/Cells marked ✕ got stuck; a bar marks the tipping point/);
+    // The fix it names is the tab's own name.
+    expect(tourStops.find((s) => s.target === 'fix-tabs')!.body).toContain(`Here, ${FIX_CATALOG.find((d) => d.kind === 'boundQueue')!.short} holds up.`);
+  });
+
   it("most of the database's work is for requests nobody is waiting for", () => {
     expect(analysis.signals.wastedShare).toMatchObject({ tier: 'db' });
     expect(analysis.signals.wastedShare!.value).toBeGreaterThan(0.5);

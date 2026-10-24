@@ -119,8 +119,12 @@ describe('chartView', { timeout: 60_000 }, () => {
     expect(p50[10]).toBeLessThan(100); // healthy: quick answers
     expect(p99[80]).toBeGreaterThan(1900); // stuck: users wait ~2 s (the Gateway gives up on the API), then get an error
     expect(run.client.latencyP99Ms[80]).not.toBeGreaterThan(p99[80]); // the success-only line looked faster
-    const lat = chartView('latency', config, run, labels, null).spec.series;
-    expect(lat.map((x) => x.label)).toEqual(['Slowest 1% wait (p99)', 'Typical wait (median)', 'User gives up after 3 s']);
+    const view = chartView('latency', config, run, labels, null);
+    expect(view.spec.series.map((x) => x.label)).toEqual(['Slowest 1% wait (p99)', 'Typical wait (median)', "Users' apps give up on one try after 3 s"]);
+    // Says why the wait is longer than one timeout, and why lines stop.
+    expect(view.note).toMatch(/includes every retry until the final answer or error/);
+    expect(view.note).toMatch(/Lines stop where requests had not finished when the run ended/);
+    expect(chartView('latency', config, run, labels, 'db').note).toBeUndefined();
   });
 
   it('stacks first attempts and retries under the capacity line on Load & retries', () => {
@@ -165,7 +169,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     const lat = chartView('latency', config, run, labels, 'db');
     expect(lat.scopeLabel).toBe('DB');
     expect(lat.spec.series.map((x) => x.label)).toEqual(['Slowest 1% (p99)', 'Typical (median)', 'App server gives up after 1 s']);
-    expect(chartView('latency', config, run, labels, 'client').spec.series.at(-1)!.label).toBe('User gives up after 3 s');
+    expect(chartView('latency', config, run, labels, 'client').spec.series.at(-1)!.label).toBe("Users' apps give up on one try after 3 s");
     expect(chartView('latency', config, run, labels, 'gateway').spec.series.at(-1)!.label).toBe('Client gives up after 3 s');
     expect(chartView('errors', config, run, labels, 'api').scopeLabel).toBe('App server');
     expect(chartView('load', config, run, labels, 'api').spec.series.some((x) => /capacity/.test(x.label))).toBe(false);
@@ -225,7 +229,7 @@ describe('verdicts, maps and helpers', { timeout: 60_000 }, () => {
     expect(cell(200, 5000)).toMatchObject({ status: 'stuck', isCurrent: true });
     expect(cell(60, 1000)).toMatchObject({ status: 'recovered', recoverySeconds: 0 });
     expect(cell(80, 2000)).toMatchObject({ status: 'recovered', recoverySeconds: 3 });
-    expect(cell(240, 12000).status).toBe('stuck');
+    expect(cell(240, 12000).status).toBe('overloaded'); // its own status: not the same as stuck
     expect(cell(100, 3000).status).toBe('pending');
     expect(m.formatY!(5000)).toBe('5s');
     expect(mapView('x', x, y, () => undefined, null).cells.every((c) => !c.isCurrent)).toBe(true);

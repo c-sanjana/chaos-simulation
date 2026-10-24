@@ -50,6 +50,9 @@
   --csl-map-stuck: #e8590c;
   --csl-map-pending: #f1f3f5;
   --csl-map-pending-edge: #7d8590;
+  /* Overloaded even without the failure: a neutral dark grey, hatched, so it never reads as stuck (orange) or recovered (blue). */
+  --csl-map-overloaded: #59636e;
+  --csl-map-hatch: rgba(255, 255, 255, 0.45);
   --csl-map-cell: 30px;
   --csl-alert-bg: #fdeeee;
   --csl-on-ink: #ffffff;
@@ -106,6 +109,8 @@
   --csl-map-stuck: #e8590c;
   --csl-map-pending: #2b3139;
   --csl-map-pending-edge: #7d8590;
+  --csl-map-overloaded: #8b949e;
+  --csl-map-hatch: rgba(0, 0, 0, 0.45);
   --csl-alert-bg: #3a1e1e;
   --csl-on-ink: #0f1216;
   --csl-chip-good-bg: #123528;
@@ -588,6 +593,36 @@ button.csl-map__cell {
 }
 .csl-map__cell[aria-pressed='true'] {
   box-shadow: 0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink);
+}
+/* Overloaded even without the failure: hatched, so it differs from stuck (✕) without colour. */
+.csl-map__cell--overloaded {
+  background-image: repeating-linear-gradient(135deg, transparent 0 3px, var(--csl-map-hatch) 3px 5px);
+}
+/* The tipping point: a bar on the left edge of the first stuck cell of each row. */
+.csl-map__cell--tip {
+  border-left: 3px solid var(--csl-ink);
+}
+.csl-map-legend__group,
+.csl-map-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.csl-map-legend__group {
+  gap: 8px;
+}
+.csl-map-legend__swatch--stuck {
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+}
+.csl-map-legend__tip {
+  width: 3px;
+  height: 14px;
+  background: var(--csl-ink);
+  display: inline-block;
 }
 .csl-map__captions {
   display: flex;
@@ -1556,23 +1591,33 @@ button.csl-map__cell {
   flex-direction: column;
   gap: 8px;
 }
-/* Five tabs per row, so up to ten fixes take two rows; the full name is in the tooltip and the panel. */
+/* Five tabs per row, so up to ten fixes take two rows; a long name wraps instead of being cut off. */
 .csl-fixtabs__list {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
 }
+/* The key to the tabs' marks and numbers. */
+.csl-fixtabs__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 12px; /* text people read is at least 12 px */
+  color: var(--csl-muted);
+}
 .csl-fixtab {
   font: inherit;
   font-size: 12px;
+  line-height: 1.2;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-height: 30px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 3px 8px;
   border: 1px solid var(--csl-border-strong);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--csl-card);
   color: var(--csl-ink);
   cursor: pointer;
@@ -1580,9 +1625,7 @@ button.csl-map__cell {
 .csl-fixtab__name {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   text-align: left;
 }
 .csl-fixtab__mark {
@@ -1596,11 +1639,13 @@ button.csl-map__cell {
   font-size: 12px;
   color: var(--csl-muted);
 }
-.csl-fixtab--no {
+.csl-fixtab--no,
+.csl-fixtab--rare {
   color: var(--csl-muted);
   border-style: dashed;
 }
-.csl-fixtab--no .csl-fixtab__mark {
+.csl-fixtab--no .csl-fixtab__mark,
+.csl-fixtab--rare .csl-fixtab__mark {
   color: var(--csl-muted);
 }
 .csl-fixtab[aria-selected='true'] {
@@ -1652,7 +1697,7 @@ button.csl-map__cell {
 /* Label column + text: "Why try it" and "Result" read as two short facts. */
 .csl-fixtabs__facts {
   display: grid;
-  grid-template-columns: 76px 1fr;
+  grid-template-columns: 96px 1fr;
   gap: 4px 10px;
   margin: 0;
   font-size: 12.5px;
@@ -1782,6 +1827,36 @@ button.csl-map__cell {
   }
 }
 
+/*
+ * Step 3 on a wide screen: the fixes card is at most as tall as the screen below the steps, and
+ * the selected fix's panel scrolls inside it, so the page never grows past the viewport.
+ * ASSUMPTION: 194px is the top bar and step tabs above the card plus the page's bottom margin at
+ * ≥ 1101px (measured: the card starts at 146px and the page ends 48px below it).
+ */
+@media (min-width: 1101px) and (min-height: 640px) {
+  .csl-split__side--wide > .csl-card {
+    box-sizing: border-box;
+    max-height: calc(100vh - 194px);
+    display: flex;
+    flex-direction: column;
+  }
+  .csl-split__side--wide [data-tour='fix-tabs'] {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .csl-split__side--wide .csl-fixtabs {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .csl-split__side--wide .csl-fixtabs__panel {
+    flex: 1 1 auto;
+    min-height: 140px;
+    overflow-y: auto;
+  }
+}
+
 /* Step 3: before and after maps side by side, small enough to leave room for the fixes. */
 .csl-fix-maps {
   display: flex;
@@ -1866,11 +1941,29 @@ button.csl-map__cell {
   position: relative;
   min-height: 200px;
 }
-.csl-player__timeline--side .csl-timeline-window {
+/* Beside the chart: the compact story on top, the details filling the rest, scrolling inside. */
+.csl-player__sidestack {
   position: absolute;
   inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.csl-player__sidestack > .csl-timeline-window {
+  flex: 1 1 120px;
   height: auto;
-  min-height: 0;
+  min-height: 120px;
+}
+/* The story never hides the details: it takes at most about half the height and scrolls inside. */
+.csl-player__sidestack > .csl-story--compact {
+  flex: 0 1 auto;
+  max-height: 55%;
+  overflow-y: auto;
+}
+.csl-story--compact {
+  padding: 8px 10px;
+  gap: 4px;
 }
 /* When the player is narrow (step 3 at ~1280 px, or stacked), the timeline goes under the chart
    so the chart keeps a readable width. */
@@ -1896,6 +1989,73 @@ button.csl-map__cell {
   font-size: 12px;
   padding: 0;
   min-height: 0;
+}
+
+/* The glossary in the top bar: a disclosure whose panel floats below its button. */
+.csl-glossary {
+  position: relative;
+}
+.csl-glossary > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.csl-glossary > summary::-webkit-details-marker {
+  display: none;
+}
+.csl-glossary__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  background: var(--csl-card);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.csl-glossary__title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.csl-glossary__list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.csl-glossary__list dt {
+  font-weight: 600;
+}
+.csl-glossary__list dd {
+  margin: 0;
+  color: var(--csl-ink-2);
+}
+.csl-summary__edited {
+  font-weight: 400;
+  color: var(--csl-muted);
+}
+.csl-crash {
+  max-width: 640px;
+  margin: 40px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A sentence under a chart's legend explaining what it shows. */
+.csl-chart-note {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--csl-muted);
 }
 
 /* ---------- Plain-language story (step 1) ---------- */
@@ -2078,6 +2238,24 @@ button.csl-map__cell {
 }
 .csl-flow__step--latest .csl-flow__headline {
   font-weight: 600;
+}
+.csl-flow__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.csl-flow__why,
+.csl-story__more {
+  min-height: 0;
+  padding: 0;
+  font-size: 12px;
+  align-self: flex-start;
+}
+/* The step's explanation: always under the newest row, on "Why?" for older ones. */
+.csl-flow__text {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--csl-ink-2);
 }
 .csl-flow__step--latest {
   animation: csl-timeline-in 0.35s ease-out;

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { AREA_ALPHA, withAlpha } from './color';
+import { mergeWindows } from './windows';
 import { cssVar, useThemeValue } from '../themeMode';
 import type { ChartSpec } from './types';
 
@@ -71,7 +72,7 @@ export function drawFailureWindows(u: Pick<uPlot, 'ctx' | 'bbox' | 'valToPos'>, 
   const { ctx, bbox } = u;
   ctx.save();
   ctx.fillStyle = cssVar('--csl-failure-tint', FAILURE_TINT);
-  for (const [from, to] of windows) {
+  for (const [from, to] of mergeWindows(windows)) {
     const x0 = Math.max(bbox.left, u.valToPos(from, 'x', true));
     const x1 = Math.min(bbox.left + bbox.width, u.valToPos(to, 'x', true));
     if (x1 > x0) ctx.fillRect(x0, bbox.top, x1 - x0, bbox.height);

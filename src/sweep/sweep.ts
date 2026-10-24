@@ -127,40 +127,62 @@ export async function runSweep(
 
 export interface TippingPoint {
   y: number;
-  /** Smallest x at which the run is stuck, with every larger x also stuck; null if it never tips in range. */
+  /**
+   * The tipping point: the smallest x at which the run gets stuck (a 'stuck' verdict, not
+   * 'overloaded'), with every larger x on the failing side too (stuck or overloaded). Null if the
+   * row never tips in range, including a row that is only overloaded.
+   */
   tipsAtX: number | null;
   /** The row is not a clean step from recovered to stuck: it flips back at least once (noisy boundary). */
   irregular: boolean;
+  /** The lowest x with a stuck cell anywhere in the row (for "around X–Y" on an irregular row); null if none. */
+  firstStuckX: number | null;
+  /**
+   * From this x on, every finished cell is 'overloaded': too much traffic even without the
+   * failure. Null if the row doesn't end overloaded. Overload is not a tipping point.
+   */
+  overloadedFromX: number | null;
 }
 
 /**
- * 'overloaded' (the system can't carry the traffic even without the failure) counts as the stuck
- * side, 'unaffected' as the recovered side.
+ * The failing side of a row: 'stuck' (did not recover after the failure) and 'overloaded' (can't
+ * carry the traffic even without the failure). 'unaffected' counts as the recovered side.
  */
-const stuckSide = (v: Verdict) => v === 'stuck' || v === 'overloaded';
+const failingSide = (v: Verdict) => v === 'stuck' || v === 'overloaded';
 
 /**
  * One tipping point per y value, in the y axis's order. Each row is read in ascending x over the
  * cells finished so far, so a partly finished map gives provisional answers.
  *
- * `irregular` is set for any row that is not of the form recovered…stuck, i.e. one that goes from
- * stuck back to recovered as traffic rises. That includes rows that flip more than once and a
- * single inverted flip (stuck at low traffic, recovered at high), which a clean step can't explain.
+ * The tipping point is computed from stuck cells only (PLAN.md, 2026-10-24): an overloaded cell
+ * fails without any failure, so it says nothing about where a failure starts to stick. Overloaded
+ * cells still count as the failing side when deciding whether a row is a clean step, and a row
+ * that ends overloaded reports where that starts (`overloadedFromX`).
+ *
+ * `irregular` is set for any row that is not of the form recovered…failing, i.e. one that goes
+ * from stuck or overloaded back to recovered as traffic rises. That includes rows that flip more
+ * than once and a single inverted flip (stuck at low traffic, recovered at high), which a clean
+ * step can't explain.
  */
 export function tippingPoints(result: SweepResult): TippingPoint[] {
   const xs = [...result.spec.xAxis.values].sort((a, b) => a - b);
   return result.spec.yAxis.values.map((y) => {
-    const row: { x: number; stuck: boolean }[] = [];
+    const row: { x: number; verdict: Verdict }[] = [];
     for (const x of xs) {
       const summary = result.get(x, y);
-      if (summary) row.push({ x, stuck: stuckSide(summary.verdict) });
+      if (summary) row.push({ x, verdict: summary.verdict });
     }
-    let first = row.length; // start of the trailing run of stuck cells
-    while (first > 0 && row[first - 1].stuck) first--;
+    let first = row.length; // start of the trailing run of failing cells
+    while (first > 0 && failingSide(row[first - 1].verdict)) first--;
+    let overloaded = row.length; // start of the trailing run of overloaded cells
+    while (overloaded > 0 && row[overloaded - 1].verdict === 'overloaded') overloaded--;
+    const tip = row.slice(first).find((c) => c.verdict === 'stuck');
     return {
       y,
-      tipsAtX: first < row.length ? row[first].x : null,
-      irregular: row.slice(0, first).some((c) => c.stuck),
+      tipsAtX: tip?.x ?? null,
+      irregular: row.slice(0, first).some((c) => failingSide(c.verdict)),
+      firstStuckX: row.find((c) => c.verdict === 'stuck')?.x ?? null,
+      overloadedFromX: overloaded < row.length ? row[overloaded].x : null,
     };
   });
 }

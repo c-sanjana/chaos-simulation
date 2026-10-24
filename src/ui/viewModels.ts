@@ -270,6 +270,8 @@ export interface ChartView {
   defaultScopeLabel: string;
   /** The tier the default scope shows (null when it is end to end), so a scope picker can leave it out of the tier list. */
   defaultScopeId: string | null;
+  /** A plain sentence explaining what the chart shows, under its legend (e.g. why end-to-end waits are long). */
+  note?: string;
 }
 
 /**
@@ -306,6 +308,8 @@ export function chartView(
   let scopeLabel: string;
   let defaultScopeLabel = 'End to end (users)';
   let defaultScopeId: string | null = null;
+  /** A sentence under the legend where the chart needs explaining (see ChartView.note). */
+  let note: string | undefined;
 
   switch (tab) {
     case 'throughput':
@@ -359,8 +363,14 @@ export function chartView(
             ];
       }
       const caller = tierScope ? callerOf(config, tierScope) : config.client.call;
-      const callerName = tierScope ? name(callerOwner(config, tierScope)) : 'User';
-      if (caller && caller.timeoutMs !== null) series.push(ref(`${callerName} gives up after ${formatMs(caller.timeoutMs)}`, flat(caller.timeoutMs)));
+      if (caller && caller.timeoutMs !== null) {
+        // End to end, the wait spans every try, so the user's timeout applies to each try, not to the whole wait.
+        const label = tierScope ? `${name(callerOwner(config, tierScope))} gives up after ${formatMs(caller.timeoutMs)}` : `Users' apps give up on one try after ${formatMs(caller.timeoutMs)}`;
+        series.push(ref(label, flat(caller.timeoutMs)));
+      }
+      if (!tierScope) {
+        note = 'The wait includes every retry until the final answer or error. Lines stop where requests had not finished when the run ended.';
+      }
       break;
     }
     case 'errors': {
@@ -397,6 +407,7 @@ export function chartView(
     scopeLabel,
     defaultScopeLabel,
     defaultScopeId,
+    ...(note ? { note } : {}),
   };
 }
 
@@ -466,7 +477,10 @@ export function retriesPhrase(calls: Array<{ caller: string; retries: number }>,
   return retrying.map((c) => `${labels[c.caller] ?? c.caller} ${c.retries}×`).join(', ');
 }
 
-/** Map cells: stuck/overloaded are drawn as stuck; unaffected as an instant recovery. */
+/**
+ * Map cells. Overloaded (too much traffic even without the failure) has its own status, distinct
+ * from stuck (PLAN.md, 2026-10-24); unaffected is drawn as an instant recovery.
+ */
 export function mapView(title: string, xAxis: Axis, yAxis: Axis, get: (x: number, y: number) => CellSummary | undefined, current: { x: number; y: number } | null): MapView {
   const cells: MapCellView[] = [];
   for (const y of yAxis.values) {
@@ -474,7 +488,7 @@ export function mapView(title: string, xAxis: Axis, yAxis: Axis, get: (x: number
       const s = get(x, y);
       const isCurrent = current !== null && current.x === x && current.y === y;
       if (!s) cells.push({ x, y, status: 'pending', isCurrent });
-      else if (s.verdict === 'stuck' || s.verdict === 'overloaded') cells.push({ x, y, status: 'stuck', isCurrent });
+      else if (s.verdict === 'stuck' || s.verdict === 'overloaded') cells.push({ x, y, status: s.verdict, isCurrent });
       else cells.push({ x, y, status: 'recovered', recoverySeconds: Math.round((s.recoveryMs ?? 0) / 1000), isCurrent });
     }
   }
