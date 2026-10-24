@@ -84,6 +84,45 @@ describe('validateConfig', () => {
     });
   });
 
+  describe('queues', () => {
+    const withQueue = (): RunConfig => ({
+      ...ok(),
+      client: { rps: 10, call: call('q') },
+      tiers: [
+        tier('q', { kind: 'fixed', ms: 1 }, { queue: { maxDepth: 100, consumers: 2 }, downstream: call('q2', { timeoutMs: 50, retries: 1 }) }),
+        tier('q2', { kind: 'fixed', ms: 1 }, { queue: { maxDepth: 5, consumers: 1 }, downstream: call('svc') }),
+        tier('svc', { kind: 'fixed', ms: 1 }, { downstream: call('db') }),
+        tier('db', { kind: 'fixed', ms: 1 }),
+        tier('cache', { kind: 'fixed', ms: 1 }, { cache: { capacity: 10, ttlMs: null, keys: 100, skew: 1 } }),
+      ],
+    });
+
+    it('accepts the client calling a queue that calls another queue, a server and a database', () => {
+      expect(() => validateConfig(withQueue())).not.toThrow();
+      const c = withQueue();
+      c.client.call.target = 'svc';
+      c.tiers[2].downstream = call('q');
+      c.tiers[1].downstream = call('db');
+      expect(() => validateConfig(c)).not.toThrow();
+    });
+
+    const queueCases: Array<[string, (c: RunConfig) => void, RegExp]> = [
+      ['a queue without downstream', (c) => (c.tiers[0].downstream = null), /needs a downstream/],
+      ['a queue using cacheAside', (c) => (c.tiers[0].cacheAside = call('cache')), /cannot be a cache or use cacheAside/],
+      ['a queue that is also a cache', (c) => ((c.tiers[4].queue = { maxDepth: 1, consumers: 1 })), /cannot be a cache or use cacheAside/],
+      ['a queue handing messages to a cache', (c) => (c.tiers[1].downstream = call('cache')), /cannot hand messages to cache tier/],
+      ['zero maxDepth', (c) => (c.tiers[0].queue!.maxDepth = 0), /maxDepth/],
+      ['fractional consumers', (c) => (c.tiers[0].queue!.consumers = 1.5), /consumers/],
+      ['a cycle through queues', (c) => (c.tiers[3].downstream = call('q')), /cycle/],
+    ];
+
+    it.each(queueCases)('rejects %s', (_, mutate, message) => {
+      const c = withQueue();
+      mutate(c);
+      expect(() => validateConfig(c)).toThrow(message);
+    });
+  });
+
   it('rejects call cycles', () => {
     const c: RunConfig = {
       ...ok(),

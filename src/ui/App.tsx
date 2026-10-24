@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildStory } from '../analysis/story';
 import { buildRunConfig } from '../data/buildConfig';
-import { scenarios } from '../data/scenarios';
+import { graphFromPreset, syncGraph } from '../builder/fromPreset';
+import type { BuilderGraph } from '../builder/graph';
+import { validateGraph } from '../builder/validate';
 import { createDefaultPool, type SimPool } from '../worker/pool';
 import { compareRuns, type RunSnapshot } from './compare';
 import { Drawer } from './components/Drawer';
@@ -9,11 +11,13 @@ import { RunComparison } from './components/RunComparison';
 import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
-import { draftProblems, presetDraft, type Draft } from './draft';
+import { BuilderScreen } from './builder/BuilderScreen';
+import { draftProblems, type Draft } from './draft';
 import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
+import { customSystem, PRESET_SYSTEM, scenarioCatalog, systemDraft, type System } from './system';
 import { ThemeToggle } from './themeMode';
 import { TippingStep } from './TippingStep';
 import { tourStops } from './tourStops';
@@ -38,8 +42,11 @@ export function App({ pool: injected }: AppProps) {
     if (!injected) pool.dispose();
   }, [pool, injected]);
 
+  /** The example system, or one built on the canvas; `canvas` holds the drawing while the builder is open. */
+  const [system, setSystem] = useState<System>(PRESET_SYSTEM);
+  const [canvas, setCanvas] = useState<BuilderGraph | null>(null);
   const [scenarioId, setScenarioId] = useState(DEFAULT_SCENARIO);
-  const [applied, setApplied] = useState<Draft>(() => presetDraft(DEFAULT_SCENARIO));
+  const [applied, setApplied] = useState<Draft>(() => systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO));
   const [draft, setDraft] = useState<Draft>(applied);
   const [step, setStep] = useState(0);
   /** On steps 2 and 3 the scenario card collapses to one line to leave room for side-by-side views. */
@@ -79,17 +86,33 @@ export function App({ pool: injected }: AppProps) {
 
   const pickScenario = (id: string) => {
     if (id === scenarioId && !dirty) return; // already showing this preset; don't wipe the viewer's settings
-    const fresh = presetDraft(id);
+    const fresh = systemDraft(system, id);
     setScenarioId(id);
     setApplied(fresh);
     setDraft(fresh);
   };
   const run = () => (setApplied(structuredClone(draft)), setEditingFailure(false));
   const resetToPreset = () => {
-    const fresh = presetDraft(scenarioId);
+    const fresh = systemDraft(system, scenarioId);
     setApplied(fresh);
     setDraft(fresh);
   };
+  /** Switches to another system: its first scenario, step 1, nothing to compare with. */
+  const switchSystem = (next: System) => {
+    const fresh = systemDraft(next, '');
+    setSystem(next);
+    setScenarioId(fresh.scenario.id);
+    setApplied(fresh);
+    setDraft(fresh);
+    setStep(0);
+    setEditingFailure(false);
+    lastRun.current = null;
+    setPreviousRun(null);
+  };
+  // The canvas opens on the system being simulated, with any settings changed since it was drawn.
+  const openBuilder = () =>
+    setCanvas(system.kind === 'custom' ? syncGraph(system.graph, applied.topology, applied.scenario.rps) : graphFromPreset(applied.topology, applied.scenario.rps));
+  const useCanvas = (graph: BuilderGraph) => (switchSystem(customSystem(graph)), setCanvas(null));
 
   return (
     <main className="csl-page">
@@ -101,6 +124,11 @@ export function App({ pool: injected }: AppProps) {
           <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />
         </div>
         <div className="csl-topbar__actions">
+          {canvas === null && (
+            <button type="button" className="csl-btn csl-btn--small" onClick={openBuilder}>
+              {system.kind === 'custom' ? '✎ Edit your system' : '✎ Build your own system'}
+            </button>
+          )}
           <ThemeToggle />
           <TourButton onClick={startTour} />
         </div>
@@ -115,12 +143,33 @@ export function App({ pool: injected }: AppProps) {
         onScreen={setStep}
       />
 
+      {canvas !== null && (
+        <section className="csl-card csl-card--compact csl-builder-page" aria-label="Build your own system">
+          <div className="csl-builder-page__head">
+            <h2 className="csl-section-title" style={{ margin: 0 }}>
+              Build your own system
+            </h2>
+            <span className="csl-builder-page__note">A chain for now: each part calls one next part, plus a cache. Branching is coming next.</span>
+            {system.kind === 'custom' && (
+              <button type="button" className="csl-btn csl-btn--small" onClick={() => (switchSystem(PRESET_SYSTEM), setCanvas(null))}>
+                Use the example system instead
+              </button>
+            )}
+            <button type="button" className="csl-btn csl-btn--small" onClick={() => setCanvas(null)}>
+              Cancel
+            </button>
+          </div>
+          <BuilderScreen graph={canvas} onChange={setCanvas} problems={validateGraph(canvas)} onUse={() => useCanvas(canvas)} />
+        </section>
+      )}
+      {canvas === null && (
+      <>
       {editingFailure && (
         <section className="csl-card csl-card--compact" aria-label="Change the failure">
           <h2 className="csl-section-title" style={{ margin: 0 }}>
             Choose a failure to simulate
           </h2>
-          <ScenarioPicker scenarios={Object.values(scenarios).map(({ id, title, blurb }) => ({ id, title, blurb }))} selected={scenarioId} onSelect={pickScenario} />
+          <ScenarioPicker scenarios={scenarioCatalog(system).map(({ id, title, blurb }) => ({ id, title, blurb }))} selected={scenarioId} onSelect={pickScenario} />
           <FailureEditor draft={draft} onChange={setDraft} onRun={run} dirty={dirty} />
         </section>
       )}
@@ -175,6 +224,8 @@ export function App({ pool: injected }: AppProps) {
           <FixStep pool={pool} topology={applied.topology} scenario={applied.scenario} config={config} original={main.status === 'done' ? main.value : null} labels={labels} onEdit={openSettings} />
         )
       )}
+      </>
+      )}
 
       <Drawer
         open={settings.open}
@@ -188,7 +239,7 @@ export function App({ pool: injected }: AppProps) {
                 Edit all settings
               </button>
             ) : (
-              <button type="button" className="csl-btn" onClick={() => setDraft(presetDraft(scenarioId))}>
+              <button type="button" className="csl-btn" onClick={() => setDraft(systemDraft(system, scenarioId))}>
                 Reset to preset
               </button>
             )}

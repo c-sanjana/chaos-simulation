@@ -1,0 +1,512 @@
+/*
+ * Topology builder (BuilderScreen.tsx). Boxes and arrows follow the preset diagram's look
+ * (theme.css "Topology"): white cards with a soft border, grey arrows, mono numbers.
+ * Colours are tokens only, so the dark theme works. Cell sizes come from geometry.ts through the
+ * --csl-cell-* variables set on the canvas.
+ *
+ * Height budget at 1440 × 900 (app top bar ≈ 60 px): bar 44 + palette 74 + canvas 500 + foot ≈ 90,
+ * plus gaps, stays under ~780 px. The settings panel scrolls on its own.
+ */
+
+.csl-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.csl-builder__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.csl-builder__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.csl-builder__subtitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--csl-muted);
+}
+.csl-builder__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.csl-builder .csl-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.csl-builder__body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+.csl-builder__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- Palette ---------- */
+.csl-palette {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 1062px;
+}
+.csl-palette__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  background: var(--csl-card);
+  cursor: grab;
+  min-width: 0;
+}
+.csl-palette__item:hover {
+  border-color: var(--csl-border-strong);
+}
+.csl-palette__item--unavailable {
+  cursor: default;
+  background: var(--csl-subtle-bg);
+}
+.csl-palette__icon {
+  grid-row: 1 / span 2;
+  color: var(--csl-ink-2);
+  padding-top: 2px;
+}
+.csl-palette__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.csl-palette__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.csl-palette__blurb {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--csl-muted);
+}
+.csl-palette__add {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.csl-palette__add[aria-disabled='true'] {
+  color: var(--csl-muted);
+  cursor: not-allowed;
+}
+
+/* ---------- Canvas ---------- */
+.csl-bcanvas-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.csl-bcanvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--csl-cols), var(--csl-cell-w));
+  grid-template-rows: repeat(var(--csl-rows), var(--csl-cell-h));
+  width: max-content;
+  background: var(--csl-card);
+  border: 1px solid var(--csl-border);
+  border-radius: 12px;
+  /* Keep the rounded corners clean over the cells. */
+  overflow: hidden;
+}
+.csl-bcanvas:focus-visible {
+  outline: 2px solid var(--csl-focus);
+  outline-offset: 2px;
+}
+.csl-bcanvas__cell {
+  border-right: 1px dashed var(--csl-grid);
+  border-bottom: 1px dashed var(--csl-grid);
+  box-sizing: border-box;
+}
+.csl-bcanvas__cell--drop {
+  background: var(--csl-selected-bg);
+  outline: 2px dashed var(--csl-primary);
+  outline-offset: -6px;
+}
+.csl-bcanvas__edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.csl-bcanvas__line {
+  stroke: var(--csl-arrow);
+  stroke-width: 2;
+  fill: none;
+}
+.csl-bcanvas__line--cache {
+  stroke-dasharray: 5 4;
+}
+.csl-bcanvas__line--selected {
+  stroke: var(--csl-primary);
+  stroke-width: 3;
+}
+.csl-bcanvas__head {
+  fill: var(--csl-arrow);
+}
+.csl-bcanvas__head--selected {
+  fill: var(--csl-primary);
+}
+/* A wide invisible stroke so the thin arrow is easy to click. */
+.csl-bcanvas__hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.csl-bcanvas__preview {
+  stroke: var(--csl-primary);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.csl-bcanvas__edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  font: inherit;
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--csl-border);
+  background: var(--csl-card);
+  color: var(--csl-ink-2);
+  cursor: pointer;
+}
+.csl-bcanvas__edge-label:hover {
+  border-color: var(--csl-border-strong);
+}
+.csl-bcanvas__edge-label[aria-pressed='true'] {
+  border-color: var(--csl-primary);
+  color: var(--csl-ink);
+  box-shadow: 0 0 0 3px var(--csl-selected-ring);
+}
+/* While something is being dragged, labels must not catch the drop. */
+.csl-bcanvas--dragging .csl-bcanvas__edge-label {
+  pointer-events: none;
+}
+
+/* ---------- Boxes ---------- */
+.csl-bnode {
+  position: relative;
+  z-index: 3;
+  width: var(--csl-box-w);
+  height: var(--csl-box-h);
+  justify-self: center;
+  align-self: center;
+}
+.csl-bnode__box {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  background: var(--csl-card);
+  border: 1.5px solid var(--csl-node-border);
+  border-radius: 10px;
+  color: var(--csl-ink);
+  cursor: grab;
+  overflow: hidden;
+  user-select: none;
+}
+.csl-bnode__box:hover {
+  border-color: var(--csl-border-strong);
+}
+.csl-bnode__box[aria-pressed='true'] {
+  border-color: var(--csl-primary);
+  box-shadow: 0 0 0 3px var(--csl-selected-ring);
+}
+.csl-bnode__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--csl-ink-2);
+}
+.csl-bnode__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--csl-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.csl-bnode__kind {
+  font-size: 11px;
+  color: var(--csl-muted);
+}
+.csl-bnode__line {
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+  color: var(--csl-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.csl-bnode__handle {
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 2px solid var(--csl-card);
+  background: var(--csl-primary);
+  cursor: crosshair;
+  z-index: 4;
+}
+.csl-bnode__handle:hover {
+  transform: scale(1.25);
+}
+.csl-bnode--moving {
+  opacity: 0.5;
+}
+/* Connecting: allowed targets get a solid green outline and "✓", refused ones a dashed one and "✕". */
+.csl-bnode--ok .csl-bnode__box {
+  border-color: var(--csl-good);
+  border-style: solid;
+}
+.csl-bnode--no .csl-bnode__box {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.csl-bnode--source .csl-bnode__box {
+  border-color: var(--csl-primary);
+}
+.csl-bnode__verdict {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 4px);
+  transform: translateX(-50%);
+  z-index: 5;
+  width: max-content;
+  max-width: 220px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  background: var(--csl-chip-good-bg);
+  color: var(--csl-chip-good-ink);
+  box-shadow: 0 2px 8px var(--csl-scrim);
+  pointer-events: none;
+}
+.csl-bnode__verdict--no {
+  background: var(--csl-chip-bad-bg);
+  color: var(--csl-chip-bad-ink);
+}
+
+/* ---------- Empty canvas ---------- */
+.csl-bcanvas__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--csl-muted);
+  /* Let drags reach the cells underneath; only the button takes clicks. */
+  pointer-events: none;
+}
+.csl-bcanvas__empty p {
+  margin: 0;
+  max-width: 380px;
+}
+.csl-bcanvas__empty .csl-btn {
+  pointer-events: auto;
+  margin-top: 6px;
+}
+.csl-bcanvas__empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--csl-ink);
+}
+
+/* ---------- Status and problems ---------- */
+.csl-builder__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 16px;
+  max-width: 1062px;
+}
+.csl-builder__status {
+  flex: 1 1 100%;
+  margin: 0;
+  min-height: 20px;
+  font-size: 13px;
+  color: var(--csl-ink-2);
+}
+.csl-builder__status--refused {
+  color: var(--csl-bad-text);
+}
+.csl-builder__ready {
+  margin: 0;
+  font-size: 13px;
+  color: var(--csl-good-text);
+}
+.csl-builder__problems {
+  flex: 1 1 100%;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--csl-alert-bg);
+  color: var(--csl-bad-text);
+  font-size: 13px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.csl-builder__problems-title {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+.csl-builder__problem-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* ---------- Settings panel ---------- */
+.csl-bpanel {
+  flex: 0 0 300px;
+  box-sizing: border-box;
+  /* Matches the palette + canvas + status height so the page doesn't scroll at 1440 × 900. */
+  max-height: 700px;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--csl-card);
+  border: 1px solid var(--csl-border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+.csl-bpanel .csl-field-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.csl-bpanel .csl-field__box {
+  min-height: 34px;
+}
+.csl-bpanel .csl-field__input {
+  min-height: 32px;
+}
+.csl-bpanel__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--csl-ink-2);
+}
+.csl-bpanel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--csl-ink);
+  overflow-wrap: anywhere;
+}
+.csl-bpanel__sub {
+  margin: 2px 0 0;
+  color: var(--csl-muted);
+}
+.csl-bpanel__arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+.csl-bpanel__text {
+  font-family: var(--csl-font-sans);
+}
+.csl-bpanel__group {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-top: 1px solid var(--csl-divider);
+  padding-top: 10px;
+  min-width: 0;
+}
+.csl-bpanel__legend {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--csl-muted);
+}
+.csl-bpanel__hint {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--csl-muted);
+}
+.csl-bpanel__calls {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+}
+.csl-bpanel__calls .csl-btn--link {
+  min-height: 28px;
+  font-size: 13px;
+  text-align: left;
+}
+.csl-bpanel__muted {
+  color: var(--csl-muted);
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+}
+.csl-bpanel__select {
+  min-height: 34px;
+  border: 1px solid var(--csl-border-strong);
+  border-radius: 8px;
+  padding: 0 8px;
+}
+.csl-bpanel__delete {
+  align-self: flex-start;
+  color: var(--csl-bad-text);
+  border-color: var(--csl-bad);
+}
+.csl-bpanel__intro p,
+.csl-bpanel__intro ul {
+  margin: 8px 0 0;
+  color: var(--csl-ink-2);
+}
+.csl-bpanel__intro ul {
+  padding-left: 18px;
+}
+.csl-bpanel__intro li + li {
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .csl-bnode__handle:hover {
+    transform: none;
+  }
+}

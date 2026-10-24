@@ -31,6 +31,9 @@ export class TierMetrics implements CallStats {
   readonly queue: Level;
   readonly busyWorkers: Level;
   readonly busyCores: Level;
+  /** Queue tiers: messages waiting, and consumers handling a message. */
+  readonly backlog: Level;
+  readonly busyConsumers: Level;
   private readonly arrivalsFirst: number[];
   private readonly arrivalsRetry: number[];
   private readonly ok: number[];
@@ -43,6 +46,10 @@ export class TierMetrics implements CallStats {
   private readonly wasted: number[];
   private readonly hits: number[];
   private readonly hist: Uint32Array;
+  private readonly delivered: number[];
+  private readonly deadLettered: number[];
+  private readonly ageSum: number[];
+  private readonly ageHist: Uint32Array;
   private inFlight = 0;
   private computeTotal = 0;
 
@@ -51,6 +58,8 @@ export class TierMetrics implements CallStats {
     this.queue = new Level(n, buckets.bucketMs);
     this.busyWorkers = new Level(n, buckets.bucketMs);
     this.busyCores = new Level(n, buckets.bucketMs);
+    this.backlog = new Level(n, buckets.bucketMs);
+    this.busyConsumers = new Level(n, buckets.bucketMs);
     this.arrivalsFirst = buckets.zeros();
     this.arrivalsRetry = buckets.zeros();
     this.ok = buckets.zeros();
@@ -63,6 +72,23 @@ export class TierMetrics implements CallStats {
     this.wasted = buckets.zeros();
     this.hits = buckets.zeros();
     this.hist = new Uint32Array(n * LATENCY_BINS);
+    this.delivered = buckets.zeros();
+    this.deadLettered = buckets.zeros();
+    this.ageSum = buckets.zeros();
+    this.ageHist = new Uint32Array(n * LATENCY_BINS);
+  }
+
+  /** Queue tiers: a consumer finished with a message stored at `enqueuedAtMs`. */
+  messageDone(timeMs: number, enqueuedAtMs: number, delivered: boolean): void {
+    const b = this.buckets.of(timeMs);
+    if (!delivered) {
+      this.deadLettered[b]++;
+      return;
+    }
+    const age = timeMs - enqueuedAtMs;
+    this.delivered[b]++;
+    this.ageSum[b] += age;
+    this.ageHist[b * LATENCY_BINS + latencyBin(age)]++;
   }
 
   cacheHit(timeMs: number): void {
@@ -103,13 +129,11 @@ export class TierMetrics implements CallStats {
 
   toSeries(
     id: string,
-    capacity: { workers: number; cores: number },
-    peaks: TierSeries['peaks'],
+    capacity: { workers: number; cores: number; consumers: number },
+    peaks: Omit<TierSeries['peaks'], 'backlog'>,
   ): TierSeries {
     const end = this.buckets.durationMs;
-    this.queue.finish(end);
-    this.busyWorkers.finish(end);
-    this.busyCores.finish(end);
+    for (const level of [this.queue, this.busyWorkers, this.busyCores, this.backlog, this.busyConsumers]) level.finish(end);
     const n = this.buckets.count;
     const avg = (level: Level) => Array.from(level.area, (a, i) => a / this.buckets.width(i));
     const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
@@ -133,6 +157,12 @@ export class TierMetrics implements CallStats {
       busyCoresAvg: avg(this.busyCores),
       wastedMs: this.wasted,
       hits: this.hits,
+      backlogAvg: avg(this.backlog),
+      busyConsumersAvg: avg(this.busyConsumers),
+      delivered: this.delivered,
+      deadLettered: this.deadLettered,
+      messageAgeMeanMs: this.ageSum.map((s, i) => (this.delivered[i] > 0 ? s / this.delivered[i] : NaN)),
+      messageAgeP99Ms: Array.from({ length: n }, (_, i) => histogramQuantile(this.ageHist, i * LATENCY_BINS, 0.99)),
       totals: {
         arrivals: sum(this.arrivalsFirst) + sum(this.arrivalsRetry),
         ok: latencyCount,
@@ -147,8 +177,14 @@ export class TierMetrics implements CallStats {
         busyCoresArea: this.busyCores.total,
         computeMs: this.computeTotal,
         wastedMs: sum(this.wasted),
+        delivered: sum(this.delivered),
+        deadLettered: sum(this.deadLettered),
+        backlogArea: this.backlog.total,
+        busyConsumersArea: this.busyConsumers.total,
+        backlogAtEnd: this.backlog.value,
+        inProcessingAtEnd: this.busyConsumers.value,
       },
-      peaks,
+      peaks: { ...peaks, backlog: this.backlog.peak },
     };
   }
 }

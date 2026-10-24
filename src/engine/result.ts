@@ -8,6 +8,8 @@ export interface TierSeries {
   /** Totals across instances, for normalising the averages below. */
   workers: number;
   cores: number;
+  /** Queue tiers: the consumer pool's size (0 elsewhere). */
+  consumers: number;
   /** Attempts arriving at this tier, split by whether the caller was retrying. */
   arrivalsFirst: number[];
   arrivalsRetry: number[];
@@ -31,6 +33,23 @@ export interface TierSeries {
   wastedMs: number[];
   /** Cache tiers only (zeros elsewhere): lookups answered from the cache. Hit rate = hits / ok. */
   hits: number[];
+  /**
+   * Queue tiers only (zeros elsewhere). A queue tier's `ok` counts messages stored (producers
+   * answered), `rejected` producers turned away because the queue was full.
+   * - backlogAvg: time-averaged messages waiting (stored, not yet taken by a consumer).
+   * - busyConsumersAvg: time-averaged consumers handling a message.
+   * - delivered / deadLettered: messages whose downstream call finally succeeded / failed after
+   *   its retries (dropped), counted when the call finished.
+   * - messageAgeMeanMs / messageAgeP99Ms: time from being stored to being delivered, for messages
+   *   delivered in the bucket. NaN when none were. The p99 is read from the latency histogram, so
+   *   ages beyond 120 s all read as about 120 s; the mean is exact.
+   */
+  backlogAvg: number[];
+  busyConsumersAvg: number[];
+  delivered: number[];
+  deadLettered: number[];
+  messageAgeMeanMs: number[];
+  messageAgeP99Ms: number[];
   totals: {
     arrivals: number;
     ok: number;
@@ -46,8 +65,21 @@ export interface TierSeries {
     busyCoresArea: number;
     computeMs: number;
     wastedMs: number;
+    /**
+     * Queue tiers (0 elsewhere). Every stored message (= `ok`) ends up in exactly one of
+     * delivered, deadLettered, backlogAtEnd or inProcessingAtEnd.
+     */
+    delivered: number;
+    deadLettered: number;
+    /** Messages waiting × ms over the whole run. */
+    backlogArea: number;
+    busyConsumersArea: number;
+    backlogAtEnd: number;
+    /** Messages a consumer was still handling when the run ended. */
+    inProcessingAtEnd: number;
   };
-  peaks: { busyWorkersPerInstance: number; busyCoresPerInstance: number; queuePerInstance: number };
+  /** `backlog` is the queue tier's highest number of messages waiting (0 for other tiers). */
+  peaks: { busyWorkersPerInstance: number; busyCoresPerInstance: number; queuePerInstance: number; backlog: number };
 }
 
 /** Outcome of each user request, by request id. Used to compare a run against its no-failure control. */

@@ -5,6 +5,7 @@ import type { Fault, TierConfig } from './config';
 import { sampleServiceTime } from './distributions';
 import { Instance } from './instance';
 import { RoundRobin, type LoadBalancer } from './loadBalancer';
+import { MessageQueue } from './messageQueue';
 import type { TierMetrics } from './metrics';
 import type { TierSeries } from './result';
 import { budgetFor, type RetryBudget } from './retryBudget';
@@ -17,6 +18,8 @@ import type { Simulation } from './simulation';
  * Handling an attempt: compute on a core for a sampled service time (with `dropExpired`, an attempt
  * whose caller's deadline passed before it got a core is dropped instead), then
  * - a cache tier answers hit/miss from its store;
+ * - a queue tier stores the request as a message and answers ok, or rejected if the queue is full;
+ *   its consumers call downstream later, independently of the producer (see MessageQueue);
  * - a tier with `cacheAside` looks the request's key up in its cache tier and, on a miss, calls
  *   downstream and writes the key back if that succeeded (with `coalesceMisses`, concurrent misses
  *   for the same key share one downstream read);
@@ -33,6 +36,8 @@ export class Tier implements CallTarget {
   /** Present on cache tiers. */
   private readonly store: CacheStore | null = null;
   private readonly keys: ZipfKeys | null = null;
+  /** Present on queue tiers, once connected. */
+  private queue: MessageQueue | null = null;
   /** Active fault effects, per instance. */
   private readonly slowFactor: number[];
   private readonly dead: boolean[];
@@ -80,6 +85,10 @@ export class Tier implements CallTarget {
   connect(downstream: Tier | null, cacheTier: Tier | null): void {
     this.downstream = downstream;
     this.cacheTier = cacheTier;
+    // Validation guarantees a queue tier has a downstream.
+    if (this.config.queue) {
+      this.queue = new MessageQueue(this.sim, this.config.queue, this.config.downstream!, downstream!, this.downstreamBudget, this.metrics);
+    }
   }
 
   accept(attempt: Attempt): void {
@@ -141,6 +150,9 @@ export class Tier implements CallTarget {
    * Starts (`active`) or ends a fault.
    * ASSUMPTION: overlapping faults on the same instance are not combined; the latest change wins.
    * ASSUMPTION: a dead tier refuses new attempts; work already in progress or queued carries on.
+   * ASSUMPTION: a queue tier's consumers are one pool shared by its instances: they pause only while
+   * every instance is dead, and resume when one is back. Messages are stored durably, so nothing
+   * stored is lost (and `flushAtEnd` does not empty a queue).
    */
   setFault(fault: Fault, active: boolean): void {
     const targets = fault.instance === undefined ? this.instances.map((_, i) => i) : [fault.instance];
@@ -149,6 +161,7 @@ export class Tier implements CallTarget {
       else this.dead[i] = active;
     }
     if (!active && fault.flushAtEnd) this.store?.clear();
+    this.queue?.setPaused(this.dead.every(Boolean));
   }
 
   series(): TierSeries {
@@ -156,7 +169,7 @@ export class Tier implements CallTarget {
     const peak = (f: (i: Instance) => number) => Math.max(...this.instances.map(f));
     return this.metrics.toSeries(
       c.id,
-      { workers: c.instances * c.workersPerInstance, cores: c.instances * c.coresPerInstance },
+      { workers: c.instances * c.workersPerInstance, cores: c.instances * c.coresPerInstance, consumers: c.queue?.consumers ?? 0 },
       {
         busyWorkersPerInstance: peak((i) => i.peakBusyWorkers),
         busyCoresPerInstance: peak((i) => i.peakBusyCores),
@@ -179,7 +192,10 @@ export class Tier implements CallTarget {
   }
 
   private afterCompute(attempt: Attempt, instance: Instance): void {
-    if (this.store !== null) {
+    if (this.queue !== null) {
+      // The producer is answered as soon as its message is stored; it never waits for processing.
+      this.finish(attempt, instance, this.queue.offer(attempt.requestId, attempt.pathHash) ? 'ok' : 'rejected');
+    } else if (this.store !== null) {
       attempt.hit = this.store.get(attempt.key, this.sim.now);
       if (attempt.hit) this.metrics.cacheHit(this.sim.now);
       this.finish(attempt, instance, 'ok');

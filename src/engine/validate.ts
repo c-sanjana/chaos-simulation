@@ -59,6 +59,14 @@ export function validateConfig(config: RunConfig): void {
       if (!(c.skew >= 0)) fail(`${tier.id} cache skew must be >= 0`);
       if (c.ttlMs !== null) positive(c.ttlMs, `${tier.id} cache ttlMs`);
     }
+    if (tier.queue) {
+      const q = tier.queue;
+      if (tier.cache || tier.cacheAside) fail(`queue tier ${tier.id} cannot be a cache or use cacheAside`);
+      if (!tier.downstream) fail(`queue tier ${tier.id} needs a downstream for its consumers to call`);
+      if (byId.get(tier.downstream.target)!.cache) fail(`queue tier ${tier.id} cannot hand messages to cache tier "${tier.downstream.target}"`);
+      positiveInt(q.maxDepth, `${tier.id} queue maxDepth`);
+      positiveInt(q.consumers, `${tier.id} queue consumers`);
+    }
     if (tier.cacheAside) {
       checkCall(tier.cacheAside, `${tier.id} cacheAside`);
       if (!byId.get(tier.cacheAside.target)!.cache) fail(`${tier.id} cacheAside target "${tier.cacheAside.target}" is not a cache tier`);

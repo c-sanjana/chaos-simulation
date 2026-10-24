@@ -61,6 +61,11 @@ export interface TierConfig {
   /** Makes this tier a cache: it answers lookups from an LRU + TTL store instead of calling anything. */
   cache?: CacheConfig;
   /**
+   * Makes this tier an asynchronous message queue (like SQS or Kafka): it stores each request as a
+   * message and answers at once; consumers later hand the messages to `downstream`. See MessageQueue.
+   */
+  queue?: QueueConfig;
+  /**
    * Skip requests whose caller has already given up (deadline passed) instead of serving them,
    * checked when a queued request gets a worker and again when it gets a CPU core.
    */
@@ -79,10 +84,24 @@ export interface CacheConfig {
 }
 
 /**
+ * An asynchronous message queue. Producers (callers of the tier) are answered as soon as their
+ * message is stored; a pool of consumers takes messages oldest first and calls the tier's
+ * `downstream` with each, following its call policy (timeout, retries, backoff, budget).
+ */
+export interface QueueConfig {
+  /** Messages the queue can hold waiting. A producer arriving when it is full is rejected. */
+  maxDepth: number;
+  /** Messages handled at once, shared by all of the tier's instances. */
+  consumers: number;
+}
+
+/**
  * An injected failure on a tier (or one of its instances) between startMs and endMs.
  * - slow: every compute takes `factor` × longer.
- * - dead: the tier refuses every attempt immediately (connection refused).
- * `flushAtEnd` empties a cache tier when the failure ends (it restarts cold).
+ * - dead: the tier refuses every attempt immediately (connection refused). On a queue tier, its
+ *   consumers also pause while every instance is dead; stored messages are kept.
+ * `flushAtEnd` empties a cache tier when the failure ends (it restarts cold). It does not apply to
+ * queue tiers (their messages are durable).
  */
 export interface Fault {
   tier: string;

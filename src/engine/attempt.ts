@@ -3,7 +3,8 @@
  *
  * Lifecycle: queued → running → waiting (on a downstream call) → ok | failed,
  * or, without ever computing: rejected (queue full) | dropped (with `dropExpired`: the caller's
- * deadline passed while it waited for a worker, or for a core).
+ * deadline passed while it waited for a worker, or for a core). At a queue tier, `rejected` also
+ * follows computing when the queue is full (see MessageQueue).
  * Independently of that, the caller may give up (`abandoned`); unless the tier drops it as above,
  * the tier keeps working on the attempt regardless, and that work is "wasted" (see TierMetrics).
  */
