@@ -51,6 +51,9 @@ export function instanceColor(busy: number): string {
   return busy >= 0.999 ? 'var(--csl-instance-hot)' : 'var(--csl-instance-calm)';
 }
 
+/** Users' box counts requests not answered (see unansweredShare); a tier counts failed responses. */
+const errorWord = (node: TopologyNodeView) => (node.id === 'client' ? 'not answered' : 'errors');
+
 function isFailing(errorShare: number | undefined): boolean {
   return (errorShare ?? 0) > FAILING_ERROR_SHARE;
 }
@@ -87,7 +90,7 @@ function changeWords(change: string | undefined): string {
 export function nodeAriaLabel(node: TopologyNodeView): string {
   const count = node.instanceCountLabel ? ` (${node.instanceCountLabel})` : '';
   const fault = node.fault ? `; injected failure: ${withoutIcon(node.fault)}` : '';
-  const failing = isFailing(node.errorShare) ? `; failing, ${percent(node.errorShare as number)} errors` : '';
+  const failing = isFailing(node.errorShare) ? `; failing, ${percent(node.errorShare as number)} ${errorWord(node)}` : '';
   const overloaded = node.overloaded ? '; overloaded: more work is arriving than it can serve' : '';
   return `${node.label}${count}: ${node.lines[0]}, ${node.lines[1]}; ${healthWord(node.health)}${fault}${failing}${overloaded}${changeWords(node.change)}`;
 }
@@ -122,7 +125,7 @@ function Node({ node, selected, onSelect, editable }: { node: TopologyNodeView; 
           {failing && (
             <span className={`csl-node__badge${node.fault ? ' csl-node__tag--crowded' : ''}`}>
               ✕<span className="csl-node__badge-pct"> {percent(node.errorShare as number)}</span>
-              <span className="csl-node__badge-word"> errors</span>
+              <span className="csl-node__badge-word"> {errorWord(node)}</span>
             </span>
           )}
         </span>

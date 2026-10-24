@@ -36,7 +36,7 @@ describe('nodeAriaLabel', () => {
   it('summarises label, instance count, both lines and health', () => {
     expect(nodeAriaLabel(nodes[1])).toBe('API (4 instances): workers 100%, CPU 9%; unhealthy');
     expect(nodeAriaLabel(nodes[0])).toBe('Client: 200 rps sent, 93% errors; unhealthy');
-    expect(nodeAriaLabel({ ...nodes[0], errorShare: 0.93 })).toBe('Client: 200 rps sent, 93% errors; unhealthy; failing, 93% errors');
+    expect(nodeAriaLabel({ ...nodes[0], errorShare: 0.93 })).toBe('Client: 200 rps sent, 93% errors; unhealthy; failing, 93% not answered');
     expect(nodeAriaLabel(nodes[2])).toBe('Cache (1 instance): hit rate 70%, p99 2 ms; healthy');
   });
 

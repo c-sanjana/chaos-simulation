@@ -36,9 +36,26 @@ const arrivals = (t: TierSeries, b: number) => t.arrivalsFirst[b] + t.arrivalsRe
 
 // Display heuristics for colouring the diagram (they do not feed any verdict):
 // a tier is "bad" when its workers are saturated, more than 5% of its responses fail, a leaf's CPU
-// is saturated, or its p99 exceeds its caller's timeout. The client is "bad" above 1% errors.
+// is saturated, or its p99 exceeds its caller's timeout. The client is "bad" above 10% of requests not answered.
 const BAD_ERROR_SHARE = 0.05;
-const BAD_CLIENT_ERRORS = 0.01;
+const BAD_CLIENT_UNANSWERED = 0.1;
+
+/**
+ * Share of the requests users sent around second b that were not answered successfully: 1 − ok ÷
+ * sent over the 3 seconds ending at b (0 when nothing was sent).
+ * Why not failed ÷ (ok + failed)? A request only "fails" when the user's last retry gives up, ~21 s
+ * after it was sent, so during an outage nothing finishes and that reads 0% (review 2: "0% errors"
+ * at 45 s with 203 requests a second sent and none answered). What users see at time t is whether
+ * their requests are being answered now.
+ * ASSUMPTION: 3 s smooths the per-second boundary noise (up to 5% at 60 req/s with one-second
+ * buckets; under 2% with three) without hiding a real drop.
+ */
+export function unansweredShare(c: RunResult['client'], b: number): number {
+  let sent = 0;
+  let ok = 0;
+  for (let i = Math.max(0, b - 2); i <= b; i++) (sent += c.sent[i] ?? 0), (ok += c.ok[i] ?? 0);
+  return sent > 0 ? Math.min(1, Math.max(0, 1 - ok / sent)) : 0;
+}
 
 /** A setting a fix changed, as listed by fixes/changes.ts (a tier's own setting, or a call's). */
 export interface ChangeLabel {
@@ -67,7 +84,7 @@ export function topologyView(
 ): { nodes: TopologyNodeView[]; edges: TopologyEdgeView[] } {
   const b = bucketAt(run, tMs);
   const c = run.client;
-  const clientErrors = c.failed[b] / Math.max(1, c.ok[b] + c.failed[b]);
+  const clientErrors = unansweredShare(c, b);
   const nodes: TopologyNodeView[] = [];
   const clientLayout = topology.layout.client;
   if (clientLayout) {
@@ -78,8 +95,8 @@ export function topologyView(
       row: clientLayout.row,
       instanceCountLabel: '',
       instanceBusy: [],
-      lines: [`${Math.round(perSecond(run, c.sent[b]))} rps sent`, `${pct(clientErrors)} errors`],
-      health: clientErrors > BAD_CLIENT_ERRORS ? 'bad' : 'ok',
+      lines: [`${Math.round(perSecond(run, c.sent[b]))} rps sent`, `${pct(clientErrors)} not answered`],
+      health: clientErrors > BAD_CLIENT_UNANSWERED ? 'bad' : 'ok',
       errorShare: clientErrors,
       rps: perSecond(run, c.sent[b]),
     });
@@ -313,10 +330,9 @@ export function chartView(
       unit = '%';
       scopeLabel = tierScope ? name(tierScope) : 'end to end';
       const errors = (r: RunResult) =>
-        tierScope
-          ? r.tiers[tierScope].ok.map((_, b) => 100 * errorShare(r.tiers[tierScope], b))
-          : r.client.ok.map((ok, b) => (100 * r.client.failed[b]) / Math.max(1, ok + r.client.failed[b]));
-      series = pair('Error rate', errors);
+        tierScope ? r.tiers[tierScope].ok.map((_, b) => 100 * errorShare(r.tiers[tierScope], b)) : r.client.sent.map((_, b) => 100 * unansweredShare(r.client, b));
+      // End to end: what users see now (see unansweredShare); a tier: its responses that failed.
+      series = pair(tierScope ? 'Error rate' : 'Not answered (% of requests sent)', errors);
       break;
     }
     case 'workers': {

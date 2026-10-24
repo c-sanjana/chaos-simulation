@@ -231,3 +231,30 @@ describe('verdicts, maps and helpers', { timeout: 60_000 }, () => {
     expect(timelineView(analysis)).toEqual(analysis.timeline);
   });
 });
+
+describe('unansweredShare', () => {
+  it('is the share of requests sent over 3 s that were not answered successfully', async () => {
+    const { unansweredShare } = await import('./viewModels');
+    const c = { sent: [100, 100, 100, 100], ok: [100, 90, 0, 0], failed: [0, 0, 0, 0] } as unknown as Parameters<typeof unansweredShare>[0];
+    expect(unansweredShare(c, 0)).toBe(0);
+    expect(unansweredShare(c, 1)).toBeCloseTo(0.05);
+    expect(unansweredShare(c, 3)).toBeCloseTo(1 - 90 / 300);
+    expect(unansweredShare({ sent: [0], ok: [0] } as unknown as Parameters<typeof unansweredShare>[0], 0)).toBe(0);
+    expect(unansweredShare({ sent: [10], ok: [12] } as unknown as Parameters<typeof unansweredShare>[0], 0)).toBe(0); // answers to earlier requests
+  });
+
+  it('during the retry storm outage users see their requests unanswered, not 0% errors', async () => {
+    const { buildRunConfig } = await import('../data/buildConfig');
+    const { retryStorm } = await import('../data/scenarios');
+    const { webChain } = await import('../data/topologies');
+    const { runSimulation } = await import('../engine/run');
+    const { unansweredShare, topologyView } = await import('./viewModels');
+    const config = buildRunConfig(webChain, retryStorm);
+    const run = runSimulation(config);
+    expect(run.client.failed[45]).toBe(0); // nothing has finished failing yet…
+    expect(unansweredShare(run.client, 45)).toBeGreaterThan(0.9); // …but almost nothing is answered
+    const client = topologyView(webChain, config, run, 45_000).nodes.find((n) => n.id === 'client')!;
+    expect(client).toMatchObject({ health: 'bad', lines: ['203 rps sent', expect.stringMatching(/^\d+% not answered$/)] });
+    expect(unansweredShare(run.client, 20)).toBeLessThan(0.05);
+  });
+});
