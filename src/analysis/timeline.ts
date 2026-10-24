@@ -140,8 +140,17 @@ export function buildTimeline(
     }
   }
 
-  entries.push(verdictEntry(recovery, signals, name, run.durationMs));
+  entries.push(verdictEntry(recovery, signals, name, run));
   return entries.sort((x, y) => x.tMs - y.tMs).slice(0, MAX_ENTRIES);
+}
+
+/** Share of a tier's compute in buckets [from, to) spent on attempts whose caller had given up. */
+function wastedShareBetween(run: RunResult, id: string, from: number, to: number): number {
+  const t = run.tiers[id];
+  let wasted = 0;
+  let busy = 0;
+  for (let s = from; s < to; s++) (wasted += t.wastedMs[s]), (busy += t.busyCoresAvg[s] * run.bucketMs);
+  return busy > 0 ? Math.min(1, wasted / busy) : 0;
 }
 
 const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
@@ -166,8 +175,8 @@ function describeFaultEnd(f: Fault, name: (id: string) => string): string {
   return f.kind === 'slow' ? `Failure ends; ${name(f.tier)} back to normal speed` : `Failure ends; ${name(f.tier)} back up`;
 }
 
-function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) => string, durationMs: number): TimelineEntry {
-  const failureEndMs = Math.min(r.lastFaultEndMs, durationMs);
+function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) => string, run: RunResult): TimelineEntry {
+  const failureEndMs = Math.min(r.lastFaultEndMs, run.durationMs);
   switch (r.verdict) {
     case 'recovered':
       return { tMs: r.recoveredAtMs!, text: `Back to normal: recovered ${formatSeconds(r.recoveryMs!)} after the failure ended`, kind: 'good' };
@@ -179,11 +188,17 @@ function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) =>
       if (r.lastFaultEndMs >= r.judgedUntilMs) {
         return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover', kind: 'bad' };
       }
+      if (r.catchingUpMs !== undefined) {
+        return { tMs: failureEndMs, endMs: r.judgedUntilMs, text: `Still catching up when the run ended: the backlog was draining steadily, about ${formatSeconds(r.catchingUpMs)} more to go`, kind: 'bad' };
+      }
+      // Wasted work after the failure ended, not over the whole incident (review 2: a share from
+      // the failure itself was quoted as what kept the system stuck afterwards).
       const wasted = signals.wastedShare;
+      const wastedAfter = wasted ? wastedShareBetween(run, wasted.tier, Math.ceil(r.lastFaultEndMs / run.bucketMs), Math.floor(r.judgedUntilMs / run.bucketMs)) : 0;
       const backlog = signals.queueBacklog;
       const detail =
-        wasted && wasted.value >= 0.5
-          ? `: ${percent(wasted.value)} of ${name(wasted.tier)} work is for requests already given up on`
+        wasted && wastedAfter >= 0.5
+          ? `: ${percent(wastedAfter)} of ${name(wasted.tier)} work is for requests already given up on`
           : backlog && backlog.value.atEnd >= 1
             ? `: ${count(backlog.value.atEnd)} messages still waiting in ${name(backlog.tier)}`
             : '';

@@ -10,9 +10,11 @@ export interface Analysis {
   timeline: TimelineEntry[];
 }
 
-/** Everything the UI shows about one run, given the run and its no-failure control. */
-export function analyzeRun(run: RunResult, control: RunResult, config: RunConfig, labels: Record<string, string> = {}): Analysis {
-  const recovery = assessRecovery(run, control, config);
+/**
+ * Everything the UI shows about one run, given the run and its no-failure control. `recovery`
+ * overrides the verdict (simulateUntilSettled adds how long a drain still needed).
+ */
+export function analyzeRun(run: RunResult, control: RunResult, config: RunConfig, labels: Record<string, string> = {}, recovery: RecoveryResult = assessRecovery(run, control, config)): Analysis {
   const signals = computeSignals(run, config, recovery);
   return { recovery, signals, timeline: buildTimeline(run, config, recovery, signals, labels) };
 }

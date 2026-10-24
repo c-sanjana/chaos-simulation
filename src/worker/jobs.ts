@@ -36,10 +36,7 @@ export function executeJob(job: CellJob): CellSummary;
 export function executeJob(job: Job): JobResult;
 export function executeJob(job: Job): JobResult {
   const { config, run, control, recovery } = simulateUntilSettled(job.config);
-  if (job.kind === 'analyze') {
-    const analysis = analyzeRun(run, control, config, job.labels);
-    return { run, control, analysis: { ...analysis, recovery } };
-  }
+  if (job.kind === 'analyze') return { run, control, analysis: analyzeRun(run, control, config, job.labels, recovery) };
   const { verdict, recoveryMs, failedRequests } = recovery;
   return { verdict, recoveryMs, failedRequests };
 }

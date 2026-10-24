@@ -487,16 +487,23 @@ function verdictStep(ctx: Context, pressure: string | null, hadPile: boolean): S
       return { tMs: Math.min(r.lastFaultEndMs, ctx.run.durationMs), text: 'It coped: requests did just as well as they would have without the failure.', tone: 'good', kind: 'recovered', headline: 'Coped fine' };
     case 'overloaded': {
       // Behind a queue, too much traffic fails no request: the work just falls further behind.
-      const behind = ctx.analysis.signals.queueBacklog;
+      // Chosen by why the no-failure run is overloaded, not by this run's failures (review 2: "so
+      // requests fail anyway" while the no-failure run failed nothing).
+      const behind = ctx.analysis.signals.queueBacklog ?? null;
       const text =
-        behind && r.failedRequests === 0
-          ? `Even without the failure, this much traffic is more than the system can handle: work piles up in ${ctx.say(behind.tier)} faster than it gets done.`
+        r.overloadedBy === 'queue'
+          ? `Even without the failure, this much traffic is more than the system can handle: work piles up${behind ? ` in ${ctx.say(behind.tier)}` : ''} faster than it gets done.`
           : 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.';
       return { tMs: 0, text, tone: 'bad', kind: 'stuck', headline: 'Too much traffic anyway' };
     }
     case 'stuck': {
       if (r.lastFaultEndMs >= r.judgedUntilMs) {
         return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover.', tone: 'bad', kind: 'stuck', headline: 'Still failing at the end' };
+      }
+      if (r.catchingUpMs !== undefined) {
+        // Draining steadily when even the longest run ended (see settle.ts): not stuck for good.
+        const more = formatSeconds(r.catchingUpMs);
+        return { tMs: r.judgedUntilMs, text: `It was still catching up when the run ended: working through the backlog steadily, about ${more} more to go.`, tone: 'bad', kind: 'stuck', headline: 'Still catching up', figure: `~${more} more` };
       }
       const peak = pressure === null ? 0 : peakLoad(ctx, pressure, r.lastFaultEndMs);
       const backlog = ctx.analysis.signals.queueBacklog;
