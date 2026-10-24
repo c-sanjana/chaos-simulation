@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { connect, connectRefusal, GRID_COLS, GRID_ROWS, nodeAt, type Cell } from '../../builder/edit';
 import { KIND_LABELS, type BuilderGraph, type BuilderNode, type ComponentKind } from '../../builder/graph';
-import { callLabel, callSentence, displayName, edgeTitle, nodeLines, nodeSummary } from './describe';
+import { callSentence, displayName, edgeLabel, edgeTitle, nodeLines, nodeSummary, splitShare } from './describe';
 import { BOX_H, BOX_W, CELL_H, CELL_W, cellCenter, edgeLines, type Point } from './geometry';
 import { KindIcon } from './KindIcon';
 import { PALETTE_KINDS, startDrag } from './Palette';
@@ -212,12 +212,12 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
             className={`csl-bcanvas__edge-label csl-bcanvas__edge-label--${line.labelSide}`}
             style={{ left: line.mid.x, top: line.mid.y }}
             aria-pressed={isSelected('edge', edge.id)}
-            aria-label={`${edgeTitle(graph, edge)}: ${callSentence(edge.call)}`}
+            aria-label={`${edgeTitle(graph, edge)}${splitShare(graph, edge) === null ? '' : `, ${Math.round(splitShare(graph, edge)! * 100)}% of its traffic`}: ${callSentence(edge.call)}`}
             title="Edit this call"
             onFocus={() => onSelect({ type: 'edge', id: edge.id })}
             onClick={() => onSelect({ type: 'edge', id: edge.id })}
           >
-            {callLabel(edge.call)}
+            {edgeLabel(graph, edge)}
           </button>
         ))}
 

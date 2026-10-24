@@ -623,3 +623,26 @@
     max-height: none;
   }
 }
+
+/* An app server that calls several parts: one after another or all at once. */
+.csl-bpanel__radios {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 8px;
+  font-size: 13px;
+}
+.csl-bpanel__radios-title {
+  font-weight: 600;
+}
+.csl-bpanel__radio {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.3;
+}
+.csl-bpanel__radio input {
+  flex: none;
+  margin: 0;
+  transform: translateY(2px);
+}

@@ -2,7 +2,9 @@
  * Plain-language text for the builder: the key numbers on a box, the label on an arrow, and the
  * fuller sentences screen readers hear. Pure, so it is easy to test and reuse.
  */
+import { shareFractions } from '../../builder/edit';
 import { aKind, KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode, type CallSettings, type NodeSettings } from '../../builder/graph';
+import { flowCalls } from '../../builder/graphWalk';
 
 /** 1234 → "1,234". */
 export function formatCount(n: number): string {
@@ -44,6 +46,25 @@ export function callLabel(call: CallSettings): string {
   const timeout = call.timeoutMs === null ? 'no timeout' : formatMs(call.timeoutMs);
   const retries = call.retries === 0 ? 'no retries' : plural(call.retries, 'retry', 'retries');
   return `${timeout} · ${retries}`;
+}
+
+/**
+ * The share of traffic a load balancer sends along this arrow, as a fraction (0..1), or null when
+ * the caller doesn't split (not a load balancer, or only one call).
+ */
+export function splitShare(graph: BuilderGraph, edge: BuilderEdge): number | null {
+  const from = graph.nodes.find((n) => n.id === edge.from);
+  if (from?.settings.kind !== 'loadBalancer') return null;
+  const calls = flowCalls(graph, edge.from);
+  const i = calls.findIndex((e) => e.id === edge.id);
+  if (calls.length < 2 || i < 0) return null;
+  return shareFractions(calls.map((e) => e.call.share))[i];
+}
+
+/** An arrow's label on the canvas: "50% · 2 s · 1 retry" for a load balancer's split, else as `callLabel`. */
+export function edgeLabel(graph: BuilderGraph, edge: BuilderEdge): string {
+  const share = splitShare(graph, edge);
+  return share === null ? callLabel(edge.call) : `${Math.round(share * 100)}% · ${callLabel(edge.call)}`;
 }
 
 /** e.g. "gives up after 1 s, then tries again up to 1 time". */

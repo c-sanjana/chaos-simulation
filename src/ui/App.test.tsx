@@ -466,7 +466,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: '✎ Build your own system' }));
     // The canvas opens on the example system, drawn; the failure summary steps aside meanwhile.
     const builder = screen.getByRole('region', { name: 'Build your own system' });
-    expect(within(builder).getByText(/Branching is coming next/)).toBeTruthy();
+    expect(within(builder).queryByText(/Branching is coming next|A chain for now/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Change failure' })).toBeNull();
     fireEvent.click(within(builder).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('region', { name: 'Build your own system' })).toBeNull();

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { canConnectNodes, connectRefusal, updateCall, updateNode, type SettingsPatch } from '../../builder/edit';
+import { canConnectNodes, connectRefusal, setFanOut, setShare, updateCall, updateNode, type SettingsPatch } from '../../builder/edit';
+import { flowCalls } from '../../builder/graphWalk';
 import {
   KIND_BLURBS,
   KIND_LABELS,
@@ -17,7 +18,7 @@ import {
 import { CheckboxField, NumberField } from '../components/Fields';
 import { LIMITS } from '../draft';
 import { FIELD_LIMITS, p99Message } from '../fieldLimits';
-import { callLabel, callSentence, displayName, edgeEnds } from './describe';
+import { callSentence, displayName, edgeEnds, edgeLabel, splitShare } from './describe';
 import { KindIcon } from './KindIcon';
 import { PALETTE_KINDS } from './Palette';
 import type { Selection } from './BuilderCanvas';
@@ -150,7 +151,9 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
   const [target, setTarget] = useState('');
   const s = node.settings;
   const set = (settings: SettingsPatch) => onChange(updateNode(graph, node.id, { settings }));
-  const outgoing = graph.edges.filter((e) => e.from === node.id);
+  // Calls in the order they are made (targets top to bottom on the canvas), then the cache lookup.
+  const calls = flowCalls(graph, node.id);
+  const outgoing = [...calls, ...graph.edges.filter((e) => e.from === node.id && !calls.includes(e))];
   const targets = graph.nodes.filter((n) => canConnectNodes(graph, node.id, n.id));
   const callsSomething = PALETTE_KINDS.some((k) => connectRefusal(s.kind, k) === null);
   const nameOf = (id: string) => {
@@ -183,17 +186,34 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
       <fieldset className="csl-bpanel__group">
         <legend className="csl-bpanel__legend">Calls</legend>
         {!callsSomething && <p className="csl-bpanel__hint">{aKind(s.kind, true)} only answers calls; it doesn't call other components.</p>}
+        {calls.length > 1 && s.kind === 'loadBalancer' && (
+          <p className="csl-bpanel__hint">Each request goes to one of these, by the share of traffic on its arrow (even unless you change it). Select an arrow to change its share.</p>
+        )}
+        {calls.length > 1 && s.kind === 'server' && (
+          <div className="csl-bpanel__radios" role="radiogroup" aria-label="Calls its parts">
+            <span className="csl-bpanel__radios-title">Calls its parts</span>
+            <label className="csl-bpanel__radio">
+              <input type="radio" name={`fan-${node.id}`} checked={s.fanOut !== 'parallel'} onChange={() => onChange(setFanOut(graph, node.id, 'sequence'))} />
+              One after another <span className="csl-bpanel__muted">(top to bottom on the canvas; if one fails, the request fails and the rest aren't called)</span>
+            </label>
+            <label className="csl-bpanel__radio">
+              <input type="radio" name={`fan-${node.id}`} checked={s.fanOut === 'parallel'} onChange={() => onChange(setFanOut(graph, node.id, 'parallel'))} />
+              All at once <span className="csl-bpanel__muted">(answers when the slowest has; fails if any fails)</span>
+            </label>
+          </div>
+        )}
         {outgoing.length > 0 && (
           <ul className="csl-bpanel__calls">
             {outgoing.map((e) => (
               <li key={e.id}>
                 <button type="button" className="csl-btn csl-btn--link" onClick={() => onSelect({ type: 'edge', id: e.id })}>
-                  → {nameOf(e.to)} <span className="csl-bpanel__muted">({callLabel(e.call)})</span>
+                  → {nameOf(e.to)} <span className="csl-bpanel__muted">({edgeLabel(graph, e)})</span>
                 </button>
               </li>
             ))}
           </ul>
         )}
+        {calls.length > 1 && s.kind === 'server' && s.fanOut !== 'parallel' && <p className="csl-bpanel__hint">Move a box up or down on the canvas to change the order.</p>}
         {callsSomething &&
           (targets.length > 0 ? (
             <div className="csl-bpanel__connect">
@@ -246,6 +266,7 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete, focusTitle }:
   const toName = displayName(to);
   // When the timeout is switched back on, start from the usual value for this pair.
   const usualTimeout = defaultCall(from.settings.kind, to.settings.kind).timeoutMs ?? 1000;
+  const share = splitShare(graph, edge);
 
   return (
     <>
@@ -262,6 +283,11 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete, focusTitle }:
           </p>
         </div>
       </div>
+      {share !== null && (
+        <Group title="Share of traffic" hint={`The part of ${fromName}'s requests sent to ${toName}. Its other arrows share the rest in their current proportions.`}>
+          <NumberField label="Share of traffic" unit="%" value={Math.round(share * 100)} min={1} max={99} integer onChange={(v) => onChange(setShare(graph, edge.id, v))} />
+        </Group>
+      )}
       <Group title="Giving up" hint="Without a timeout, a caller waits forever for a stuck component, and its own callers pile up behind it.">
         <CheckboxField label="Give up after a timeout" checked={c.timeoutMs !== null} onChange={(on) => set({ timeoutMs: on ? usualTimeout : null })} />
         {c.timeoutMs !== null && <NumberField label="Timeout" unit="ms" value={c.timeoutMs} min={1} max={MAX_TIMEOUT_MS} onChange={(v) => set({ timeoutMs: v })} />}

@@ -336,7 +336,6 @@ export function App({ pool: injected }: AppProps) {
             onChange={setCanvas}
             problems={validateGraph(canvas)}
             onUse={() => useCanvas(canvas)}
-            note="A chain for now: each part calls one next part, plus a cache. Branching is coming next."
             actions={
               <>
                 {system.kind === 'custom' && (
