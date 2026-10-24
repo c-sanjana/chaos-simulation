@@ -201,4 +201,10 @@ describe('MapLegend', () => {
     expect(screen.queryByText('tipping point')).toBeNull();
     expect(screen.getByText('◆ shown in the replay')).toBeTruthy();
   });
+
+  it('compact (step 3): one line with the shorter overload words', () => {
+    render(<MapLegend showSelected={false} showMark={false} showPending={false} compact />);
+    expect(screen.getByRole('list', { name: 'Map legend' }).className).toContain('csl-map-legend--compact');
+    expect(screen.getAllByRole('listitem').map((i) => i.textContent)).toEqual(['Recovers in< 4 s4–9 s9 s+', 'Stuck', 'Too much traffic anyway', 'tipping point']);
+  });
 });

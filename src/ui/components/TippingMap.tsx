@@ -7,6 +7,8 @@ export const SLOW_BELOW_S = 9;
 
 /** The legend's words for an overloaded cell (also its spoken status). */
 export const OVERLOADED_TEXT = 'Too much traffic even without the failure';
+/** The same, in the one-line legend under step 3's heading. */
+const OVERLOADED_SHORT = 'Too much traffic anyway';
 
 // ASSUMPTION: a recovered cell without a recovery time never deviated from the control run.
 function recoverySeconds(cell: MapCellView): number {
@@ -206,15 +208,17 @@ export interface MapLegendProps {
   showMark?: boolean;
   /** Show the "not run yet" entry (default true; off once every cell has run). */
   showPending?: boolean;
+  /** One line with shorter words, for step 3 where two maps share the panel (default false). */
+  compact?: boolean;
 }
 
 /**
  * Key for TippingMap. Overloaded cells are hatched besides their colour, and the key shows the
  * hatching in its swatch too.
  */
-export function MapLegend({ showSelected = true, showTip = true, markLabel = 'your settings', showMark = true, showPending = true }: MapLegendProps) {
+export function MapLegend({ showSelected = true, showTip = true, markLabel = 'your settings', showMark = true, showPending = true, compact = false }: MapLegendProps) {
   return (
-    <ul className="csl-map-legend" aria-label="Map legend">
+    <ul className={`csl-map-legend${compact ? ' csl-map-legend--compact' : ''}`} aria-label="Map legend">
       <li className="csl-map-legend__group">
         Recovers in
         {RECOVERED.map(([bg, label]) => (
@@ -230,7 +234,7 @@ export function MapLegend({ showSelected = true, showTip = true, markLabel = 'yo
       </li>
       <li className="csl-map-legend__item">
         <span className="csl-map-legend__swatch csl-map__cell--overloaded" style={{ backgroundColor: 'var(--csl-map-overloaded)' }} />
-        {OVERLOADED_TEXT}
+        {compact ? OVERLOADED_SHORT : OVERLOADED_TEXT}
       </li>
       {showPending && (
         <li className="csl-map-legend__item">

@@ -126,7 +126,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             </div>
             {applied && before.result && after.result ? (
               <>
-                <MapLegend showSelected={false} showMark={false} showPending={!mapsDone} />
+                <MapLegend showSelected={false} showMark={false} showPending={!mapsDone} compact />
                 <div className="csl-fix-maps csl-map--medium">
                   {[
                     { title: 'Before', sweep: before.result },
