@@ -1938,6 +1938,63 @@ button.csl-map__cell {
   min-height: 0;
 }
 
+/* The glossary in the top bar: a disclosure whose panel floats below its button. */
+.csl-glossary {
+  position: relative;
+}
+.csl-glossary > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.csl-glossary > summary::-webkit-details-marker {
+  display: none;
+}
+.csl-glossary__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--csl-border);
+  border-radius: 10px;
+  background: var(--csl-card);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.csl-glossary__title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.csl-glossary__list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.csl-glossary__list dt {
+  font-weight: 600;
+}
+.csl-glossary__list dd {
+  margin: 0;
+  color: var(--csl-ink-2);
+}
+.csl-summary__edited {
+  font-weight: 400;
+  color: var(--csl-muted);
+}
+.csl-crash {
+  max-width: 640px;
+  margin: 40px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 /* A sentence under a chart's legend explaining what it shows. */
 .csl-chart-note {
   margin: 0 0 4px;

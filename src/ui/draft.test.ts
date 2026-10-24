@@ -33,6 +33,14 @@ describe('draftProblems', () => {
     expect(draftProblems(updateFault(preset, { endMs: 100_000 }))).toEqual([]); // exactly 20 s left
   });
 
+  it('refuses two failures of the same part at the same time, which the engine would not combine', () => {
+    const two = addFault(preset);
+    expect(draftProblems(two)).toEqual([]); // a different part
+    const same = updateFault(two, { tier: 'db', startMs: 32_000, endMs: 40_000 }, 1);
+    expect(draftProblems(same)).toEqual(['Failures 1 and 2 both hit DB at the same time, and only one failure of a part can be simulated at once. Move one of them, or choose another part.']);
+    expect(draftProblems(updateFault(same, { startMs: 35_000 }, 1))).toEqual([]); // one after the other
+  });
+
   it('needs the slowest 1% to be slower than the typical request, in plain words', () => {
     const bad = updateTier(preset, 'db', (t) => ({ ...t, service: { kind: 'lognormal', medianMs: 20, p99Ms: 10 } }));
     expect(draftProblems(bad)).toEqual(['DB: the slowest 1% of requests (p99) must take longer than a typical one (median).']);

@@ -35,8 +35,8 @@ const BLOCKS_MAX = 8;
 
 /**
  * When a step happened, as its row says it. A "still stuck" verdict is known only once the run has
- * ended, and the moment it is revealed (the end of the judged range) is not an event, so it reads
- * "end of run" rather than a time that looks like one (REVIEW2 1.11). The details panel says the same.
+ * ended, and the moment it is revealed (the end of the judged range) is not an event, so it says
+ * "at the end of the run" rather than a time that looks like one (REVIEW2 1.11), as the details do.
  */
 export function stepTime(s: Pick<StoryStepView, 'tMs' | 'kind'>): string {
   return s.kind === 'stuck' && s.tMs > 0 ? 'at the end of the run' : `${Math.round(s.tMs / 1000)} s`;

@@ -18,6 +18,7 @@ describe('time labels', () => {
     expect(formatSeconds(30_449)).toBe('30.4');
     expect(timeLabel({ tMs: 30_000 })).toBe('30 s');
     expect(timeLabel({ tMs: 36_000, endMs: 120_000 })).toBe('36–120 s');
+    expect(timeLabel({ tMs: 98_900, atEnd: true })).toBe('end of run'); // known only once the run ended: not an event time
   });
 });
 

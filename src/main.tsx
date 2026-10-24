@@ -1,6 +1,9 @@
+// First, before anything that formats numbers loads (the chart library does so on import).
+import './ui/localeGuard';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { initialTheme } from './ui/themeMode';
 import './ui/theme.css';
 
@@ -9,6 +12,8 @@ document.documentElement.dataset.theme ??= initialTheme();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

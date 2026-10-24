@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { Fault } from '../engine/config';
 import { NumberField } from './components/Fields';
 import {
@@ -5,6 +6,7 @@ import {
   describeFault,
   draftProblems,
   faultKindOf,
+  JUDGE_AFTER_FAILURE_S,
   LIMITS,
   removeFault,
   retryCalls,
@@ -26,14 +28,24 @@ const KIND_LABELS: Record<FaultKindChoice, string> = {
 
 /**
  * What fails, how badly and when; how many times each layer asks again; and the traffic.
- * A form: Run is blocked while a field holds an invalid value or the settings don't fit together.
+ * A form: Run is disabled while a field holds an invalid value (the field keeps it, explained) or
+ * the settings don't fit together. With nothing changed, the button replays the run from the start.
  */
 export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft; onChange: (d: Draft) => void; onRun: () => void; dirty: boolean }) {
   const s = draft.scenario;
   const label = (id: string) => draft.topology.layout[id]?.label ?? id;
   const problems = draftProblems(draft);
+  // A field holding an invalid entry never reaches the draft, so the form's own validity is checked
+  // after every render (setting the same value again does nothing).
+  const form = useRef<HTMLFormElement>(null);
+  const [fieldsInvalid, setFieldsInvalid] = useState(false);
+  useLayoutEffect(() => setFieldsInvalid(form.current !== null && !form.current.checkValidity()));
+  // Each part can fail once at a time (see draftProblems), so adding stops when every part fails.
+  const canAdd = draft.topology.tiers.some((t) => !s.faults.some((f) => f.tier === t.id));
   return (
     <form
+      ref={form}
+      onChange={() => setFieldsInvalid(form.current !== null && !form.current.checkValidity())}
       className="csl-failure"
       aria-label="Failure settings"
       noValidate
@@ -47,9 +59,10 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
         {s.faults.map((f, i) => (
           <FaultRow key={i} draft={draft} fault={f} index={i} onChange={onChange} />
         ))}
-        <button type="button" className="csl-btn csl-btn--small" onClick={() => onChange(addFault(draft))}>
+        <button type="button" className="csl-btn csl-btn--small" disabled={!canAdd} onClick={() => onChange(addFault(draft))}>
           + Add another failure
         </button>
+        {!canAdd && <span className="csl-status">Every part already has a failure.</span>}
       </fieldset>
       <fieldset className="csl-failure__group">
         <legend className="csl-failure__legend">Retries: how many times each caller asks again after giving up</legend>
@@ -68,8 +81,8 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
           <NumberField label="Traffic" unit="req/s" value={s.rps} min={1} max={LIMITS.maxRps} integer onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
         </div>
       </fieldset>
-      <button type="submit" className="csl-btn csl-btn--primary csl-failure__run" disabled={problems.length > 0}>
-        {dirty ? 'Run simulation' : 'Re-run'}
+      <button type="submit" className="csl-btn csl-btn--primary csl-failure__run" disabled={problems.length > 0 || fieldsInvalid}>
+        {dirty ? 'Run simulation' : 'Replay from the start'}
       </button>
       {problems.length > 0 && (
         <ul className="csl-problems" role="alert">
@@ -90,6 +103,9 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
   const update = (change: Partial<Fault>) => onChange(updateFault(draft, change, index));
   const kinds: FaultKindChoice[] = ['slow', 'down', ...(tier && tier.instances > 1 ? (['one-down'] as const) : []), ...(tier?.cache ? (['restart-empty'] as const) : [])];
   const n = index + 1;
+  // A failure must end in time to judge recovery (draftProblems): the fields are bounded by the run's length.
+  const latestEndS = Math.min(LIMITS.maxDurationS, draft.scenario.durationMs / 1000 - JUDGE_AFTER_FAILURE_S);
+  const lastingS = (f.endMs - f.startMs) / 1000;
   return (
     <div className="csl-failure__row" role="group" aria-label={`Failure ${n}`}>
       <label className="csl-field">
@@ -123,13 +139,13 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
         </select>
       </label>
       {f.kind === 'slow' && <NumberField label="How much slower" unit="×" value={f.factor ?? 1} min={1} max={1000} onChange={(v) => update({ factor: v })} />}
-      <NumberField label="Lasting" unit="seconds" value={(f.endMs - f.startMs) / 1000} min={1} max={LIMITS.maxDurationS} integer onChange={(v) => update({ endMs: f.startMs + v * 1000 })} />
+      <NumberField label="Lasting" unit="seconds" value={lastingS} min={1} max={Math.max(1, latestEndS - f.startMs / 1000)} integer onChange={(v) => update({ endMs: f.startMs + v * 1000 })} />
       <NumberField
         label="Starts at"
         unit="s into the run"
         value={f.startMs / 1000}
         min={0}
-        max={LIMITS.maxDurationS}
+        max={Math.max(0, latestEndS - lastingS)}
         integer
         onChange={(v) => update({ startMs: v * 1000, endMs: v * 1000 + (f.endMs - f.startMs) })}
       />
@@ -145,19 +161,38 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
   );
 }
 
-/** One-line summary of the scenario, its failures and retries, with a button that opens the editor. */
-export function ScenarioSummary({ draft, editing, onToggle }: { draft: Draft; editing: boolean; onToggle: () => void }) {
+/**
+ * Who asks again and how many times, front to back, in words: "users' apps 5× · Gateway 3× · App
+ * server 1×" (REVIEW2 3.7: "retries 5 / 3 / 1" meant nothing to a newcomer).
+ */
+export function retriesSummary(draft: Draft): string {
+  const label = (id: string) => draft.topology.layout[id]?.label ?? id;
+  return retryCalls(draft.topology)
+    .map((c) => `${c.caller === 'client' ? "users' apps" : label(c.caller)} ${c.retries}×`)
+    .join(' · ');
+}
+
+/**
+ * One-line summary of the scenario, its failures and retries, with a button that opens the editor.
+ * `edited`: the settings differ from the preset's, so its name gets "(edited)".
+ */
+export function ScenarioSummary({ draft, editing, onToggle, edited = false }: { draft: Draft; editing: boolean; onToggle: () => void; edited?: boolean }) {
   const s = draft.scenario;
   const [f, ...more] = s.faults;
   const label = (id: string) => draft.topology.layout[id]?.label ?? id;
   const instances = draft.topology.tiers.find((t) => t.id === f.tier)?.instances ?? 1;
-  const retries = retryCalls(draft.topology).map((c) => c.retries);
   return (
     <section className="csl-summary" aria-label="Scenario">
-      <strong>{s.title}</strong>
+      <strong>
+        {s.title}
+        {edited && <span className="csl-summary__edited"> (edited)</span>}
+      </strong>
       <span className="csl-summary__text">
         {label(f.tier)} <b>{describeFault(f, instances)}</b> for <b>{(f.endMs - f.startMs) / 1000} s</b> at {f.startMs / 1000} s
-        {more.length > 0 && <> (+{more.length} more)</>} · <b>{s.rps} req/s</b> · retries <b title="Times each layer asks again, front to back">{retries.join(' / ')}</b>
+        {more.length > 0 && <> (+{more.length} more)</>} · <b>{s.rps} req/s</b> ·{' '}
+        <span title="How many times each layer asks again after giving up on an answer (a retry), front to back">
+          asks again: <b>{retriesSummary(draft)}</b>
+        </span>
       </span>
       <button type="button" className="csl-btn csl-btn--small" aria-expanded={editing} onClick={onToggle}>
         {editing ? 'Close' : 'Change failure'}

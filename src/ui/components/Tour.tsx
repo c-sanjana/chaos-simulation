@@ -17,7 +17,16 @@ export interface TourStop {
   placement?: TourPlacement;
   /** For a demo: the replay moment (ms into the run) this stop shows; see `onStop`. */
   atMs?: number;
+  /**
+   * The stop describes results that take a while to compute: until its target carries
+   * `data-tour-ready`, the popover says "Getting results…" instead of the body, so it never
+   * describes something that isn't on the screen yet.
+   */
+  waitForResults?: boolean;
 }
+
+/** Shown in place of a stop's body while its results are still being computed. */
+export const GETTING_RESULTS = 'Getting results…';
 
 export interface TourProps {
   stops: TourStop[];
@@ -135,6 +144,8 @@ type Spot = { kind: 'finding' } | { kind: 'found'; box: Box } | { kind: 'missing
 interface Measure {
   spot: Spot;
   view: { width: number; height: number };
+  /** The target's results are on screen (always true for a stop that doesn't wait for results). */
+  ready: boolean;
 }
 
 const FOCUSABLE = 'button:not([disabled])';
@@ -158,7 +169,7 @@ export function Tour({ open, ...rest }: TourProps) {
 
 function TourRun({ stops, onClose, onScreen, onStop }: Omit<TourProps, 'open'>) {
   const [index, setIndex] = useState(0);
-  const [measure, setMeasure] = useState<Measure>(() => ({ spot: { kind: 'finding' }, view: viewport() }));
+  const [measure, setMeasure] = useState<Measure>(() => ({ spot: { kind: 'finding' }, view: viewport(), ready: true }));
   const [pos, setPos] = useState<PopoverPosition | null>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -190,7 +201,7 @@ function TourRun({ stops, onClose, onScreen, onStop }: Omit<TourProps, 'open'>) 
   }, [index]);
 
   // Switch screens if needed, then locate and keep measuring the target.
-  const { target, screen } = stop;
+  const { target, screen, waitForResults } = stop;
   useLayoutEffect(() => {
     if (screen !== screenRef.current) {
       screenRef.current = screen;
@@ -207,7 +218,7 @@ function TourRun({ stops, onClose, onScreen, onStop }: Omit<TourProps, 'open'>) 
         scrollIntoViewIfNeeded(el);
       }
       const spot: Spot = el ? { kind: 'found', box: spotBox(el) } : Date.now() >= deadline ? { kind: 'missing' } : { kind: 'finding' };
-      const measured = { spot, view: viewport() };
+      const measured = { spot, view: viewport(), ready: !waitForResults || el?.dataset.tourReady === 'true' };
       const key = JSON.stringify(measured);
       if (key !== lastKey) {
         lastKey = key;
@@ -223,7 +234,7 @@ function TourRun({ stops, onClose, onScreen, onStop }: Omit<TourProps, 'open'>) 
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [index, target, screen]);
+  }, [index, target, screen, waitForResults]);
 
   // Place the dialog once its size for this stop is known (before paint, so it never jumps).
   const box = measure.spot.kind === 'found' ? measure.spot.box : null;
@@ -287,7 +298,7 @@ function TourRun({ stops, onClose, onScreen, onStop }: Omit<TourProps, 'open'>) 
             {stop.title}
           </h2>
           <p id={bodyId} className="csl-tour__body">
-            {stop.body}
+            {measure.ready ? stop.body : GETTING_RESULTS}
           </p>
         </div>
         <div className="csl-tour__actions">

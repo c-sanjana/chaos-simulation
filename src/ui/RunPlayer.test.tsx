@@ -110,6 +110,35 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     vi.unstubAllGlobals();
   });
 
+  it('opens paused at a given moment (the end, after the tour), and replays from the start on request', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const { rerender } = render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} openAtMs={120_000} guided />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+    expect(screen.getByText(/Snapshot at t = 120 s/)).toBeTruthy();
+    expect(screen.getByText('Stuck: did not recover after the failure ended')).toBeTruthy();
+    // Same run, new restart key: from the start, playing.
+    rerender(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} restartKey={1} guided />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+    expect(screen.getByText(/Snapshot at t = 0 s/)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('tells the run shown in a compact story when asked (step 2 and 3 replays)', () => {
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} after={{ config: recovered.config, result: result(recovered) }} autoPlay={false} sideTimeline compactStory />);
+    const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
+    expect(story.className).toContain('csl-story--compact');
+    expect(story.closest('.csl-player__sidestack')).not.toBeNull();
+    seek(120_000);
+    // The "after" run (shown by default) recovered: its newest step says so.
+    expect(within(story).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(story).getByText(/back to normal/i, { selector: '.csl-flow__text' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Before' }));
+    expect(within(screen.getByRole('region', { name: 'What is happening, in plain words' })).getByText('Still stuck')).toBeTruthy();
+  });
+
   it('waits while held (e.g. under the guided tour) and plays from the start when released', async () => {
     vi.stubGlobal('requestAnimationFrame', () => 1);
     vi.stubGlobal('cancelAnimationFrame', () => {});

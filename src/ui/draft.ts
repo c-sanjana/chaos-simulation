@@ -143,6 +143,13 @@ export function draftProblems(d: Draft): string[] {
       );
     }
   }
+  // ASSUMPTION: the engine doesn't combine two failures of one part at once (the latest change
+  // wins, engine/tier.ts), so overlapping failures of the same part are refused rather than
+  // simulated in a way the editor doesn't describe.
+  s.faults.forEach((f, i) => {
+    const j = s.faults.findIndex((g, k) => k < i && g.tier === f.tier && g.startMs < f.endMs && f.startMs < g.endMs);
+    if (j >= 0) problems.push(`Failures ${j + 1} and ${i + 1} both hit ${label(f.tier)} at the same time, and only one failure of a part can be simulated at once. Move one of them, or choose another part.`);
+  });
   for (const t of d.topology.tiers) {
     if (t.service.kind === 'lognormal' && !(t.service.p99Ms > t.service.medianMs)) {
       problems.push(`${label(t.id)}: the slowest 1% of requests (p99) must take longer than a typical one (median).`);

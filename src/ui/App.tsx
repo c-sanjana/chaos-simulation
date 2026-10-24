@@ -7,6 +7,7 @@ import { validateGraph } from '../builder/validate';
 import { createDefaultPool, type SimPool } from '../worker/pool';
 import { compareRuns, type RunSnapshot } from './compare';
 import { Drawer } from './components/Drawer';
+import { Glossary } from './components/Glossary';
 import { RunComparison } from './components/RunComparison';
 import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepTabs } from './components/StepTabs';
@@ -87,12 +88,12 @@ export function App({ pool: injected }: AppProps) {
    * failure, edits, a built system, the canvas open), it switches to the default for the demo and
    * puts everything back when it closes.
    */
-  const beforeDemo = useRef<{ system: System; scenarioId: string; applied: Draft; draft: Draft; canvas: BuilderGraph | null } | null>(null);
+  const beforeDemo = useRef<{ system: System; scenarioId: string; applied: Draft; draft: Draft; canvas: BuilderGraph | null; editing: boolean } | null>(null);
   const startTour = () => {
     setTourFrom(step);
     const demo = systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO);
     if (system.kind !== 'preset' || canvas !== null || JSON.stringify(applied) !== JSON.stringify(demo) || JSON.stringify(draft) !== JSON.stringify(demo)) {
-      beforeDemo.current = { system, scenarioId, applied, draft, canvas };
+      beforeDemo.current = { system, scenarioId, applied, draft, canvas, editing: editingFailure };
       setSystem(PRESET_SYSTEM);
       setScenarioId(DEFAULT_SCENARIO);
       setApplied(demo);
@@ -104,10 +105,17 @@ export function App({ pool: injected }: AppProps) {
     setPreviousRun(null);
     tour.start();
   };
+  /**
+   * After the demo is finished (Done), the step 1 replay waits at its end with the verdict the tour
+   * led up to, instead of starting over (REVIEW2 3.9). Cleared by the next run.
+   */
+  const [replayOpenAtMs, setReplayOpenAtMs] = useState<number | null>(null);
+  useEffect(() => setReplayOpenAtMs(null), [config]);
   const endTour = (completed: boolean) => {
     tour.close(completed);
     setStep(tourFrom);
     setDemoAtMs(null);
+    setReplayOpenAtMs(completed && !beforeDemo.current ? config.durationMs : null);
     const back = beforeDemo.current;
     beforeDemo.current = null;
     if (back) {
@@ -116,11 +124,14 @@ export function App({ pool: injected }: AppProps) {
       setApplied(back.applied);
       setDraft(back.draft);
       setCanvas(back.canvas);
+      setEditingFailure(back.editing); // an open, unsaved failure editor comes back as it was
       lastRun.current = null;
       setPreviousRun(null);
     }
   };
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied);
+  /** The settings simulated differ from the chosen preset's: its name is shown with "(edited)". */
+  const edited = useMemo(() => JSON.stringify(applied) !== JSON.stringify(systemDraft(system, scenarioId)), [applied, system, scenarioId]);
   const problems = draftProblems(draft);
 
   const pickScenario = (id: string) => {
@@ -130,7 +141,17 @@ export function App({ pool: injected }: AppProps) {
     setApplied(fresh);
     setDraft(fresh);
   };
-  const run = () => (setApplied(structuredClone(draft)), setEditingFailure(false));
+  /** Bumped to replay the same run from the start ("Replay from the start" with nothing changed). */
+  const [restartKey, setRestartKey] = useState(0);
+  const run = () => {
+    if (!dirty) {
+      setRestartKey((k) => k + 1);
+      setStep(0);
+    }
+    setReplayOpenAtMs(null);
+    setApplied(structuredClone(draft));
+    setEditingFailure(false);
+  };
   const resetToPreset = () => {
     const fresh = systemDraft(system, scenarioId);
     setApplied(fresh);
@@ -160,7 +181,7 @@ export function App({ pool: injected }: AppProps) {
           Chaos Simulation Lab
         </h1>
         <div data-tour="scenario" className="csl-topbar__summary">
-          <ScenarioSummary draft={applied} editing={editingFailure} onToggle={() => setEditingFailure((e) => !e)} />
+          <ScenarioSummary draft={applied} editing={editingFailure} edited={edited} onToggle={() => setEditingFailure((e) => !e)} />
         </div>
         <div className="csl-topbar__actions">
           {canvas === null && (
@@ -168,6 +189,7 @@ export function App({ pool: injected }: AppProps) {
               {system.kind === 'custom' ? '✎ Edit your system' : '✎ Build your own system'}
             </button>
           )}
+          <Glossary />
           <ThemeToggle />
           <TourButton onClick={startTour} />
         </div>
@@ -228,7 +250,7 @@ export function App({ pool: injected }: AppProps) {
             {main.status === 'done' && (
               <RunPlayer
                 title="What happened"
-                subtitle={`${applied.scenario.title} · ${applied.scenario.rps} requests/s · seed ${config.seed}`}
+                subtitle={`${applied.scenario.title}${edited ? ' (edited)' : ''} · ${applied.scenario.rps} requests/s · random run #${config.seed}`}
                 topology={applied.topology}
                 config={config}
                 result={main.value}
@@ -238,6 +260,8 @@ export function App({ pool: injected }: AppProps) {
                 timelineTarget={timelineEl}
                 holdPlayback={tour.open}
                 demoAtMs={tour.open ? demoAtMs : null}
+                openAtMs={replayOpenAtMs}
+                restartKey={restartKey}
                 guided
                 story={story}
                 endPanel={comparison && comparison.changes.length > 0 ? <RunComparison comparison={comparison} onDismiss={() => setPreviousRun(null)} /> : undefined}

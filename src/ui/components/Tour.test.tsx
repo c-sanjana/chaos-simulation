@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { placePopover, Tour, TourButton, type TourStop } from './Tour';
+import { GETTING_RESULTS, placePopover, Tour, TourButton, type TourStop } from './Tour';
 
 const STOPS: TourStop[] = [
   { target: 'a', screen: 0, title: 'Stop A', body: 'About A.' },
@@ -135,6 +135,29 @@ describe('Tour', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onClose).toHaveBeenCalledWith(true);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('says "Getting results…" until a stop that waits for results finds them on its target', () => {
+    const waits: TourStop[] = [{ target: 'r', screen: 0, title: 'Results', body: 'The results say X.', waitForResults: true }];
+    const { rerender } = render(
+      <>
+        <div data-tour="r">R</div>
+        <Tour stops={waits} open onClose={() => {}} onScreen={() => {}} />
+      </>,
+    );
+    expect(screen.getByText(GETTING_RESULTS)).toBeTruthy();
+    expect(screen.queryByText('The results say X.')).toBeNull();
+    rerender(
+      <>
+        <div data-tour="r" data-tour-ready="true">
+          R
+        </div>
+        <Tour stops={waits} open onClose={() => {}} onScreen={() => {}} />
+      </>,
+    );
+    tick(50);
+    expect(screen.getByText('The results say X.')).toBeTruthy();
+    expect(screen.queryByText(GETTING_RESULTS)).toBeNull();
   });
 
   it('tells the app which stop is showing, as it is shown', () => {

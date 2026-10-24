@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { StoryCard, type StoryStepView } from './StoryCard';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { StoryCard, stepTime, type StoryStepView } from './StoryCard';
 
 const steps: StoryStepView[] = [
   { tMs: 30_000, text: 'At 30 s the database became 8× slower.', tone: 'fault', kind: 'fault', headline: 'Database 8× slower', figure: '5 s' },
@@ -54,6 +54,40 @@ describe('StoryCard', () => {
     // A step without a headline shows its sentence, with the plain icon.
     expect(items[3].querySelector('.csl-flow__headline')!.textContent).toBe('It never recovered.');
     expect(items[3].querySelector('.csl-flow__icon')!.textContent).toBe('•');
+  });
+
+  it('shows the newest step’s explanation, and older ones on a visible "Why?"', () => {
+    render(<StoryCard steps={steps} nowMs={33_500} />);
+    const items = screen.getAllByRole('listitem');
+    // The newest row spells out its sentence (not only in a tooltip).
+    expect(items[2].querySelector('.csl-flow__text')!.textContent).toBe(steps[2].text);
+    expect(items[0].querySelector('.csl-flow__text')).toBeNull();
+    const why = screen.getByRole('button', { name: 'Why: Database 8× slower' });
+    expect(why.textContent).toBe('Why?');
+    expect(why.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(why);
+    expect(items[0].querySelector('.csl-flow__text')!.textContent).toBe(steps[0].text);
+    expect(why.textContent).toBe('Hide');
+    fireEvent.click(why);
+    expect(items[0].querySelector('.csl-flow__text')).toBeNull();
+  });
+
+  it('labels a "still stuck" verdict "at the end of the run", not with a time that looks like an event', () => {
+    expect(stepTime({ tMs: 98_900, kind: 'stuck' })).toBe('at the end of the run');
+    expect(stepTime({ tMs: 0, kind: 'stuck' })).toBe('0 s'); // "too much traffic anyway" is known from the start
+    expect(stepTime({ tMs: 31_000, kind: 'giveup' })).toBe('31 s');
+  });
+
+  it('compact: only the newest step, with a way to see the earlier ones', () => {
+    render(<StoryCard steps={steps} nowMs={40_000} compact />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText(steps[2].text, { selector: '.csl-flow__text' })).toBeTruthy();
+    expect(document.querySelector('.csl-cascade')).toBeNull(); // no room for the cascade blocks
+    const more = screen.getByRole('button', { name: 'Show the 2 earlier steps' });
+    fireEvent.click(more);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'Show only the newest step' }));
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
   });
 
   it('draws an overload as a meter against capacity, full beyond 5×', () => {
