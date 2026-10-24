@@ -23,7 +23,7 @@ function diffPaths(a: unknown, b: unknown, path = ''): string[] {
 
 describe('FIX_CATALOG', () => {
   it('has one entry per kind, unique ids, a short tab name, and one-line pros and cons', () => {
-    const kinds: FixKind[] = ['retryBudget', 'capRetries', 'jitterBackoff', 'retryOneLayer', 'boundQueue', 'dropExpired', 'coalesceMisses', 'moreConsumers', 'longerTimeout', 'addInstances'];
+    const kinds: FixKind[] = ['retryBudget', 'retryBudgetEveryLayer', 'capRetries', 'jitterBackoff', 'retryOneLayer', 'boundQueue', 'dropExpired', 'coalesceMisses', 'moreConsumers', 'longerTimeout', 'addInstances'];
     expect(FIX_CATALOG.map((d) => d.kind).sort()).toEqual([...kinds].sort());
     expect(new Set(FIX_CATALOG.map((d) => d.id)).size).toBe(FIX_CATALOG.length);
     for (const d of FIX_CATALOG) {
@@ -78,7 +78,7 @@ describe('on the stuck retry storm, retrying at one layer (3 App server → DB r
   const signals = analysis.signals;
   const snapshot = structuredClone(config);
 
-  const expectedChange: Record<Exclude<FixKind, 'retryOneLayer' | 'moreConsumers'>, [string, unknown]> = {
+  const expectedChange: Record<Exclude<FixKind, 'retryOneLayer' | 'retryBudgetEveryLayer' | 'moreConsumers'>, [string, unknown]> = {
     retryBudget: ['tiers.1.downstream.retryBudget', 0.1],
     capRetries: ['tiers.1.downstream.retries', 1],
     jitterBackoff: ['tiers.1.downstream.jitter', true],
@@ -90,7 +90,7 @@ describe('on the stuck retry storm, retrying at one layer (3 App server → DB r
   };
 
   // No queue here, so no consumers to add (see candidates.queue.test.ts).
-  const oneSetting = FIX_CATALOG.filter((d) => d.kind !== 'retryOneLayer' && d.kind !== 'moreConsumers').map((d) => [d.kind as Exclude<FixKind, 'retryOneLayer' | 'moreConsumers'>, d] as const);
+  const oneSetting = FIX_CATALOG.filter((d) => d.kind !== 'retryOneLayer' && d.kind !== 'retryBudgetEveryLayer' && d.kind !== 'moreConsumers').map((d) => [d.kind as Exclude<FixKind, 'retryOneLayer' | 'retryBudgetEveryLayer' | 'moreConsumers'>, d] as const);
   it.each(oneSetting)('applyFix(%s) changes exactly one setting and leaves the original alone', (kind, d) => {
     const patched = applyFix(d, config, signals)!;
     expect(patched).not.toBeNull();
@@ -100,8 +100,9 @@ describe('on the stuck retry storm, retrying at one layer (3 App server → DB r
     expect(config).toEqual(snapshot);
   });
 
-  it('does not suggest retrying at one layer only: only one layer retries already', () => {
+  it('does not suggest retrying at one layer only, or a budget at every layer: only one layer retries already', () => {
     expect(applyFix(def('retryOneLayer'), config, signals)).toBeNull();
+    expect(applyFix(def('retryBudgetEveryLayer'), config, signals)).toBeNull();
   });
 
   it('suggests every other catalog fix, in catalog order, each quoting its signal with real numbers', () => {

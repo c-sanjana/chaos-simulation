@@ -312,6 +312,8 @@ export function fixTab(
     why: `${capitalise(f.candidate.why)}.`,
     ...(measured?.explanation ? { verdict: { title: measured.explanation.title, text: measured.explanation.text } } : {}),
     result: unchanged && !f.helped ? `No improvement: still ${shortVerdict(o)}` : `${capitalise(shortVerdict(original))} → ${shortVerdict(o)}`,
+    ...(f.candidate.scope ? { scope: f.candidate.scope } : {}),
+    ...(f.candidate.acrossStack ? { acrossStack: f.candidate.acrossStack } : {}),
     where,
     failed: [failedText(o, original), ...(measured ? droppedText(measured) : [])].join(' · '),
     checks,

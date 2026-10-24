@@ -55,6 +55,24 @@ describe('FixTabs', () => {
     expect(result.querySelector('b')!.className).toBe('csl-fixtabs__good');
   });
 
+  it('labels a retry fix one layer or whole stack, and shows its end-to-end multiplication', () => {
+    const across = 'Every layer that retries changes together. If every call fails, … up to 48×. With this fix: up to 1.3× (1.1 × 1.1 × 1.1).';
+    const stack = tab({ id: 'retry-budget-every-layer', short: 'Budget, all layers', scope: 'stack', acrossStack: across });
+    const { rerender } = render(<FixTabs tabs={[stack, tabs[2]]} selectedId={null} onSelect={() => {}} />);
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).getByText('Whole stack').className).toContain('csl-fixtabs__scope--stack');
+    expect(within(panel).getByText('Across the stack').nextElementSibling!.textContent).toBe(across);
+    expect(screen.getAllByRole('tab')[0].getAttribute('aria-label')).toBe('Budget, all layers: helped, back to normal 3 s after the failure ended'); // the name says it
+    expect(tabLabel(tab({ short: 'Retry at one layer', scope: 'stack', status: 'no', badge: '' }))).toBe('Retry at one layer (whole stack): did not help');
+    expect(tabLabel(tab({ short: 'Cap retries at 1', scope: 'layer', status: 'no', badge: '' }))).toBe('Cap retries at 1 (one layer): did not help');
+    rerender(<FixTabs tabs={[tab({ scope: 'layer' }), tabs[2]]} selectedId={null} onSelect={() => {}} />);
+    expect(within(screen.getByRole('tabpanel')).getByText('One layer')).toBeTruthy();
+    // Not a retry fix: neither label nor line.
+    rerender(<FixTabs tabs={tabs} selectedId={null} onSelect={() => {}} />);
+    expect(screen.queryByText('Across the stack')).toBeNull();
+    expect(screen.queryByText('One layer')).toBeNull();
+  });
+
   it('lists pros and cons with their counts, so several cons are never missed', () => {
     render(<FixTabs tabs={tabs} selectedId={null} onSelect={() => {}} />);
     expect(within(screen.getByRole('region', { name: 'Pros' })).getByRole('heading').textContent).toBe('Pros (2)');

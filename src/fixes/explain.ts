@@ -28,7 +28,7 @@ export interface FixExplanation {
   refuted: Refutation[];
 }
 
-const RETRY_KINDS: ReadonlySet<FixKind> = new Set(['retryBudget', 'capRetries', 'jitterBackoff', 'retryOneLayer']);
+const RETRY_KINDS: ReadonlySet<FixKind> = new Set(['retryBudget', 'retryBudgetEveryLayer', 'capRetries', 'jitterBackoff', 'retryOneLayer']);
 
 /**
  * Explains one fix from the run without it (`before`) and with it (`after`), both at the same
@@ -164,15 +164,21 @@ const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${ite
 
 /**
  * "Users' apps (5×) and the gateway (3×) still retry", or null when no layer retries. A layer whose
- * calls retry different numbers of times shows the range ("the API (1–3×)").
+ * calls retry different numbers of times shows the range ("the API (1–3×)"); one whose calls all
+ * have a retry budget says so ("the API (1×, 10% budget)"), since its repeats are then capped.
  */
 function stillRetrying(config: RunConfig, say: (id: string) => string): string | null {
-  const layers = new Map<string, number[]>();
-  for (const c of layerCalls(config)) if (c.policy.retries > 0) layers.set(c.owner, [...(layers.get(c.owner) ?? []), c.policy.retries]);
+  const layers = new Map<string, CallPolicy[]>();
+  for (const c of layerCalls(config)) if (c.policy.retries > 0) layers.set(c.owner, [...(layers.get(c.owner) ?? []), c.policy]);
   if (layers.size === 0) return null;
   const owners = [...layers.keys()];
   const plural = owners.length > 1 || owners[0] === 'client';
-  const retries = (n: number[]) => (Math.min(...n) === Math.max(...n) ? `${n[0]}×` : `${Math.min(...n)}–${Math.max(...n)}×`);
+  const retries = (calls: CallPolicy[]) => {
+    const n = calls.map((c) => c.retries);
+    const range = Math.min(...n) === Math.max(...n) ? `${n[0]}×` : `${Math.min(...n)}–${Math.max(...n)}×`;
+    const budgets = calls.map((c) => c.retryBudget ?? Infinity);
+    return Math.max(...budgets) < Infinity ? `${range}, ${Math.round(Math.max(...budgets) * 100)}% budget` : range;
+  };
   return `${capitalise(listed(owners.map((owner) => `${say(owner)} (${retries(layers.get(owner)!)})`)))} still ${plural ? 'retry' : 'retries'}`;
 }
 

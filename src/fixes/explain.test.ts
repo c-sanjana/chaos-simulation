@@ -29,7 +29,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const e = explain(storm, 'retry-budget');
     expect(e.helped).toBe(false);
     expect(e.title).toBe("Why it didn't help here");
-    expect(e.text).toMatch(/^Users' apps \(5×\), the gateway \(3×\) and the app server \(1×\) still retry, so the database still had up to \d\.\d× the work it can handle after the failure ended\./);
+    expect(e.text).toMatch(/^Users' apps \(5×\), the gateway \(3×\) and the app server \(1×, 10% budget\) still retry, so the database still had up to \d\.\d× the work it can handle after the failure ended\./);
     // The number is measured: the most work the database took on in a second after the failure ended.
     const capacity = (4 * 1000) / (20 * Math.exp(Math.log(5) ** 2 / (2 * 2.3263478740408408 ** 2)));
     const db = e.after.run.tiers.db;

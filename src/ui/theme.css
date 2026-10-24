@@ -1599,7 +1599,7 @@ button.csl-map__cell {
   flex-direction: column;
   gap: 8px;
 }
-/* Five tabs per row, so up to ten fixes take two rows; a long name wraps instead of being cut off. */
+/* Five tabs per row (eleven fixes take three rows); a long name wraps instead of being cut off. */
 .csl-fixtabs__list {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1675,6 +1675,25 @@ button.csl-map__cell {
   flex: none;
   font-size: 12px;
   padding: 4px 8px;
+}
+.csl-fixtabs__chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+/* One layer or the whole stack: retry fixes only. Told by its words; the outline only groups it. */
+.csl-fixtabs__scope {
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--csl-card);
+  border: 1px solid var(--csl-border);
+  color: var(--csl-ink-2);
+}
+.csl-fixtabs__scope--stack {
+  border-color: var(--csl-primary);
+  color: var(--csl-primary);
 }
 .csl-fixtabs__panel {
   display: flex;

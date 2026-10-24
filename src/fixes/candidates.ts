@@ -2,6 +2,7 @@ import { allCallEdges, heaviestCallerInto, formatMs, leafCapacityRps, nameOf, pe
 import type { Signals } from '../analysis/signals';
 import type { CallPolicy, RunConfig, TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
+import { acrossTheStack } from './amplification';
 import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition, type Refutation } from './catalog';
 
 export interface FixCandidate {
@@ -21,6 +22,10 @@ export interface FixCandidate {
   cons: string[];
   /** Pros and cons a run can contradict (from the catalogue): shown only once measured, and only if not contradicted. */
   refutable?: Record<string, Refutation>;
+  /** Retry fixes: made by one caller ('layer') or by every layer that retries ('stack'). */
+  scope?: 'layer' | 'stack';
+  /** Retry fixes: the end-to-end retry multiplication into the struggling part, before and with the fix (see acrossTheStack). */
+  acrossStack?: string;
   config: RunConfig;
 }
 
@@ -46,6 +51,8 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
     if (def.signal !== null && signals[def.signal] === null) continue;
     const plan = planFix(def, config, signals, name, run);
     if (plan === null) continue;
+    const target = bottleneck(signals);
+    const acrossStack = def.scope && target !== null ? acrossTheStack(config, plan.config, target, def.scope, labels) : null;
     candidates.push({
       id: def.id,
       title: `${def.title}: ${plan.where}`,
@@ -57,6 +64,8 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
       pros: def.pros,
       cons: def.cons,
       ...(def.refutable ? { refutable: def.refutable } : {}),
+      ...(def.scope ? { scope: def.scope } : {}),
+      ...(acrossStack ? { acrossStack } : {}),
       config: plan.config,
     });
   }
@@ -117,6 +126,23 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
         ...ends(ref),
         where: callName(ref),
         what: `${caller(ref)} stops retrying ${target(ref)} once retries reach ${percent(ratio)} of first attempts.`,
+      };
+    }
+    case 'retryBudgetEveryLayer': {
+      const ratio = FIX_SETTINGS.retryBudgetRatio;
+      const retrying = allCalls(config).filter((r) => r.policy.retries > 0);
+      const unbudgeted = retrying.filter((r) => (r.policy.retryBudget ?? Infinity) > ratio);
+      // With a single retrying call this is the one-layer budget; nothing to budget, nothing to try.
+      if (retrying.length < 2 || unbudgeted.length === 0 || bottleneck(signals) === null) return null;
+      let fixed = config;
+      for (const r of unbudgeted) fixed = withCall(fixed, r, { retryBudget: ratio });
+      const makers = unbudgeted.map(maker);
+      const plural = unbudgeted.length > 1 || !singular(unbudgeted[0]);
+      return {
+        config: fixed,
+        ...ends(retryCallFor(() => true) ?? retrying[retrying.length - 1]),
+        where: 'every layer that retries',
+        what: `${capitalise(listed(makers))} ${plural ? 'each stop' : 'stops'} retrying once retries reach ${percent(ratio)} of ${plural ? 'their' : 'its'} first attempts.`,
       };
     }
     case 'capRetries': {
@@ -319,6 +345,8 @@ export function describeSignal(signal: keyof Signals, s: Signals, config: RunCon
 const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 
