@@ -3,11 +3,13 @@ import { CheckboxField, limitsMessage, NumberField } from './Fields';
 
 describe('NumberField', () => {
   it('is a labelled number input showing value and unit', () => {
-    render(<NumberField label="User traffic" value={200} unit="req/s" onChange={() => {}} min={1} step={10} />);
+    render(<NumberField label="User traffic" value={200} unit="req/s" onChange={() => {}} min={1} integer />);
     const input = screen.getByRole('spinbutton', { name: 'User traffic req/s' }) as HTMLInputElement;
     expect(input.value).toBe('200');
     expect(input.min).toBe('1');
-    expect(input.step).toBe('10'); // an explicit step wins
+    expect(input.step).toBe('1');
+    fireEvent.change(input, { target: { value: '80' } });
+    expect(input.validity.valid).toBe(true); // the browser agrees with the field's own check
     expect(input.getAttribute('aria-invalid')).toBe('false');
     expect(screen.getByText('req/s')).toBeTruthy();
   });

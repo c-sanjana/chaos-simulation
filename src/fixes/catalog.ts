@@ -57,7 +57,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'retryBudget',
     title: 'Retry budget of 10%',
     short: 'Retry budget',
-    how: "Once repeats reach 10% of first tries, {caller} stops asking {target} again and passes the error on. A slowdown can then add only a little extra work, so the pile stops growing and drains.",
+    how: 'Once repeats reach 10% of first tries, {caller} stops asking {target} again. A slowdown then adds only a little extra work, so the pile drains.',
     pros: [
       'Stops retries from multiplying load while a dependency is struggling',
       'Retries still happen as normal while things are healthy',
@@ -74,7 +74,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'capRetries',
     title: 'Cap retries at 1',
     short: 'Cap retries',
-    how: "Each request now tries {target} at most twice, so repeats add less work. That can be enough for the pile to drain, but near the limit it often isn't.",
+    how: "Each request tries {target} at most twice, so repeats add less work. Sometimes that's enough for the pile to drain; near the limit it isn't.",
     pros: [
       'The simplest change: one number',
       'Repeats can at most double the calls to the struggling service',
@@ -91,7 +91,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'jitterBackoff',
     title: 'Exponential backoff with full jitter',
     short: 'Jitter',
-    how: "{Caller} waits a random, growing pause before asking {target} again, so repeats arrive spread out instead of in bursts. But every repeat is still sent, so {target} gets just as much extra work and the pile usually keeps growing.",
+    how: '{Caller} waits a random, growing pause before asking again, so repeats arrive spread out. But every repeat is still sent, so the pile usually keeps growing.',
     pros: [
       'Spreads retries out so they stop arriving in synchronised waves',
       'Cheap: a client library setting',
@@ -107,7 +107,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'boundQueue',
     title: 'Bound the queue (load shedding)',
     short: 'Bound queue',
-    how: "{Target} turns requests away at once when its short queue is full, instead of letting them wait. Most requests it accepts are answered before {caller} gives up, so it stops working for nobody and the pile can't build up.",
+    how: '{Target} turns requests away when its short queue is full instead of letting them wait, so it rarely works on requests nobody is waiting for, and no pile builds up.',
     pros: [
       'At normal speed, anything it accepts is served before the caller gives up',
       'The backlog can no longer grow without limit',
@@ -125,7 +125,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'dropExpired',
     title: 'Drop requests whose caller gave up',
     short: 'Drop expired',
-    how: "Before starting on a request, {target} checks whether {caller} is still waiting for it, and skips it if not. Its time goes only to requests someone still wants, so it catches up with the pile instead of being buried by it.",
+    how: '{Target} skips requests {caller} has already given up on, so its time goes to requests someone still wants and it catches up instead of being buried.',
     pros: [
       'Stops spending capacity on answers nobody will read',
       'Never drops a request whose caller is still waiting',
@@ -141,7 +141,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'coalesceMisses',
     title: 'Coalesce concurrent cache misses',
     short: 'Coalesce',
-    how: "When several requests miss the cache for the same entry at once, {caller} sends one of them to {target} and the rest share its answer. That trims the extra work as the cache empties, but {caller} still asks again after giving up, so the loop usually keeps going.",
+    how: 'When requests miss the cache for the same entry at once, one goes to {target} and the rest share its answer. Repeats still happen, so the loop usually goes on.',
     pros: [
       'One database read per key instead of one per request during a stampede',
       'Invisible to callers',
@@ -157,7 +157,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'longerTimeout',
     title: 'Longer timeout (×3)',
     short: 'Timeout',
-    how: "{Caller} waits three times longer for {target} before giving up and asking again, so a slowdown shorter than that causes far fewer repeats. A longer slowdown starts the same pile-up, with each waiting request now holding a worker for longer.",
+    how: '{Caller} waits three times longer before giving up and asking again, so a shorter slowdown causes few repeats. A longer one starts the same pile-up.',
     pros: [
       'Fewer requests are given up on during a short slowdown',
       'One setting to change',
@@ -174,7 +174,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'addInstances',
     title: 'Add instances (+50%)',
     short: 'Scale out',
-    how: "{Caller} gets more servers, so more requests can wait on {target} at once, but {target} can still handle no more than before. The repeats still pile up there, so the loop usually keeps going.",
+    how: '{Caller} gets more servers, but {target} can handle no more than before, so the repeats still pile up there and the loop usually goes on.',
     pros: [
       'More headroom for normal peaks too',
       'No code change',

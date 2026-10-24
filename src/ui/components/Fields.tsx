@@ -27,8 +27,6 @@ export interface NumberFieldProps extends Limits {
   value: number;
   unit?: string;
   onChange: (value: number) => void;
-  /** Spinner step; defaults to 1 for whole numbers, otherwise any value is allowed. */
-  step?: number;
 }
 
 /**
@@ -37,7 +35,7 @@ export interface NumberFieldProps extends Limits {
  * An invalid value is marked and explained under the field (and blocks the form it is in, through
  * the input's native min/max/step validity); on blur the field shows the last valid value again.
  */
-export function NumberField({ label, value, unit, onChange, min, max, integer, step }: NumberFieldProps) {
+export function NumberField({ label, value, unit, onChange, min, max, integer }: NumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const id = useId();
   const shown = draft ?? String(value);
@@ -55,7 +53,9 @@ export function NumberField({ label, value, unit, onChange, min, max, integer, s
           value={shown}
           min={min}
           max={max}
-          step={step ?? (integer ? 1 : 'any')}
+          // The step must not add rules of its own: the browser checks it against `min` (step 10
+          // from 1 would reject 80), and the form trusts the browser's verdict.
+          step={integer ? 1 : 'any'}
           aria-invalid={!valid}
           aria-describedby={valid ? undefined : `${id}-error`}
           onChange={(e) => {

@@ -6,7 +6,7 @@ import { retryStormRun } from '../analysis/testRuns';
 import { webChain } from '../data/topologies';
 import { runSimulation } from '../engine/run';
 import { candidateFixes } from './candidates';
-import { measureOutcome, rankFixes, seedAgreement, seedVariants, type RankedFix } from './rank';
+import { fixHelped, isReliable, measureOutcome, rankFixes, seedAgreement, seedVariants, withLongerOutage, type RankedFix, type Robustness, type SeedAgreement } from './rank';
 
 const labels = Object.fromEntries(Object.entries(webChain.layout).map(([id, l]) => [id, l.label]));
 
@@ -26,6 +26,15 @@ describe('fixes for the stuck retry storm (200 rps, 3 API → DB retries)', { ti
   const ranked = rankFixes(original, candidates.map((candidate) => ({ candidate, outcome: measureOutcome(candidate.config) })));
   const byId = Object.fromEntries(ranked.map((r) => [r.candidate.id, r]));
   console.log(`original: ${original.verdict}, ${original.failedRequests} failed\n${describeRanking(ranked)}`);
+
+  // Seeds 42–46, measured once and shared by the tests below.
+  let originals: ReturnType<typeof measureOutcome>[] | undefined;
+  const seedOriginals = () => (originals ??= seedVariants(config).map(measureOutcome));
+  const seeds = new Map<string, SeedAgreement>();
+  const seedsFor = (id: string): SeedAgreement => {
+    if (!seeds.has(id)) seeds.set(id, seedAgreement(seedOriginals(), seedVariants(byId[id].candidate.config).map(measureOutcome)));
+    return seeds.get(id)!;
+  };
 
   it('the original is stuck', () => {
     expect(original.verdict).toBe('stuck');
@@ -62,12 +71,14 @@ describe('fixes for the stuck retry storm (200 rps, 3 API → DB retries)', { ti
     for (const c of candidates) expect(runSimulation(c.config).client.requests.arrivalMs).toEqual(arrivals);
   });
 
-  it('ranks the fixes that helped first, best recovery first', () => {
+  // Recovery times within 1 s of each other are a tie, broken by fewer failed requests: bound-queue
+  // (2 s, 242 failed), longer-timeout (3 s, 147) and retry-budget (3 s, 306) tie.
+  it('ranks the fixes that helped first; recovery times within 1 s tie, and fewer failures win the tie', () => {
     const helped = ranked.filter((r) => r.helped);
     expect(ranked.slice(0, helped.length)).toEqual(helped);
     for (const r of helped) expect(r.outcome.verdict).toBe('recovered');
-    const times = helped.map((r) => r.outcome.recoveryMs!);
-    expect(times).toEqual([...times].sort((a, b) => a - b));
+    expect(ranked.map((r) => r.candidate.id)).toEqual(['longer-timeout', 'bound-queue', 'retry-budget', 'drop-expired', 'cap-retries', 'jitter-backoff', 'coalesce-misses', 'add-instances']);
+    expect(Math.max(...helped.slice(0, 3).map((r) => r.outcome.recoveryMs!)) - Math.min(...helped.slice(0, 3).map((r) => r.outcome.recoveryMs!))).toBeLessThanOrEqual(1000);
   });
 
   // Seeds 42–46. Capping retries is the only fix that depends on the seed (see above).
@@ -82,12 +93,27 @@ describe('fixes for the stuck retry storm (200 rps, 3 API → DB retries)', { ti
       'coalesce-misses': 0,
       'add-instances': 0,
     };
-    const originals = seedVariants(config).map(measureOutcome);
-    expect(originals.every((o) => o.verdict === 'stuck')).toBe(true);
-    const agreement = Object.fromEntries(
-      ranked.map(({ candidate }) => [candidate.id, seedAgreement(originals, seedVariants(candidate.config).map(measureOutcome)).helped]),
-    );
+    expect(seedOriginals().every((o) => o.verdict === 'stuck')).toBe(true);
+    const agreement = Object.fromEntries(ranked.map(({ candidate }) => [candidate.id, seedsFor(candidate.id).helped]));
     console.log(`helped on (of 5 seeds): ${JSON.stringify(agreement)}`);
     expect(agreement).toEqual(expected);
+  });
+
+  // The review's finding: a 3 s timeout outlasts a 5 s slowdown's effect, but not a 10 s one.
+  it('with the slowdown twice as long (10 s), the longer timeout and capping retries stop helping', () => {
+    const longerOriginal = measureOutcome(withLongerOutage(config)!);
+    expect(longerOriginal.verdict).toBe('stuck');
+    const longer = Object.fromEntries(
+      ranked.filter((r) => r.helped).map(({ candidate }) => [candidate.id, fixHelped(longerOriginal, measureOutcome(withLongerOutage(candidate.config)!))]),
+    );
+    console.log(`still helps with a 10 s slowdown: ${JSON.stringify(longer)}`);
+    // Capping retries is borderline even at 5 s (it helps on 1 of 5 seeds, above).
+    expect(longer).toEqual({ 'longer-timeout': false, 'bound-queue': true, 'retry-budget': true, 'drop-expired': true, 'cap-retries': false });
+
+    // Ranked with both checks: reliable fixes that helped first, then the unreliable ones.
+    const robustness: Record<string, Robustness> = Object.fromEntries(Object.keys(longer).map((id) => [id, { seeds: seedsFor(id), longer: longer[id] }]));
+    const withChecks = rankFixes(original, candidates.map((candidate) => ({ candidate, outcome: byId[candidate.id].outcome })), robustness);
+    console.log(`ranked with robustness: ${withChecks.map((r) => `${r.candidate.id} (${isReliable(robustness[r.candidate.id])})`).join(', ')}`);
+    expect(withChecks.map((r) => r.candidate.id)).toEqual(['bound-queue', 'retry-budget', 'drop-expired', 'longer-timeout', 'cap-retries', 'jitter-backoff', 'coalesce-misses', 'add-instances']);
   });
 });

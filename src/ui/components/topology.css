@@ -266,29 +266,28 @@
 }
 
 /* ---------- Key ---------- */
-/* Key line on top, the note under it, the actions (if any) on the right spanning both, so the key
-   adds almost no height next to a button. The key wraps only on narrow screens. */
+/* One wrapping row: the key's items, then the note; the actions (if any) sit on the right. With
+   a button beside it the two text lines fit the button's height, so the key adds no height. */
 .csl-topology-key.csl-topology-foot {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 2px 14px;
+  gap: 0 14px;
   margin-top: 4px;
   line-height: 15px;
 }
-.csl-topology-foot--actions {
+.csl-topology-key.csl-topology-foot--actions {
   grid-template-columns: minmax(0, 1fr) auto;
-}
-.csl-topology-foot__actions {
-  grid-column: 2;
-  grid-row: 1 / span 2;
 }
 .csl-topology-legend {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 10px;
-  margin: 0;
+}
+.csl-topology-foot__note {
+  margin-left: 6px;
+  color: var(--csl-ink-2);
 }
 .csl-topology-legend__title {
   font-weight: 600;
@@ -367,8 +366,10 @@
   font-size: 10px;
   line-height: 13px;
 }
+/* Tighter when it wraps to two lines, so the arrow stays within the row height of the boxes. */
 .csl-topology-grid--compact .csl-edge__change {
-  font-size: 10px;
+  margin-top: -2px;
+  line-height: 12px;
 }
 .csl-topology-grid--compact .csl-edge__label {
   padding: 0 5px;

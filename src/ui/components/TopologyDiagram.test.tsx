@@ -181,6 +181,8 @@ describe('TopologyDiagram', () => {
     rerender(
       <TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} note="Snapshot at t = 60 s." actions={<button type="button">Edit all settings</button>} />,
     );
+    // The note follows the key's items in the same wrapping row (so it can share the key's second line).
+    expect(container.querySelector('.csl-topology-legend')!.lastElementChild).toBe(screen.getByText('Snapshot at t = 60 s.'));
     expect(screen.getByText('Snapshot at t = 60 s.').className).toBe('csl-topology-foot__note');
     expect(container.querySelector('.csl-topology-foot--actions .csl-topology-foot__actions')!.textContent).toBe('Edit all settings');
   });
@@ -245,6 +247,10 @@ describe('TopologyDiagram', () => {
     const arrow = screen.getByRole('img', { name: 'API to DB: 264 requests a second, including 191 repeats (retries); 100% failing' });
     expect(arrow).toBe(screen.getByTestId('edge-a-d'));
     expect(screen.getByRole('img', { name: 'API to Cache: 480 lookups a second, 70% hits' })).toBe(screen.getByTestId('edge-a-c'));
+    // The visible text is hidden from assistive tech, which gets the name instead.
+    for (const id of ['edge-a-d', 'edge-a-c']) {
+      for (const part of Array.from(screen.getByTestId(id).children)) expect(part.getAttribute('aria-hidden')).toBe('true');
+    }
   });
 
   it('shows what a fix changed under a horizontal arrow and beside a vertical one', () => {

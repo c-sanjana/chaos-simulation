@@ -43,15 +43,14 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
   if (overload) steps.push(overload);
   for (const f of faults) {
     if (f.endMs >= run.durationMs) continue; // still going on at the end: nothing to tell
-    const last = f.endMs === r.lastFaultEndMs;
-    const but = f.flushAtEnd ? 'and' : 'but'; // "back up, but empty" already has a "but"
-    const suffix = !last ? '.' : r.verdict === 'stuck' ? ` — ${but} the pile of ${retries > 0 ? 'repeated' : 'waiting'} requests was still there.` : hadPile ? ' and started on the requests that had piled up.' : '.';
+    // Only the last failure to end leads into how it all ended.
+    const suffix = f.endMs === r.lastFaultEndMs ? afterTheFailure(f, ctx, retries, hadPile) : '.';
     steps.push({ tMs: f.endMs, text: faultEndText(f, ctx) + suffix, tone: 'info' });
   }
 
   const wasteS = r.verdict === 'stuck' && pressure !== null ? wasteSecond(pressure, ctx) : null;
   const cache = cacheStep(faults, ctx);
-  const verdict = verdictStep(run, config, analysis, pressure, say, hadPile);
+  const verdict = verdictStep(ctx, pressure, hadPile);
   const count = steps.length + Number(wasteS !== null) + Number(cache !== null) + 1;
   if (wasteS !== null && cache !== null && count > MAX_STEPS) {
     // Told together, once the replay has shown both.
@@ -114,6 +113,15 @@ function faultStartText(f: Fault, ctx: Context): string {
 function faultEndText(f: Fault, ctx: Context): string {
   const back = f.kind === 'slow' ? 'back to normal speed' : 'back up';
   return `At ${formatSeconds(f.endMs)} ${who(f, ctx)} was ${back}${f.flushAtEnd ? ', but empty' : ''}`;
+}
+
+/** How the last failure's end sentence continues: was there a pile left, and did it stay? */
+function afterTheFailure(f: Fault, ctx: Context, retries: number, hadPile: boolean): string {
+  if (ctx.analysis.recovery.verdict === 'stuck') {
+    const but = f.flushAtEnd ? 'and' : 'but'; // "back up, but empty" already has a "but"
+    return ` — ${but} the pile of ${retries > 0 ? 'repeated' : 'waiting'} requests was still there.`;
+  }
+  return hadPile ? ' and started on the requests that had piled up.' : '.';
 }
 
 /** What a caller does after giving up: "asks again, up to 3 more times". */
@@ -272,8 +280,8 @@ function notInRunStep(config: RunConfig, run: RunResult): StoryStep {
 }
 
 /** How it ended, at the moment that became known. */
-function verdictStep(run: RunResult, config: RunConfig, analysis: Analysis, pressure: string | null, say: (id: string) => string, hadPile: boolean): StoryStep {
-  const r = analysis.recovery;
+function verdictStep(ctx: Context, pressure: string | null, hadPile: boolean): StoryStep {
+  const r = ctx.analysis.recovery;
   switch (r.verdict) {
     case 'recovered': {
       const text = r.recoveryMs === 0
@@ -282,24 +290,25 @@ function verdictStep(run: RunResult, config: RunConfig, analysis: Analysis, pres
       return { tMs: r.recoveredAtMs!, text, tone: 'good' };
     }
     case 'unaffected':
-      return { tMs: Math.min(r.lastFaultEndMs, run.durationMs), text: 'It coped: requests did just as well as they would have without the failure.', tone: 'good' };
+      return { tMs: Math.min(r.lastFaultEndMs, ctx.run.durationMs), text: 'It coped: requests did just as well as they would have without the failure.', tone: 'good' };
     case 'overloaded':
       return { tMs: 0, text: 'Even without the failure, this much traffic is more than the system can handle, so requests fail anyway.', tone: 'bad' };
     case 'stuck': {
       if (r.lastFaultEndMs >= r.judgedUntilMs) return { tMs: r.judgedUntilMs, text: 'The failure was still going on when the run ended, so there was no time to recover.', tone: 'bad' };
-      return { tMs: r.judgedUntilMs, text: `It never recovered: still failing at the end of the run${peakAfter(run, config, pressure, r.lastFaultEndMs, r.judgedUntilMs, say)}.`, tone: 'bad' };
+      return { tMs: r.judgedUntilMs, text: `It never recovered: still failing at the end of the run${peakAfter(ctx, pressure)}.`, tone: 'bad' };
     }
   }
 }
 
 /** ", with the database getting up to 4.8× the work it can handle", measured after the failure ended; '' if never over. */
-function peakAfter(run: RunResult, config: RunConfig, id: string | null, fromMs: number, toMs: number, say: (id: string) => string): string {
+function peakAfter(ctx: Context, id: string | null): string {
   if (id === null) return '';
-  const capacity = leafCapacityRps(tierOf(config, id))!;
-  const t = run.tiers[id];
+  const { lastFaultEndMs, judgedUntilMs } = ctx.analysis.recovery;
+  const capacity = leafCapacityRps(tierOf(ctx.config, id))!;
+  const t = ctx.run.tiers[id];
   let peak = 0;
-  for (let s = Math.floor(fromMs / run.bucketMs); s < Math.floor(toMs / run.bucketMs); s++) {
-    peak = Math.max(peak, ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / run.bucketMs / capacity);
+  for (let s = Math.floor(lastFaultEndMs / ctx.bucketMs); s < Math.floor(judgedUntilMs / ctx.bucketMs); s++) {
+    peak = Math.max(peak, ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / ctx.bucketMs / capacity);
   }
-  return peak > 1 ? `, with ${say(id)} getting up to ${peak.toFixed(1)}× the work it can handle` : '';
+  return peak > 1 ? `, with ${ctx.say(id)} getting up to ${peak.toFixed(1)}× the work it can handle` : '';
 }

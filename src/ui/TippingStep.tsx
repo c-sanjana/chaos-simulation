@@ -16,7 +16,6 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
   const current = currentCell(scenario);
   // Settings between or beyond the map's values start on the nearest cell (and say so).
   const [selected, setSelected] = useState(() => nearestCell(scenario));
-  const [timelineEl, setTimelineEl] = useState<HTMLElement | null>(null);
   const { x: xAxis, y: yAxis } = scenario.map;
   const yOverride = { [yAxis.param]: selected.y };
   const cellConfig = useMemo(() => buildRunConfig(topology, scenario, { rps: selected.x, ...yOverride }), [topology, scenario, selected.x, selected.y]);
@@ -39,8 +38,7 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             </span>
           </div>
           <p className="csl-card__sub" style={{ margin: 0 }}>
-            Each cell re-runs the same failure at another traffic level and number of {yAxis.label} (how often the API asks the database again). The <b>tipping point</b> is the lowest traffic at which the system
-            gets stuck for good. Click a cell to replay it.
+            Each cell re-runs the same failure at other settings. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Click a cell to replay it.
           </p>
           <MapLegend />
           <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />
@@ -59,11 +57,10 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
               {currentTip.tipsAtX === null
                 ? `With ${formatAxisValue(yAxis, current.y)} ${yAxis.label}, the system recovers at every traffic level shown.`
                 : `With ${formatAxisValue(yAxis, current.y)} ${yAxis.label}, the system tips at ${currentTip.tipsAtX} req/s.${current.x >= currentTip.tipsAtX ? ` Your ${current.x} req/s is past it: everything looks healthy until any slowdown happens.` : ''}`}{' '}
-              {yAxis.param === 'retries' && 'Retries hide brief glitches, which is why systems use them; when the database struggles, they multiply its work.'}
+              {yAxis.param === 'retries' && 'Retries (asking again) hide brief glitches, but multiply the work when the database struggles.'}
             </p>
           )}
         </section>
-        <div className="csl-split__slot" ref={setTimelineEl} />
       </div>
       <div className="csl-split__main" data-tour="replay">
         {replay.status === 'done' && (
@@ -75,7 +72,8 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             result={replay.value}
             onEdit={onEdit}
             compact
-            timelineTarget={timelineEl}
+            chartHeight={200}
+            sideTimeline
           />
         )}
         {replay.status === 'running' && (

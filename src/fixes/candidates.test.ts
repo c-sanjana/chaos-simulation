@@ -3,7 +3,7 @@ import { retryStormRun } from '../analysis/testRuns';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, singleTier, tier } from '../engine/testConfigs';
-import { applyFix, candidateFixes, describeSignal, queueLimitFor } from './candidates';
+import { applyFix, candidateFixes, COMMON_INSTINCT, describeSignal, fillNames, queueLimitFor } from './candidates';
 import { FIX_CATALOG, type FixDefinition, type FixKind } from './catalog';
 
 const labels = Object.fromEntries(Object.entries(webChain.layout).map(([id, l]) => [id, l.label]));
@@ -34,6 +34,28 @@ describe('FIX_CATALOG', () => {
       }
     }
     expect(FIX_CATALOG.filter((d) => d.signal === null).map((d) => d.kind)).toEqual(['longerTimeout', 'addInstances']);
+  });
+
+  it('explains how each fix works in one or two plain sentences', () => {
+    for (const d of FIX_CATALOG) {
+      const sentences = d.how.split(/(?<=\.) /);
+      expect(sentences.length).toBeGreaterThanOrEqual(1);
+      expect(sentences.length).toBeLessThanOrEqual(2);
+      expect(d.how).toMatch(/\.$/);
+      expect(d.how.replace(/\{(caller|target|Caller|Target)\}/g, '')).not.toMatch(/[{}]/); // only known placeholders
+      expect(d.how).not.toMatch(/p99|rps|tier|timeout|retr|latency/i);
+    }
+  });
+
+  it('keeps its pros and cons true to what was measured', () => {
+    const byId = Object.fromEntries(FIX_CATALOG.map((d) => [d.id, d]));
+    // The queue limit is sized from normal speed: during the slowdown accepted requests still time out.
+    expect(byId['bound-queue'].pros[0]).toBe('At normal speed, anything it accepts is served before the caller gives up');
+    expect(byId['bound-queue'].cons).toContain('During a slowdown some accepted requests still take longer than the caller waits');
+    // Retries can double the calls, but the database's load can climb much further as the cache empties.
+    expect(byId['cap-retries'].pros.join(' ')).not.toMatch(/twice the normal load/);
+    expect(byId['longer-timeout'].cons[0]).toBe('Only helps if the slowdown is shorter than the new wait');
+    expect([...byId['retry-budget'].cons, ...byId['jitter-backoff'].cons].join(' ')).not.toMatch(/gRPC|halves/);
   });
 });
 
@@ -73,8 +95,8 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
     expect(why['drop-expired']).toBe(`${pct(signals.wastedShare!.value)} of DB work was for requests whose caller had already given up`);
     const { before, during } = signals.cacheHitDrop!.value;
     expect(why['coalesce-misses']).toBe(`Cache hit rate fell from ${pct(before)} to ${pct(during)}`);
-    expect(why['longer-timeout']).toBe('it is a common first instinct');
-    expect(why['add-instances']).toBe('it is a common first instinct');
+    expect(why['longer-timeout']).toBe("it is a common first instinct, so it's worth checking whether it actually helps");
+    expect(why['add-instances']).toBe(COMMON_INSTINCT);
     expect(why['retry-budget']).toMatch(/^retries made up [5-9]\d% of DB's load$/);
     for (const c of candidates) {
       const def = FIX_CATALOG.find((d) => d.id === c.id)!;
@@ -96,6 +118,15 @@ describe('on the stuck retry storm', { timeout: 60_000 }, () => {
       'longer-timeout': 'API waits up to 3 s for DB before giving up (instead of 1 s).',
       'add-instances': 'API runs 6 instances instead of 4.',
     });
+    // How each one breaks the loop (or why it may not), with this config's names filled in.
+    const how = Object.fromEntries(candidates.map((c) => [c.id, c.how]));
+    expect(how['bound-queue']).toBe(
+      'The database turns requests away when its short queue is full instead of letting them wait, so it rarely works on requests nobody is waiting for, and no pile builds up.',
+    );
+    expect(how['retry-budget']).toMatch(/^Once repeats reach 10% of first tries, the API stops asking the database again/);
+    expect(how['coalesce-misses']).toMatch(/one goes to the database and the rest share its answer/);
+    expect(how['add-instances']).toMatch(/^The API gets more servers, but the database can handle no more than before/);
+    for (const c of candidates) expect(c.how).not.toMatch(/[{}]/);
     expect(config).toEqual(snapshot);
   });
 
@@ -163,12 +194,15 @@ describe('applyFix: where it applies', () => {
     const scaled = applyFix(def('addInstances'), noTimeout, signalsWith({ retryShare: at('svc') }))!;
     expect(diffPaths(noTimeout, scaled)).toEqual(['tiers.0.instances']);
     expect(scaled.tiers[0].instances).toBe(2); // 1 × 1.5, rounded up
+    // Scaling the overloaded service itself adds room for the work, and `how` says so.
+    expect(candidateFixes(noTimeout, signalsWith({ retryShare: at('svc') }), {}).find((c) => c.id === 'add-instances')!.how).toMatch(/^The svc gets more servers, so it can handle more work/);
     // A tier nothing calls has no call to change, so only adding instances applies (to itself).
     const orphan = { ...noTimeout, tiers: [...noTimeout.tiers, tier('spare', { kind: 'fixed', ms: 1 }, { instances: 4 })] };
     const s = signalsWith({ retryShare: at('spare'), queueWaitOverTimeout: at('spare') });
     expect(applyFix(def('longerTimeout'), orphan, s)).toBeNull();
     expect(applyFix(def('retryBudget'), orphan, s)).toBeNull();
     expect(applyFix(def('boundQueue'), orphan, s)).toBeNull();
+    expect(applyFix(def('dropExpired'), orphan, signalsWith({ wastedShare: at('spare') }))).toBeNull(); // no caller to give up on it
     expect(applyFix(def('addInstances'), orphan, s)!.tiers[1].instances).toBe(6);
   });
 
@@ -190,6 +224,12 @@ describe('queueLimitFor', () => {
   it('is never negative, and is the worker count for tiers that call others', () => {
     expect(queueLimitFor(tier('db', { kind: 'fixed', ms: 100 }, { workersPerInstance: 50, coresPerInstance: 1 }), 200)).toBe(0);
     expect(queueLimitFor(tier('api', { kind: 'fixed', ms: 1 }, { workersPerInstance: 7, downstream: call('db') }), 1000)).toBe(7);
+  });
+});
+
+describe('fillNames', () => {
+  it('fills in spoken names, capitalised at the start of a sentence', () => {
+    expect(fillNames('{Caller} asks {target}; {Target} answers {caller}.', 'api', 'db', { api: 'API', db: 'DB' })).toBe('The API asks the database; The database answers the API.');
   });
 });
 

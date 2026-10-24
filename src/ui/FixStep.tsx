@@ -92,7 +92,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
               <h2 className="csl-section-title" style={{ margin: 0 }}>
                 Did the tipping point move?
               </h2>
-              <span className="csl-status">{status}</span>
+              {/* Once everything is tested, the corner explains the map instead of the progress. */}
+              <span className="csl-status">{allTested && !ranking.checking && !ranking.error && applied ? '◆ = shown on the right; click any cell' : status}</span>
             </div>
             {applied && before.result && after.result ? (
               <>
@@ -108,16 +109,16 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                   ))}
                 </div>
                 {/* Here the ◆ follows the clicked cell (it marks what the replay shows), so it moves with every click. */}
-                <span className="csl-fix-maps__hint">
-                  ◆ shown on the right. Click any cell to compare it there.{' '}
-                  {!atCurrent && onMap(scenario) && (
-                    <button type="button" className="csl-btn csl-btn--link csl-fix-maps__back" onClick={() => setCell(current)}>
-                      Back to your settings ({current.x} req/s · {formatAxisValue(yAxis, current.y)} {yAxis.label})
-                    </button>
-                  )}
-                </span>
                 <span style={{ fontSize: 13 }}>
                   {before.done === before.total && after.done === after.total ? moveSummary(scenario, before.result, after.result) : `${before.done + after.done} of ${before.total + after.total} runs done`}
+                  {!atCurrent && onMap(scenario) && (
+                    <>
+                      {' '}
+                      <button type="button" className="csl-btn csl-btn--link csl-fix-maps__back" onClick={() => setCell(current)}>
+                        Back to your settings ({current.x} req/s · {formatAxisValue(yAxis, current.y)} {yAxis.label})
+                      </button>
+                    </>
+                  )}
                 </span>
               </>
             ) : (
@@ -143,7 +144,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         {applied && afterConfig && beforeConfig && fixed.status === 'done' && beforeRun.status === 'done' && (
           <RunPlayer
             title={`Before vs after: ${applied.candidate.name}`}
-            subtitle={`${cellTitle}${atCurrent ? ' (your settings)' : ''}. Same traffic, failure and seed; only the fix differs.`}
+            subtitle={`${cellTitle}${atCurrent ? ' (your settings)' : ''} · only the fix differs`}
             topology={topology}
             config={beforeConfig}
             result={beforeRun.value}

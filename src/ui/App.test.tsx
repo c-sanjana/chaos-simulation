@@ -55,16 +55,16 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
-    expect(screen.getByText(/the system tips at 120 requests\/s/)).toBeTruthy();
+    expect(screen.getByText(/the system tips at 120 req\/s/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /80 requests per second, 1 DB retries: recovers in 2 s/ })).toBeTruthy();
     await screen.findByRole('heading', { name: /Replaying 200 rps · 3 DB retries/ }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 0 DB retries/ }));
     await screen.findByRole('heading', { name: /Replaying 80 rps · 0 DB retries/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    // Side by side: the replay's live timeline is rendered in the map's column, under the map.
+    // Side by side: map on the left; the replay on the right, with its live timeline beside the chart.
     const timeline = screen.getByRole('region', { name: 'Live timeline' });
-    expect(timeline.closest('.csl-split__slot')).not.toBeNull();
-    expect(screen.getByRole('region', { name: 'Tipping point' }).parentElement!.contains(timeline)).toBe(true);
+    expect(timeline.closest('.csl-player__timeline--side')).not.toBeNull();
+    expect(screen.getByRole('region', { name: 'Tipping point' }).contains(timeline)).toBe(false);
   });
 
   it('summarises the scenario in one line on every step, and opens the editor to change it', async () => {

@@ -245,14 +245,14 @@ function FailPill({ edge }: { edge: TopologyEdgeView }) {
 function Detail({ edge }: { edge: TopologyEdgeView }) {
   const retries = (edge.retryShare ?? 0) > 0;
   return (
-    <span className={`csl-edge__detail${retries ? ' csl-edge__detail--retry' : ''}`}>
+    <span className={`csl-edge__detail${retries ? ' csl-edge__detail--retry' : ''}`} aria-hidden="true">
       {retries && <span aria-hidden="true">↻ </span>}
       {edge.detail}
     </span>
   );
 }
 
-/** One arrow. It is a single image to assistive tech, named from its source, target and numbers. */
+/** One arrow. It is a single image to assistive tech, named from its source, target and numbers; its visible text is hidden from it. */
 function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView[] }) {
   const kind = edgeKind(edge);
   const head = kind === 'failing' ? ARROW_FAIL : kind === 'retrying' ? ARROW_RETRY : ARROW_OK;
@@ -265,12 +265,12 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
     // Double-headed: requests go up to the cache and answers come back down.
     return (
       <div className={cls} style={place} {...a11y}>
-        <span className="csl-edge__vstack">
+        <span className="csl-edge__vstack" aria-hidden="true">
           <Triangle dir="up" color={head} />
           <Shaft edge={edge} vertical kind={kind} />
           <Triangle dir="down" color={head} />
         </span>
-        <span className="csl-edge__vtext">
+        <span className="csl-edge__vtext" aria-hidden="true">
           <span className="csl-edge__label">{edge.label}</span>
           <Detail edge={edge} />
           {kind === 'failing' && <FailPill edge={edge} />}
@@ -281,8 +281,10 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
   }
   return (
     <div className={cls} style={place} {...a11y}>
-      <span className="csl-edge__label">{edge.label}</span>
-      <span className="csl-edge__shaft-row">
+      <span className="csl-edge__label" aria-hidden="true">
+        {edge.label}
+      </span>
+      <span className="csl-edge__shaft-row" aria-hidden="true">
         <Shaft edge={edge} vertical={false} kind={kind} />
         <Triangle dir="right" color={head} />
         {kind === 'failing' && <FailPill edge={edge} />}
@@ -294,12 +296,14 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
 }
 
 /**
- * The one-line key. Plain words with small swatches; it says nothing about motion, so it reads
- * the same with reduced motion. The 🔧 entry only appears when something on the diagram was changed by a fix.
+ * The one-line key, followed by the note in the same wrapping row: at ~1000px the key fills one
+ * line and the note the next; on narrower layouts the note packs in after the key's last item, so
+ * the key costs no extra height. Plain words with small swatches; nothing about motion, so it
+ * reads the same with reduced motion. The 🔧 entry only appears when a fix changed something shown.
  */
-function Key({ showChange }: { showChange: boolean }) {
+function Key({ showChange, note }: { showChange: boolean; note?: string }) {
   return (
-    <p className="csl-topology-legend">
+    <div className="csl-topology-legend">
       <span className="csl-topology-legend__title">Key:</span>
       <span className="csl-topology-legend__item">
         <span className="csl-key-arrow" aria-hidden="true" />
@@ -333,7 +337,8 @@ function Key({ showChange }: { showChange: boolean }) {
           <span className="csl-key-chip csl-key-chip--change">🔧</span> = changed by the fix
         </span>
       )}
-    </p>
+      {note && <span className="csl-topology-foot__note">{note}</span>}
+    </div>
   );
 }
 
@@ -367,8 +372,7 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, edit
         </div>
       </div>
       <div className={`csl-topology-key csl-topology-foot${actions ? ' csl-topology-foot--actions' : ''}`}>
-        <Key showChange={nodes.some((n) => n.change) || edges.some((e) => e.change)} />
-        {note && <span className="csl-topology-foot__note">{note}</span>}
+        <Key showChange={nodes.some((n) => n.change) || edges.some((e) => e.change)} note={note} />
         {actions && <span className="csl-topology-foot__actions">{actions}</span>}
       </div>
     </div>

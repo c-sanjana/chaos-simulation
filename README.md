@@ -16,24 +16,34 @@ level it normally handles easily. On a first visit a 30-second guided tour point
 of the page (skip it, or replay it any time with **?** at the top right; ☾ beside it switches to
 dark mode, and the page stays light unless you choose dark).
 
-1. **What happened.** The system never recovers, even though the failure is over. The timeline
-   explains why, with numbers from the run:
+1. **What happened.** The system never recovers, even though the failure is over. A plain-words
+   story builds up step by step as the replay reaches each moment (the verdict is revealed only
+   when the replay gets there), and the first replay pauses just after the failure ends: "the
+   database is back to normal speed; watch whether the system recovers". Below it, the measured
+   details, with numbers from the run:
    - DB p99 exceeds the API's 1 s timeout.
-   - The API retries, and retries push DB load to almost 5× its capacity.
-   - The tipping point: the failure is over, but retries keep DB load at 3.7× capacity, so the
-     backlog can never drain.
-   - 98% of DB work is spent on requests users already gave up on.
+   - The API retries, and DB load climbs to 4.8× its capacity at its peak.
+   - The point of no return: the failure is over, but retries keep DB load at 3.7× capacity, so
+     the backlog can never drain.
+   - 98% of DB work during the incident is for requests the API had already given up on.
    - API workers are 99% occupied while CPU sits at 6%.
+
+   The diagram marks the injected slowdown (⚡), overloaded parts (⚠) and failing calls (✕), with
+   a key. End-to-end latency is measured as how long users waited for an answer, errors
+   included, so it rises when requests fail instead of looking fast.
 2. **Where's the tipping point?** The same 5-second failure, re-run at 60 combinations of traffic
    and API → DB retries. Each cell is a full simulation, and you can click one to replay it inline.
    With 0 retries the system always recovers. With 1 retry it tips at 220 req/s, with 2 at 140,
    and with 3 or more at 120.
 3. **Does a fix help?** Candidate fixes are chosen from what the run showed. Each one is a single
-   setting change, re-run against the same traffic and the same failure, ranked by what actually
-   happened, and re-checked on 5 random seeds. Each fix says in plain words what it changes, why it
-   was suggested, what happened, and its pros and cons (including cost, and drawbacks measured in
-   the run itself). Apply one to see before and after side by side and whether the tipping point
-   moved; click any cell of either map to replay that cell before and after.
+   setting change, re-run against the same traffic and the same failure, and ranked by what
+   actually happened. Every fix that helped is then checked to see whether it holds up: on 5 random
+   seeds, and with a slowdown twice as long. Fixes that hold up rank first; the others are marked
+   ⚠ "helped only sometimes". Each fix says in plain words what it changes, how that breaks the
+   loop, why it was suggested, what happened, and its pros and cons (including cost, and drawbacks
+   measured in the run itself). Choosing a fix shows it before and after side by side, with what it
+   changed labelled on the diagram, and whether the tipping point moved; click any cell of either
+   map to replay that cell before and after.
 
 ## Why this is interesting
 
@@ -207,14 +217,16 @@ time log. The main calls:
   The default retry storm (200 req/s, 3 API → DB retries) is stuck on all 5 seeds, with 12,687
   failed requests at the default seed. What each fix does (recovery time after the failure ends
   and failed requests are at the default seed):
-  - **Helped on 5 of 5 seeds:**
+  - **Helped on 5 of 5 seeds, and still helps with a 10 s slowdown:**
     - bounding the DB queue: recovers in 2 s (242 failed);
-    - surprisingly, a 3× longer API → DB timeout: 3 s (147 failed). With 3 s, the API never gives
-      up during the 5 s slowdown, so it never retries;
     - a retry budget: 3 s (306 failed);
     - dropping expired requests at the DB: 7 s (440 failed; 5–7 s across seeds). Wasted DB work
       falls from 90% to 18% of the run's DB compute; what remains is requests that started
       computing before their caller's deadline and finished after it.
+  - **Helped on 5 of 5 seeds, but not with a 10 s slowdown:** a 3× longer API → DB timeout:
+    3 s (147 failed). It works only because this slowdown is short: with a 10 s slowdown it stays
+    stuck, with more failures (14,813) than no fix at all. It also makes the API wait longer for the DB (3 s) than the Gateway waits for the
+    API (2 s), so all 147 failures are Gateway timeouts. The app marks it ⚠.
   - **Helped on 1 of 5 seeds:** capping retries at 1: 13 s (841 failed). One
     retry at 200 req/s sits right on the tipping point.
   - **Did not help (0 of 5 seeds):**

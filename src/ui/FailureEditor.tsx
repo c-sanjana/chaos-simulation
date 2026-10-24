@@ -38,7 +38,7 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
         integer
         onChange={(v) => onChange(updateFault(draft, { startMs: v * 1000, endMs: v * 1000 + (f.endMs - f.startMs) }))}
       />
-      <NumberField label="Traffic" unit="req/s" value={s.rps} min={1} max={LIMITS.maxRps} integer step={10} onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
+      <NumberField label="Traffic" unit="req/s" value={s.rps} min={1} max={LIMITS.maxRps} integer onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
       {s.map.y.param === 'retries' && <NumberField label={s.map.y.label} value={s.retries} min={0} max={10} integer onChange={(v) => onChange(updateScenario(draft, { retries: v }))} />}
       <button type="submit" className="csl-btn csl-btn--primary csl-failure__run" disabled={problems.length > 0}>
         {dirty ? 'Run simulation' : 'Re-run'}

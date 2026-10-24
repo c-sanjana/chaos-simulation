@@ -15,7 +15,7 @@ export interface FixRankingState {
   tested: number;
   /** For every fix that helped, by fix id: how it did on other random seeds and with a longer slowdown, once known. */
   robustness: Record<string, Robustness>;
-  /** True while those checks are running (after every fix has been tested once). */
+  /** True until those checks are done (from the start, so "all tested" never shows a ranking about to change). */
   checking: boolean;
   error: string | null;
 }
@@ -42,7 +42,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
     const candidates = candidateFixes(config, analysis.signals, labels);
     const results: Array<{ candidate: FixCandidate; outcome: FixOutcome }> = [];
     const robustness: Record<string, Robustness> = {};
-    setState({ ...EMPTY, original, candidates });
+    setState({ ...EMPTY, original, candidates, checking: candidates.length > 0 });
     const update = (id: string, r: Robustness) => {
       robustness[id] = { ...robustness[id], ...r };
       setState((s) => ({ ...s, robustness: { ...robustness }, ranked: rankFixes(original, results, robustness) }));
@@ -62,8 +62,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
     )
       .then(async () => {
         const top = rankFixes(original, results).filter((f) => f.helped);
-        if (top.length === 0) return;
-        setState((s) => ({ ...s, checking: true }));
+        if (top.length === 0) return setState((s) => ({ ...s, checking: false }));
         const longerConfig = withLongerOutage(config);
         const [originals, longerOriginal] = await Promise.all([
           Promise.all(seedVariants(config, SEEDS).map((c) => batch.cell(c))),

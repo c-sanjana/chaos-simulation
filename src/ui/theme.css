@@ -1410,15 +1410,15 @@ button.csl-map__cell {
   font-size: 9.5px;
 }
 .csl-split__side .csl-map {
-  --csl-map-cell: 30px;
+  --csl-map-cell: 28px;
 }
 .csl-split__side .csl-map--medium .csl-map {
   --csl-map-cell: 19px;
 }
 
 .csl-split__side--wide {
-  flex-basis: 600px;
-  max-width: 620px;
+  flex-basis: 660px;
+  max-width: 680px;
 }
 .csl-split__side .csl-map--medium .csl-map {
   --csl-map-cell: 18px;
@@ -1554,7 +1554,7 @@ button.csl-map__cell {
 .csl-fixtabs__panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid var(--csl-border);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1583,6 +1583,7 @@ button.csl-map__cell {
   grid-template-columns: 76px 1fr;
   gap: 4px 10px;
   margin: 0;
+  font-size: 12.5px;
 }
 .csl-fixtabs__facts dt,
 .csl-procon__title {

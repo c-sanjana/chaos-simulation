@@ -18,7 +18,7 @@ export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; o
       <h3 className="csl-section-title">Traffic and run</h3>
       <div className="csl-field-grid">
         <NumberField label="User traffic" unit="req/s" value={s.rps} min={1} max={LIMITS.maxRps} integer onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
-        <NumberField label="Duration" unit="s" value={s.durationMs / 1000} min={LIMITS.minDurationS} max={LIMITS.maxDurationS} integer step={10} onChange={(v) => onChange(updateScenario(draft, { durationMs: v * 1000 }))} />
+        <NumberField label="Duration" unit="s" value={s.durationMs / 1000} min={LIMITS.minDurationS} max={LIMITS.maxDurationS} integer onChange={(v) => onChange(updateScenario(draft, { durationMs: v * 1000 }))} />
         <NumberField
           label="Client timeout"
           unit="ms"
@@ -58,10 +58,10 @@ export function SettingsForm({ draft, onChange, only = null }: { draft: Draft; o
             )}
             {t.cache && (
               <>
-                <NumberField label="Capacity" unit="keys" value={t.cache.capacity} min={1} integer step={100} onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, capacity: v } }))} />
+                <NumberField label="Capacity" unit="keys" value={t.cache.capacity} min={1} integer onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, capacity: v } }))} />
                 <NumberField label="TTL" unit="s" value={(t.cache.ttlMs ?? 0) / 1000} min={1} onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, ttlMs: v * 1000 } }))} />
-                <NumberField label="Distinct keys requested" value={t.cache.keys} min={1} integer step={1000} onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, keys: v } }))} />
-                <NumberField label="Popularity skew" unit="Zipf" value={t.cache.skew} min={0} step={0.1} onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, skew: v } }))} />
+                <NumberField label="Distinct keys requested" value={t.cache.keys} min={1} integer onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, keys: v } }))} />
+                <NumberField label="Popularity skew" unit="Zipf" value={t.cache.skew} min={0} onChange={(v) => tier(t.id, (x) => ({ ...x, cache: { ...x.cache!, skew: v } }))} />
               </>
             )}
           </div>

@@ -108,6 +108,19 @@ describe('buildStory on the retry storm', { timeout: 60_000 }, () => {
     expectPlain(story);
   });
 
+  it('stuck without any repeats: the pile is of waiting requests, and nobody asks again', () => {
+    const story = texts(storyOf(storm([{ tier: 'cache', kind: 'dead', startMs: 30_000, endMs: 35_000, flushAtEnd: true }], { retries: 0 })));
+    expect(story).toContain('At 35 s the cache was back up, but empty — and the pile of waiting requests was still there.');
+    expect(story).toContain("Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on too.");
+  });
+
+  it('tells each of several failures; only the last one ending leads into the verdict', () => {
+    const story = storyOf(storm([slowDb(30_000, 35_000), slowDb(60_000, 62_000)], { retries: 0 }));
+    expect(story.filter((s) => s.tone === 'fault').map((s) => s.text)).toEqual(['At 30 s the database became 8× slower for 5 seconds.', 'At 60 s the database became 8× slower for 2 seconds.']);
+    expect(texts(story)).toContain('At 35 s the database was back to normal speed.');
+    expectPlain(story);
+  });
+
   it('a slow cache: the API gives up on it and asks the database instead', () => {
     const story = storyOf(storm([{ tier: 'cache', kind: 'slow', factor: 200, startMs: 30_000, endMs: 35_000 }]));
     expect(texts(story)).toContain('The API gives up on the cache after 100 ms and asks the database instead.');
