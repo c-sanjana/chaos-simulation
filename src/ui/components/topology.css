@@ -669,3 +669,124 @@
     opacity: 0.6;
   }
 }
+
+/* ---------- Branches (routed arrows; see ui/edgeRoutes.ts) ---------- */
+/* The routed lines are measured against the grid. */
+.csl-topology-grid {
+  position: relative;
+}
+.csl-routes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.csl-route__shaft,
+.csl-route__retry,
+.csl-route__flow {
+  fill: none;
+  stroke-linejoin: round;
+}
+.csl-route__retry {
+  stroke: var(--csl-retry);
+  stroke-dasharray: 4 2;
+}
+.csl-route__flow {
+  stroke: var(--csl-flow-dash);
+  stroke-dasharray: 7 13;
+  animation: csl-route-flow 1s linear infinite;
+}
+@keyframes csl-route-flow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+/* A routed arrow's text cell: the line runs through its middle; the text sits just above or below it. */
+.csl-edge.csl-edge--routed {
+  position: relative;
+  align-self: stretch;
+  min-height: 40px;
+  padding: 0;
+  container: csl-edge / inline-size;
+}
+.csl-edge__rtext {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.csl-edge__rtext--above {
+  bottom: calc(50% + 9px);
+}
+.csl-edge__rtext--below {
+  top: calc(50% + 9px);
+}
+.csl-edge--text-straight .csl-edge__rtext--above {
+  bottom: calc(50% + 10px);
+}
+.csl-edge--text-straight .csl-edge__rtext--below {
+  top: calc(50% + 10px);
+}
+.csl-edge__rpill {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+/* A straight arrow beside a routed arrow's bend keeps its text clear of it; its shaft still starts
+   (or ends) at the usual place, so it joins the bend. */
+.csl-edge.csl-edge--clear-start {
+  padding-left: 26px;
+}
+.csl-edge--clear-start .csl-edge__shaft-row {
+  margin-left: -20px;
+}
+.csl-edge.csl-edge--clear-end {
+  padding-right: 30px;
+}
+.csl-edge--clear-end .csl-edge__shaft-row {
+  margin-right: -24px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .csl-route__flow {
+    animation: none;
+  }
+}
+
+/* Dense diagrams (three or more rows of boxes): shorter boxes, the copy squares in the title row. */
+.csl-topology-grid--dense .csl-node {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.csl-topology-grid--dense .csl-node__head {
+  justify-content: flex-start;
+}
+.csl-topology-grid--dense .csl-node__head .csl-node__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.csl-topology-grid--dense .csl-node__head .csl-node__instances {
+  flex: none;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.csl-topology-grid--dense .csl-node__head .csl-instance {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.csl-node__more {
+  font-family: var(--csl-font-mono);
+  font-size: 11px;
+  color: var(--csl-muted);
+}

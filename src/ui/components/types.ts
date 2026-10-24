@@ -29,10 +29,25 @@ export interface TopologyNodeView {
 
 export interface TopologyEdgeView {
   id: string;
-  /** grid placement of the arrow cell */
+  /**
+   * Grid placement of the arrow cell; for a routed arrow, the cell its text sits in (the line is
+   * drawn over the grid between the two boxes).
+   */
   col: number;
   row: number;
-  orientation: 'horizontal' | 'vertical';
+  /**
+   * 'horizontal': neighbours on one row; 'vertical': a cache above its server; 'routed': anything
+   * else (between rows, or past empty cells), drawn with right-angle bends (see ui/edgeRoutes.ts).
+   */
+  orientation: 'horizontal' | 'vertical' | 'routed';
+  /** Caller and callee ids ('client' or a tier id). Routed arrows need them; others read their ends off the grid. */
+  from?: string;
+  to?: string;
+  /** Routed arrows: where the bend runs and which side of the line the text is on. */
+  route?: { trunk: 'source' | 'target' | 'none'; text: 'above' | 'below' | 'straight' };
+  /** Straight arrows beside a routed arrow's bend: keep the text clear of the start (caller side) / end (callee side). */
+  clearStart?: boolean;
+  clearEnd?: boolean;
   label: string;
   detail: string;
   rps: number;

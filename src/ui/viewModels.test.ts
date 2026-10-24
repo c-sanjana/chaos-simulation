@@ -80,7 +80,10 @@ describe('topologyView', { timeout: 60_000 }, () => {
     expect(nodes.map((n) => n.id)).toEqual(['api', 'db']);
     expect(edges.map((e) => e.id)).toEqual(['api-db']);
     const diagonal = { ...webChain, layout: { ...webChain.layout, db: { label: 'DB', col: 7, row: 1 } } };
-    expect(topologyView(diagonal, config, run, 0).edges.map((e) => e.id)).not.toContain('api-db');
+    // Between rows, the call is routed (with bends), its text left of the callee; backwards it is skipped.
+    expect(topologyView(diagonal, config, run, 0).edges.find((e) => e.id === 'api-db')).toMatchObject({ orientation: 'routed', col: 6, row: 1, from: 'api', to: 'db' });
+    const backwards = { ...webChain, layout: { ...webChain.layout, db: { label: 'DB', col: 3, row: 1 } } };
+    expect(topologyView(backwards, config, run, 0).edges.map((e) => e.id)).not.toContain('api-db');
   });
 });
 

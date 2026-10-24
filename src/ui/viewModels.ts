@@ -5,7 +5,9 @@
 import type { Analysis } from '../analysis/analyze';
 import { admittedIn, callerOf, formatMs, leafCapacityRps } from '../analysis/helpers';
 import type { RecoveryResult } from '../analysis/recovery';
-import type { RunConfig, TierConfig } from '../engine/config';
+import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
+import { trafficShares } from '../builder/graphWalk';
+import { placeCalls, trunkSides } from './edgeRoutes';
 import type { RunResult, TierSeries } from '../engine/result';
 import type { Axis, TopologyPreset } from '../data/types';
 import type { CellSummary } from '../worker/jobs';
@@ -170,36 +172,81 @@ export function topologyView(
   return { nodes, edges };
 }
 
+/**
+ * How much of a tier's arrivals in bucket b came along each call into it: by each caller's own
+ * arrivals that second (the client: requests sent), times the part of them it sends this way (a
+ * splitting load balancer's share; a cache-aside server only on misses).
+ * ASSUMPTION: the engine counts arrivals per tier, not per call, so a part called by several (a
+ * shared database) has its arrivals divided between its arrows this way. One caller (every preset,
+ * every chain) gets them all, exactly as before. Retries and failures are shown at the callee's
+ * rate on each of its arrows. When nothing arrived anywhere, the split follows the traffic shares.
+ */
+export function callWeights(config: RunConfig, run: RunResult, b: number, calls: Array<{ from: string; to: string; cache: boolean }>): number[] {
+  const byId = new Map(config.tiers.map((t) => [t.id, t]));
+  const shares = trafficShares({ clientCall: config.client.call, tiers: config.tiers });
+  const part = (from: string, to: string, cache: boolean): number => {
+    if (from === 'client') return 1;
+    const t = byId.get(from)!;
+    if (cache) return 1;
+    const list = callsOf(t);
+    let fraction = 1;
+    if (t.fanOut === 'split' && list.length > 1) {
+      const w = (c: CallPolicy) => (c.share !== undefined && Number.isFinite(c.share) && c.share >= 0 ? c.share : 1);
+      const total = list.reduce((a, c) => a + w(c), 0);
+      const mine = list.find((c) => c.target === to);
+      fraction = mine && total > 0 ? w(mine) / total : 1 / list.length;
+    }
+    if (t.cacheAside && run.tiers[t.cacheAside.target]) {
+      const c = run.tiers[t.cacheAside.target];
+      fraction *= c.ok[b] > 0 ? 1 - c.hits[b] / c.ok[b] : 1;
+    }
+    return fraction;
+  };
+  const live = calls.map((c) => (c.from === 'client' ? run.client.sent[b] : run.tiers[c.from] ? arrivals(run.tiers[c.from], b) : 0) * part(c.from, c.to, c.cache));
+  const stat = calls.map((c) => (c.from === 'client' ? 1 : shares[c.from] ?? 0) * part(c.from, c.to, c.cache));
+  return calls.map((c, i) => {
+    const same = calls.map((d, j) => (d.to === c.to ? j : -1)).filter((j) => j >= 0);
+    if (same.length === 1) return 1;
+    for (const w of [live, stat]) {
+      const total = same.reduce((a, j) => a + w[j], 0);
+      if (total > 0) return w[i] / total;
+    }
+    return 1 / same.length;
+  });
+}
+
 function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b: number): TopologyEdgeView[] {
   const calls: Array<{ from: string; to: string; cache: boolean }> = [{ from: 'client', to: config.client.call.target, cache: false }];
   for (const t of config.tiers) {
     if (t.cacheAside) calls.push({ from: t.id, to: t.cacheAside.target, cache: true });
-    if (t.downstream) calls.push({ from: t.id, to: t.downstream.target, cache: false });
+    for (const c of callsOf(t)) calls.push({ from: t.id, to: c.target, cache: false });
   }
+  const places = placeCalls(topology.layout, calls);
+  const clear = trunkSides(calls, places);
+  const weights = callWeights(config, run, b, calls);
   const edges: TopologyEdgeView[] = [];
-  for (const call of calls) {
-    const from = topology.layout[call.from];
-    const to = topology.layout[call.to];
-    if (!from || !to) continue;
-    const place =
-      from.row === to.row
-        ? { orientation: 'horizontal' as const, col: Math.min(from.col, to.col) + 1, row: from.row }
-        : from.col === to.col
-          ? { orientation: 'vertical' as const, col: from.col, row: Math.min(from.row, to.row) + 1 }
-          : null;
-    if (!place) continue; // ASSUMPTION: presets lay calls out in straight lines
+  calls.forEach((call, i) => {
+    const place = places[i];
+    if (!place) return;
     const target = run.tiers[call.to];
-    const total = arrivals(target, b);
-    const retries = target.arrivalsRetry[b];
+    const total = arrivals(target, b) * weights[i];
+    const retries = target.arrivalsRetry[b] * weights[i];
     const rps = perSecond(run, total);
+    const where = {
+      ...place,
+      from: call.from,
+      to: call.to,
+      ...(clear[i].clearStart ? { clearStart: true } : {}),
+      ...(clear[i].clearEnd ? { clearEnd: true } : {}),
+    };
     if (call.cache) {
-      edges.push({ id: `${call.from}-${call.to}`, ...place, label: `${Math.round(rps)} lookups/s`, detail: `${pct(target.hits[b] / Math.max(1, target.ok[b]))} hits`, rps, health: 'ok', retryShare: 0, errorShare: errorShare(target, b), cache: true });
+      edges.push({ id: `${call.from}-${call.to}`, ...where, label: `${Math.round(rps)} lookups/s`, detail: `${pct(target.hits[b] / Math.max(1, target.ok[b]))} hits`, rps, health: 'ok', retryShare: 0, errorShare: errorShare(target, b), cache: true });
     } else {
       const failing = errorShare(target, b) > BAD_ERROR_SHARE;
       const detail = retries > 0 ? `incl. ${Math.round(perSecond(run, retries))} retries` : failing ? `${pct(errorShare(target, b))} fail` : 'no retries';
       edges.push({
         id: `${call.from}-${call.to}`,
-        ...place,
+        ...where,
         label: `${Math.round(rps)} rps`,
         detail,
         rps,
@@ -208,7 +255,7 @@ function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b:
         errorShare: errorShare(target, b),
       });
     }
-  }
+  });
   return edges;
 }
 
@@ -411,10 +458,10 @@ export function chartView(
   };
 }
 
-/** The id of the tier (or 'client') that calls `tierId`. */
+/** The id of the tier (or 'client') that calls `tierId` (the first, when several do). */
 function callerOwner(config: RunConfig, tierId: string): string {
   if (config.client.call.target === tierId) return 'client';
-  return config.tiers.find((t) => t.downstream?.target === tierId || t.cacheAside?.target === tierId)?.id ?? 'client';
+  return config.tiers.find((t) => callsOf(t).some((c) => c.target === tierId) || t.cacheAside?.target === tierId)?.id ?? 'client';
 }
 
 export function timelineView(analysis: Analysis): TimelineEntryView[] {

@@ -6,7 +6,7 @@
 import type { Verdict } from '../analysis/recovery';
 import type { Axis } from '../data/types';
 import type { TippingPoint } from '../sweep/sweep';
-import type { RetryCall } from './draft';
+import { countsText, retriesByCaller, type RetryCall } from './draft';
 import { axisPhrase } from './viewModels';
 
 export interface TippingSentenceInput {
@@ -58,14 +58,15 @@ function yourPart(tip: TippingPoint, current: { x: number; y: number }, verdict:
  * requests." With one retrying caller it names that caller; with none it says nothing.
  */
 export function cascadeSentence(calls: RetryCall[], labels: Record<string, string>): string {
-  const retrying = calls.filter((c) => c.retries > 0);
+  // One entry per caller: a part that calls several parts reads "App server 1× / 2×".
+  const retrying = retriesByCaller(calls.filter((c) => c.retries > 0));
   if (retrying.length === 0) return '';
   const name = (id: string) => labels[id] ?? id;
-  const list = retrying.map((c) => `${name(c.caller)} ${c.retries}×`).join(', ');
+  const list = retrying.map((g) => `${name(g.caller)} ${countsText(g.counts)}`).join(', ');
   if (retrying.length === 1) {
-    const c = retrying[0];
-    return `${name(c.caller)} asks again when it gives up (${c.retries}×), so one failed answer can come back as more requests.`;
+    const g = retrying[0];
+    return `${name(g.caller)} asks again when it gives up (${countsText(g.counts)}), so one failed answer can come back as more requests.`;
   }
-  const every = retrying.length === calls.length;
+  const every = retrying.length === retriesByCaller(calls).length;
   return `${every ? 'Every layer asks again when it gives' : 'Several layers ask again when they give'} up (${list}), so one failed answer can come back as many requests.`;
 }

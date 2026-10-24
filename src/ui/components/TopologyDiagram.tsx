@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { Health, TopologyEdgeView, TopologyNodeView } from './types';
 import './topology.css';
 
@@ -18,6 +18,10 @@ import './topology.css';
  *   "⚠"), then its number ("✕"); the root cause never shortens. The key explains the symbols and
  *   the box's accessible name always has the words.
  * - The key under the diagram explains all of this in one line, without relying on motion.
+ * - Branches: arrows between boxes on different rows (or past empty cells) are drawn over the grid
+ *   with right-angle bends (RoutedLines, measured from the boxes), with the same thickness, retry
+ *   band, flow dashes and arrowhead colours as straight ones; their text sits in one arrow cell
+ *   (RoutedEdge), on the side of the line away from the bend. See ui/edgeRoutes.ts.
  */
 
 const ARROW_OK = 'var(--csl-arrow)';
@@ -130,7 +134,24 @@ export function keepEnd(label: string, max = LONG_CHAIN_LABEL_MAX): string {
   return `${label.slice(0, head).trimEnd()}…${label.slice(start).trimStart()}`;
 }
 
-function Node({ node, selected, onSelect, editable, longChain }: { node: TopologyNodeView; selected: boolean; onSelect: (id: string) => void; editable: boolean; longChain: boolean }) {
+/** In a dense diagram, a box shows at most this many copy squares in its title row, then "+N". */
+export const DENSE_SQUARES = 4;
+
+/** One square per copy, coloured by how busy it is. */
+function Instances({ node, max }: { node: TopologyNodeView; max?: number }) {
+  const shown = max !== undefined && node.instanceBusy.length > max ? node.instanceBusy.slice(0, max - 1) : node.instanceBusy;
+  const more = node.instanceBusy.length - shown.length;
+  return (
+    <span className="csl-node__instances" data-testid={`instances-${node.id}`}>
+      {shown.map((busy, i) => (
+        <span key={i} className="csl-instance" title={`instance ${i + 1}: ${Math.round(busy * 100)}% of workers busy`} style={{ background: instanceColor(busy) }} />
+      ))}
+      {more > 0 && <span className="csl-node__more">+{more}</span>}
+    </span>
+  );
+}
+
+function Node({ node, selected, onSelect, editable, longChain, dense = false }: { node: TopologyNodeView; selected: boolean; onSelect: (id: string) => void; editable: boolean; longChain: boolean; dense?: boolean }) {
   const failing = isFailing(node.errorShare);
   const name = useFrozenWhileFocused(editable ? `Edit ${node.label} settings. ${nodeAriaLabel(node)}` : nodeAriaLabel(node));
   const cls = `csl-node${node.health === 'bad' ? ' csl-node--bad' : ''}${failing ? ' csl-node--failing' : ''}${node.overloaded ? ' csl-node--overloaded' : ''}`;
@@ -140,6 +161,7 @@ function Node({ node, selected, onSelect, editable, longChain }: { node: Topolog
       type="button"
       className={cls}
       style={style}
+      data-node-id={node.id}
       aria-pressed={editable ? undefined : selected}
       aria-label={name.value}
       title={editable ? `Edit ${node.label} settings` : node.label}
@@ -173,24 +195,14 @@ function Node({ node, selected, onSelect, editable, longChain }: { node: Topolog
           {longChain ? keepEnd(node.label) : node.label}
         </span>
         {node.instanceCountLabel && <span className="csl-node__count">{node.instanceCountLabel}</span>}
+        {dense && node.instanceBusy.length > 0 && <Instances node={node} max={DENSE_SQUARES} />}
         {editable && (
           <span className="csl-node__edit" aria-hidden="true">
             ✎
           </span>
         )}
       </span>
-      {node.instanceBusy.length > 0 && (
-        <span className="csl-node__instances" data-testid={`instances-${node.id}`}>
-          {node.instanceBusy.map((busy, i) => (
-            <span
-              key={i}
-              className="csl-instance"
-              title={`instance ${i + 1}: ${Math.round(busy * 100)}% of workers busy`}
-              style={{ background: instanceColor(busy) }}
-            />
-          ))}
-        </span>
-      )}
+      {!dense && node.instanceBusy.length > 0 && <Instances node={node} />}
       <span className="csl-node__line">{node.lines[0]}</span>
       <span className="csl-node__line">{node.lines[1]}</span>
     </button>
@@ -218,6 +230,7 @@ function Triangle({ dir, color }: { dir: 'right' | 'up' | 'down'; color: string 
  * caller below to the box above.
  */
 export function edgeEnds(edge: TopologyEdgeView, nodes: TopologyNodeView[]): { from?: TopologyNodeView; to?: TopologyNodeView } {
+  if (edge.from !== undefined && edge.to !== undefined) return { from: nodes.find((n) => n.id === edge.from), to: nodes.find((n) => n.id === edge.to) };
   const at = (col: number, row: number) => nodes.find((n) => n.col === col && n.row === row);
   return edge.orientation === 'horizontal'
     ? { from: at(edge.col - 1, edge.row), to: at(edge.col + 1, edge.row) }
@@ -341,11 +354,12 @@ function Detail({ edge, fit = true }: { edge: TopologyEdgeView; fit?: boolean })
 function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView[] }) {
   const kind = edgeKind(edge);
   const head = kind === 'failing' ? ARROW_FAIL : kind === 'retrying' ? ARROW_RETRY : ARROW_OK;
-  const cls = `csl-edge csl-edge--${edge.orientation} csl-edge--${kind}${edge.health === 'bad' ? ' csl-edge--bad' : ''}${edge.rps > 0 ? '' : ' csl-edge--still'}`;
+  const cls = `csl-edge csl-edge--${edge.orientation} csl-edge--${kind}${edge.health === 'bad' ? ' csl-edge--bad' : ''}${edge.rps > 0 ? '' : ' csl-edge--still'}${edge.clearStart ? ' csl-edge--clear-start' : ''}${edge.clearEnd ? ' csl-edge--clear-end' : ''}`;
   const a11y = { role: 'img', 'aria-label': edgeAriaLabel(edge, nodes), 'data-testid': `edge-${edge.id}` };
   const place = { gridColumn: edge.col, gridRow: edge.row };
   const change = edge.change && <ChangeTag change={edge.change} className="csl-edge__change" />;
 
+  if (edge.orientation === 'routed') return <RoutedEdge edge={edge} cls={cls} a11y={a11y} place={place} kind={kind} change={change} />;
   if (edge.orientation === 'vertical') {
     // Double-headed: requests go up to the cache and answers come back down.
     return (
@@ -377,6 +391,144 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
       <Detail edge={edge} />
       {change}
     </div>
+  );
+}
+
+/**
+ * A routed arrow's text, in its arrow cell: rate and retries stacked on the side of the line away
+ * from its bend (or above and below it, for a long straight line), and the fail pill on the line.
+ * The line itself is drawn by RoutedLines. One image to assistive tech, like a straight arrow.
+ */
+function RoutedEdge({ edge, cls, a11y, place, kind, change }: { edge: TopologyEdgeView; cls: string; a11y: Record<string, string>; place: CSSProperties; kind: EdgeKind; change: ReactNode }) {
+  const side = edge.route?.text ?? 'straight';
+  const label = (
+    <span className="csl-edge__label">
+      <Fitted forms={rateForms(edge.label)} kind="label" />
+    </span>
+  );
+  return (
+    <div className={`${cls} csl-edge--text-${side}`} style={place} {...a11y}>
+      {side === 'straight' ? (
+        <>
+          <span className="csl-edge__rtext csl-edge__rtext--above" aria-hidden="true">
+            {label}
+          </span>
+          <span className="csl-edge__rtext csl-edge__rtext--below" aria-hidden="true">
+            <Detail edge={edge} />
+            {change}
+          </span>
+        </>
+      ) : (
+        <span className={`csl-edge__rtext csl-edge__rtext--${side}`} aria-hidden="true">
+          {label}
+          <Detail edge={edge} />
+          {change}
+        </span>
+      )}
+      {kind === 'failing' && (
+        <span className="csl-edge__rpill" aria-hidden="true">
+          <FailPill edge={edge} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A box's position and size inside the grid, in px. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Gap between a box and the start or tip of an arrow (the straight arrows' cell padding). */
+const ARROW_GAP = 6;
+/** Arrowhead length (as on straight arrows). */
+const HEAD = 10;
+/** Where a bend runs: this far after the caller's edge, or before the callee's (leaving room for the arrowhead). */
+export const TRUNK_AFTER_SOURCE = ARROW_GAP + 8;
+export const TRUNK_BEFORE_TARGET = ARROW_GAP + HEAD + 4;
+
+/**
+ * The corners of a routed arrow's line, from the caller's right edge (middle) to the callee's left
+ * edge (middle), the arrowhead's tip last. Straight when both are level or the route has no bend.
+ */
+export function routePoints(route: NonNullable<TopologyEdgeView['route']>, a: Box, b: Box): Array<[number, number]> {
+  const x1 = a.x + a.w + ARROW_GAP;
+  const y1 = a.y + a.h / 2;
+  const x2 = b.x - ARROW_GAP;
+  const y2 = b.y + b.h / 2;
+  if (route.trunk === 'none' || Math.abs(y1 - y2) < 0.5) return [[x1, y1], [x2, y2]];
+  const xt = route.trunk === 'source' ? a.x + a.w + TRUNK_AFTER_SOURCE : b.x - TRUNK_BEFORE_TARGET;
+  return [[x1, y1], [xt, y1], [xt, y2], [x2, y2]];
+}
+
+/** An SVG path through the points, stopping `HEAD` px short of the last (where the arrowhead starts). */
+function shaftPath(points: Array<[number, number]>): string {
+  const [x2, y2] = points[points.length - 1];
+  const body = points.slice(0, -1).map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`);
+  return `${body.join(' ')} L${x2 - HEAD} ${y2}`;
+}
+
+/**
+ * The boxes' positions in the grid (by node id), measured after layout and again when anything
+ * resizes. `layer` is an element placed directly in the grid (its parent is the grid; the grid's
+ * own ref is not attached yet when a child's layout effect runs).
+ */
+function useBoxes(layer: RefObject<Element>, key: string): Record<string, Box> {
+  const [boxes, setBoxes] = useState<Record<string, Box>>({});
+  useLayoutEffect(() => {
+    const el = layer.current?.parentElement;
+    if (!el) return;
+    const measure = () => {
+      const next: Record<string, Box> = {};
+      el.querySelectorAll<HTMLElement>('[data-node-id]').forEach((n) => {
+        next[n.dataset.nodeId!] = { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight };
+      });
+      setBoxes((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(el);
+    el.querySelectorAll('[data-node-id]').forEach((n) => observer?.observe(n));
+    return () => observer?.disconnect();
+  }, [layer, key]);
+  return boxes;
+}
+
+/**
+ * The lines of routed arrows, drawn over the grid under the boxes and the arrows' text: a shaft as
+ * thick as the requests/s (red when failing), an orange dashed band inside it for the retry share,
+ * the moving flow dashes, and the arrowhead (orange when retrying, red when failing).
+ */
+function RoutedLines({ edges, layoutKey }: { edges: TopologyEdgeView[]; layoutKey: string }) {
+  const svg = useRef<SVGSVGElement>(null);
+  const boxes = useBoxes(svg, layoutKey);
+  return (
+    <svg ref={svg} className="csl-routes" aria-hidden="true" data-testid="routed-lines">
+      {edges.map((edge) => {
+        const a = boxes[edge.from ?? ''];
+        const b = boxes[edge.to ?? ''];
+        if (!a || !b || !edge.route) return null;
+        const points = routePoints(edge.route, a, b);
+        const d = shaftPath(points);
+        const kind = edgeKind(edge);
+        const thickness = arrowThickness(edge.rps);
+        const duration = flowDurationS(edge.rps);
+        const retry = edge.retryShare ?? 0;
+        const [x2, y2] = points[points.length - 1];
+        const head = kind === 'failing' ? ARROW_FAIL : kind === 'retrying' ? ARROW_RETRY : ARROW_OK;
+        return (
+          <g key={edge.id} data-testid={`route-${edge.id}`} className={`csl-route csl-route--${kind}`}>
+            <path d={d} className="csl-route__shaft" style={{ stroke: kind === 'failing' ? ARROW_FAIL : ARROW_OK, strokeWidth: thickness }} />
+            {retry > 0 && <path d={d} className="csl-route__retry" data-testid="route-retry" style={{ strokeWidth: Math.max(1, Math.round(thickness * retry)) }} />}
+            {duration !== null && <path d={d} className="csl-route__flow" style={{ strokeWidth: thickness, animationDuration: `${duration}s` }} />}
+            <path d={`M${x2 - HEAD} ${y2 - 7} L${x2} ${y2} L${x2 - HEAD} ${y2 + 7} Z`} style={{ fill: head }} />
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -447,13 +599,41 @@ export const LONG_CHAIN_BOX_MIN_PX = 76;
 
 /**
  * Columns for a chain longer than the presets' 7: boxes and arrows alternate, sharing the width
- * (the presets keep their tuned 7-column template from the stylesheet).
+ * (the presets keep their tuned 7-column template from the stylesheet). Rows for a branched system
+ * (boxes below row 3): boxes as tall as they need, a cache arrow's row as on the presets, a small
+ * gap between other rows of boxes (routed lines pass through it), and nothing for empty rows.
  */
-export function gridStyle(nodes: TopologyNodeView[]): CSSProperties | undefined {
-  if (!isLongChain(nodes)) return undefined;
-  const cols = Math.max(0, ...nodes.map((n) => n.col));
-  const template = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? `minmax(${LONG_CHAIN_BOX_MIN_PX}px, 1fr)` : 'minmax(40px, 0.55fr)')).join(' ');
-  return { gridTemplateColumns: template, minWidth: 0 };
+export function gridStyle(nodes: TopologyNodeView[], edges: TopologyEdgeView[] = [], compact = false): CSSProperties | undefined {
+  const style: CSSProperties = {};
+  if (isLongChain(nodes)) {
+    const cols = Math.max(0, ...nodes.map((n) => n.col));
+    style.gridTemplateColumns = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? `minmax(${LONG_CHAIN_BOX_MIN_PX}px, 1fr)` : 'minmax(40px, 0.55fr)')).join(' ');
+    style.minWidth = 0;
+  }
+  const rows = Math.max(0, ...nodes.map((n) => n.row));
+  if (rows > 3) {
+    const boxesOn = (r: number) => nodes.some((n) => n.row === r);
+    style.gridTemplateRows = Array.from({ length: rows }, (_, i) => {
+      const r = i + 1;
+      if (r % 2 === 1) return 'auto';
+      if (edges.some((e) => e.orientation === 'vertical' && e.row === r)) return compact ? '46px' : '64px';
+      return boxesOn(r - 1) && boxesOn(r + 1) ? (compact ? '8px' : '16px') : '0px';
+    }).join(' ');
+  }
+  return Object.keys(style).length > 0 ? style : undefined;
+}
+
+/** How many rows of boxes the diagram has (the presets: 2, a cache row and the chain). */
+export function boxRowCount(nodes: Array<{ row: number }>): number {
+  return new Set(nodes.map((n) => n.row)).size;
+}
+
+/**
+ * Three or more rows of boxes (a branched system): boxes get a little shorter (their copy squares
+ * move into the title row), so the diagram still fits beside the chart at 1440×900.
+ */
+export function isDense(nodes: Array<{ row: number }>): boolean {
+  return boxRowCount(nodes) >= 3;
 }
 
 /** More columns than the presets' 7: a built chain, drawn with smaller, two-line names. */
@@ -493,7 +673,11 @@ export function useSideScroll<T extends HTMLElement>(): { ref: RefObject<T>; mor
  */
 export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, editable = false, actions, compact = false }: TopologyDiagramProps) {
   const longChain = isLongChain(nodes);
+  const dense = isDense(nodes);
   const scroll = useSideScroll<HTMLDivElement>();
+  const routed = edges.filter((e) => e.orientation === 'routed');
+  // Boxes are re-measured when the layout (or the set of arrows) changes; resizes are observed.
+  const layoutKey = `${compact}|${nodes.map((n) => `${n.id}@${n.col},${n.row}`).join(';')}|${routed.map((e) => e.id).join(';')}`;
   const scrolls = scroll.more.left || scroll.more.right;
   return (
     <div>
@@ -504,9 +688,10 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, edit
       )}
       <div className={`csl-topology-fade${scroll.more.left ? ' csl-topology-fade--left' : ''}${scroll.more.right ? ' csl-topology-fade--right' : ''}`}>
       <div className="csl-topology-scroll" ref={scroll.ref}>
-        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}${longChain ? ' csl-topology-grid--long' : ''}`} style={gridStyle(nodes)}>
+        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}${longChain ? ' csl-topology-grid--long' : ''}${dense ? ' csl-topology-grid--dense' : ''}`} style={gridStyle(nodes, edges, compact)}>
+          {routed.length > 0 && <RoutedLines edges={routed} layoutKey={layoutKey} />}
           {nodes.map((n) => (
-            <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} longChain={longChain} />
+            <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} longChain={longChain} dense={dense} />
           ))}
           {edges.map((e) => (
             <Edge key={e.id} edge={e} nodes={nodes} />

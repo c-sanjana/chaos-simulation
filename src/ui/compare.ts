@@ -7,7 +7,7 @@ import type { Verdict } from '../analysis/recovery';
 import type { RunConfig, TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { AnalyzeResult } from '../worker/jobs';
-import { describeFault, retryCalls, type Draft } from './draft';
+import { callKey, countsText, describeFault, retriesByCaller, retryCalls, type Draft } from './draft';
 import { formatCount } from './format';
 import { bottleneckTier, shortVerdict, waitingTier } from './viewModels';
 
@@ -90,15 +90,16 @@ export function compareRuns(prev: RunSnapshot, next: RunSnapshot, labels: Record
 export function retryTakeaway(prev: Draft, next: Draft, changes: string[], before: Verdict, now: Verdict, rows: ComparisonRow[]): string | null {
   if (changes.length === 0 || !changes.every((c) => /retries \d+ → \d+$/.test(c))) return null;
   const label = (id: string) => next.topology.layout[id]?.label ?? id;
-  const was = new Map(retryCalls(prev.topology).map((c) => [c.caller, c.retries]));
+  const was = new Map(retryCalls(prev.topology).map((c) => [callKey(c), c.retries]));
   const calls = retryCalls(next.topology);
-  const fewer = calls.filter((c) => (was.get(c.caller) ?? c.retries) > c.retries).map((c) => c.caller);
-  const more = calls.filter((c) => (was.get(c.caller) ?? c.retries) < c.retries).map((c) => c.caller);
+  const callers = (keep: (before: number, now: number) => boolean) => [...new Set(calls.filter((c) => keep(was.get(callKey(c)) ?? c.retries, c.retries)).map((c) => c.caller))];
+  const fewer = callers((before, now) => before > now);
+  const more = callers((before, now) => before < now);
   if (fewer.length > 0 && more.length > 0) return null;
   const users = (ids: string[]) => ids.length === 1 && ids[0] === 'client';
   const names = (ids: string[]) => listed(ids.map((id) => (id === 'client' ? "users' apps" : `the ${label(id)}`)));
   const who = (ids: string[]) => cap(names(ids));
-  const still = calls.filter((c) => c.retries > 0).map((c) => `${c.caller === 'client' ? "users' apps" : `the ${label(c.caller)}`} (${c.retries}×)`);
+  const still = retriesByCaller(calls.filter((c) => c.retries > 0)).map((g) => `${g.caller === 'client' ? "users' apps" : `the ${label(g.caller)}`} (${countsText(g.counts)})`);
   const multiply = still.length === 0 ? '' : ` because ${listed(still)} still ${still.length === 1 && !still[0].startsWith("users'") ? 'multiplies' : 'multiply'} the load`;
   const order = VERDICT_ORDER[now] - VERDICT_ORDER[before];
   const failed = rows.find((r) => r.label === 'Failed requests')!.tone;
@@ -235,9 +236,9 @@ export function settingsChanges(prev: Draft, next: Draft): string[] {
     else if (i >= b.faults.length) out.push(`Removed: ${faultText(prev, i)}`);
     else if (JSON.stringify(a.faults[i]) !== JSON.stringify(b.faults[i])) out.push(`${faultText(prev, i)} → ${faultText(next, i).replace(`${label(b.faults[i].tier)} `, '')}`);
   }
-  const before = new Map(retryCalls(prev.topology).map((c) => [c.caller, c.retries]));
+  const before = new Map(retryCalls(prev.topology).map((c) => [callKey(c), c.retries]));
   for (const c of retryCalls(next.topology)) {
-    const was = before.get(c.caller);
+    const was = before.get(callKey(c));
     if (was !== undefined && was !== c.retries) out.push(`${label(c.caller)} → ${label(c.target)} retries ${was} → ${c.retries}`);
   }
   if (prev.topology.clientCall.timeoutMs !== next.topology.clientCall.timeoutMs) {

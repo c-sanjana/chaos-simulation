@@ -14,7 +14,7 @@ import { CHART_HEIGHT, TimeSeriesChart } from './components/TimeSeriesChart';
 import { EventTrack } from './components/EventTrack';
 import { StepActiveContext } from './components/StepPanel';
 import { StoryCard, type StoryStepView } from './components/StoryCard';
-import { TopologyDiagram } from './components/TopologyDiagram';
+import { boxRowCount, TopologyDiagram } from './components/TopologyDiagram';
 import { usePlayback } from './components/usePlayback';
 import { usePrefersReducedMotion } from './useMediaQuery';
 import { chartView, labelsOf, METRIC_TABS, shortVerdict, timelineView, topologyView, verdictView, type ChangeLabel, type MetricTab } from './viewModels';
@@ -77,6 +77,14 @@ export interface RunPlayerProps {
 }
 
 const COMPACT_CHART_HEIGHT = 175;
+/**
+ * A branched system's diagram has more rows of boxes than the presets' two; each extra row takes
+ * this much from the chart, down to `MIN_PLOT_PX`, so the page still fits 1440×900.
+ * ASSUMPTION: measured at 1440×900 with a nine-part branched system (four rows of boxes): a dense
+ * row of boxes and its gap are ~70 px, the rest of the room comes from the chart.
+ */
+const PLOT_PX_PER_EXTRA_ROW = 50;
+const MIN_PLOT_PX = 120;
 /**
  * Room a chart note takes under the legend (one line of 12px text and its margin), taken from the
  * chart's height so a tab with a note is no taller than one without (the page fits 1440×900).
@@ -207,7 +215,9 @@ export function RunPlayer({
   // Chart data is rebuilt only when what it shows changes, so the playhead can move every frame cheaply.
   const chart = useMemo(() => chartView(tab, config, result.run, labels, scope, after?.result.run, undefined, showAfter), [tab, config, result, labels, scope, after, showAfter]);
   // A chart note takes its room from the plot, so a tab with a note is no taller than one without.
-  const plotHeight = (chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : CHART_HEIGHT)) - (chart.note ? NOTE_PX : 0);
+  const extraRows = Math.max(0, boxRowCount(Object.values(topology.layout)) - 2);
+  const baseHeight = chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : CHART_HEIGHT);
+  const plotHeight = Math.max(Math.min(baseHeight, MIN_PLOT_PX), baseHeight - extraRows * PLOT_PX_PER_EXTRA_ROW) - (chart.note ? NOTE_PX : 0);
   const shown = after && showAfter ? after : { config, result };
   // The default scope already is one tier ("DB (most overloaded)"), so that tier isn't listed twice.
   const scopeShown = scope === chart.defaultScopeId ? 'client' : (scope ?? 'client');

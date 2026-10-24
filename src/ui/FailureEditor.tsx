@@ -8,7 +8,10 @@ import {
   faultKindOf,
   JUDGE_AFTER_FAILURE_S,
   LIMITS,
+  callKey,
+  countsText,
   removeFault,
+  retriesByCaller,
   retryCalls,
   setFault,
   updateFault,
@@ -69,13 +72,13 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
         <div className="csl-failure__row">
           {retryCalls(draft.topology).map((c) => (
             <NumberField
-              key={c.caller}
+              key={callKey(c)}
               label={`${label(c.caller)} → ${label(c.target)}`}
               value={c.retries}
               min={0}
               max={10}
               integer
-              onChange={(v) => onChange(updateRetries(draft, c.caller, v))}
+              onChange={(v) => onChange(updateRetries(draft, c.caller, v, c.target))}
             />
           ))}
           <NumberField label="Traffic" unit="req/s" value={s.rps} min={1} max={LIMITS.maxRps} integer onChange={(v) => onChange(updateScenario(draft, { rps: v }))} />
@@ -161,15 +164,26 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
   );
 }
 
+/** Callers listed one by one in the summary; beyond this, the most common count is said once for "the rest". */
+export const SUMMARY_MAX_CALLERS = 4;
+
 /**
  * Who asks again and how many times, front to back, in words: "users' apps 5× · Gateway 3× · App
- * server 1×" (REVIEW2 3.7: "retries 5 / 3 / 1" meant nothing to a newcomer).
+ * server 1×" (REVIEW2 3.7: "retries 5 / 3 / 1" meant nothing to a newcomer). A part that calls
+ * several parts with different retries reads "App server 1× / 2×". With more than
+ * `SUMMARY_MAX_CALLERS` callers, the users' apps and the callers that differ are named and the most
+ * common count is said once: "users' apps 2× · Queue 3× · the rest 1×", so it stays on one line.
  */
 export function retriesSummary(draft: Draft): string {
   const label = (id: string) => draft.topology.layout[id]?.label ?? id;
-  return retryCalls(draft.topology)
-    .map((c) => `${c.caller === 'client' ? "users' apps" : label(c.caller)} ${c.retries}×`)
-    .join(' · ');
+  const groups = retriesByCaller(retryCalls(draft.topology));
+  const text = (g: (typeof groups)[number]) => `${g.caller === 'client' ? "users' apps" : label(g.caller)} ${countsText(g.counts)}`;
+  if (groups.length <= SUMMARY_MAX_CALLERS) return groups.map(text).join(' · ');
+  const [users, ...others] = groups;
+  const tally = new Map<string, number>();
+  for (const g of others) tally.set(countsText(g.counts), (tally.get(countsText(g.counts)) ?? 0) + 1);
+  const common = [...tally].reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+  return [text(users), ...others.filter((g) => countsText(g.counts) !== common).map(text), `the rest ${common}`].join(' · ');
 }
 
 /**
