@@ -9,7 +9,7 @@
  */
 import type { Analysis } from '../analysis/analyze';
 import { formatMs, leafCapacityRps, spokenName } from '../analysis/helpers';
-import type { CallPolicy, RunConfig } from '../engine/config';
+import { callsOf, type CallPolicy, type RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { FixKind, Refutation } from './catalog';
 
@@ -120,9 +120,12 @@ function retriesSent(run: RunResult): number {
   return Object.values(run.tiers).reduce((n, t) => n + sum(t.arrivalsRetry), 0);
 }
 
-/** The calls along the chain (the client's call and each tier's downstream call), front to back. */
-function chainCalls(config: RunConfig): Array<{ owner: string; policy: CallPolicy }> {
-  return [{ owner: 'client', policy: config.client.call }, ...config.tiers.flatMap((t) => (t.downstream ? [{ owner: t.id, policy: t.downstream }] : []))];
+/**
+ * Every layer's calls (the client's call and every downstream call of each tier, in config order;
+ * cache lookups left out). In a chain: the calls along the chain, front to back.
+ */
+function layerCalls(config: RunConfig): Array<{ owner: string; policy: CallPolicy }> {
+  return [{ owner: 'client', policy: config.client.call }, ...config.tiers.flatMap((t) => callsOf(t).map((policy) => ({ owner: t.id, policy })))];
 }
 
 function refutations(pressure: string | null, before: { result: MeasuredRun }, after: { config: RunConfig; result: MeasuredRun }): Refutation[] {
@@ -159,12 +162,18 @@ const count = (n: number) => {
 /** "a", "a and b", "a, b and c". */
 const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
-/** "Users' apps (5×) and the gateway (3×) still retry", or null when no layer retries. */
+/**
+ * "Users' apps (5×) and the gateway (3×) still retry", or null when no layer retries. A layer whose
+ * calls retry different numbers of times shows the range ("the API (1–3×)").
+ */
 function stillRetrying(config: RunConfig, say: (id: string) => string): string | null {
-  const calls = chainCalls(config).filter((c) => c.policy.retries > 0);
-  if (calls.length === 0) return null;
-  const plural = calls.length > 1 || calls[0].owner === 'client';
-  return `${capitalise(listed(calls.map((c) => `${say(c.owner)} (${c.policy.retries}×)`)))} still ${plural ? 'retry' : 'retries'}`;
+  const layers = new Map<string, number[]>();
+  for (const c of layerCalls(config)) if (c.policy.retries > 0) layers.set(c.owner, [...(layers.get(c.owner) ?? []), c.policy.retries]);
+  if (layers.size === 0) return null;
+  const owners = [...layers.keys()];
+  const plural = owners.length > 1 || owners[0] === 'client';
+  const retries = (n: number[]) => (Math.min(...n) === Math.max(...n) ? `${n[0]}×` : `${Math.min(...n)}–${Math.max(...n)}×`);
+  return `${capitalise(listed(owners.map((owner) => `${say(owner)} (${retries(layers.get(owner)!)})`)))} still ${plural ? 'retry' : 'retries'}`;
 }
 
 function notHelpedText(kind: FixKind, pressure: string | null, before: { config: RunConfig; result: MeasuredRun }, after: { config: RunConfig; result: MeasuredRun }, say: (id: string) => string): string {
@@ -255,11 +264,12 @@ function changeText(kind: FixKind, pressure: string | null, before: { config: Ru
 
 const uncap = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
-/** The chain call whose timeout the fix lengthened, with its new timeout. */
+/** The call whose timeout the fix lengthened, with its new timeout. */
 function changedTimeout(before: RunConfig, after: RunConfig): { owner: string; target: string; timeoutMs: number } | null {
-  const was = new Map(chainCalls(before).map((c) => [c.owner, c.policy.timeoutMs]));
-  for (const c of chainCalls(after)) {
-    const old = was.get(c.owner);
+  const key = (c: { owner: string; policy: CallPolicy }) => `${c.owner}→${c.policy.target}`;
+  const was = new Map(layerCalls(before).map((c) => [key(c), c.policy.timeoutMs]));
+  for (const c of layerCalls(after)) {
+    const old = was.get(key(c));
     if (c.policy.timeoutMs !== null && old !== undefined && old !== null && c.policy.timeoutMs > old) return { owner: c.owner, target: c.policy.target, timeoutMs: c.policy.timeoutMs };
   }
   return null;

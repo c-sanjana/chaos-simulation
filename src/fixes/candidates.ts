@@ -1,6 +1,7 @@
-import { formatMs, leafCapacityRps, nameOf, percent, spokenName } from '../analysis/helpers';
+import { allCallEdges, heaviestCallerInto, formatMs, leafCapacityRps, nameOf, percent, spokenName, strictestCallerInto, type CallEdge } from '../analysis/helpers';
 import type { Signals } from '../analysis/signals';
 import type { CallPolicy, RunConfig, TierConfig } from '../engine/config';
+import type { RunResult } from '../engine/result';
 import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition, type Refutation } from './catalog';
 
 export interface FixCandidate {
@@ -32,13 +33,18 @@ export const COMMON_INSTINCT = "it is a common first instinct, so it's worth che
  * with its number, e.g. "retries made up 74% of DB's load". Common instincts get why =
  * COMMON_INSTINCT. In catalog order; fixes that cannot be applied to this config (or would change
  * nothing) are left out.
+ *
+ * `run` (optional): the run the signals came from. With fan-in (several callers into the
+ * overloaded part) it picks the caller that sent it the most; without it, the caller with the
+ * largest share of user traffic (see analysis/helpers' heaviestCallerInto). Chains have one
+ * caller per part, so it changes nothing there.
  */
-export function candidateFixes(config: RunConfig, signals: Signals, labels: Record<string, string>): FixCandidate[] {
+export function candidateFixes(config: RunConfig, signals: Signals, labels: Record<string, string>, run?: RunResult): FixCandidate[] {
   const name = (id: string) => nameOf(id, labels);
   const candidates: FixCandidate[] = [];
   for (const def of FIX_CATALOG) {
     if (def.signal !== null && signals[def.signal] === null) continue;
-    const plan = planFix(def, config, signals, name);
+    const plan = planFix(def, config, signals, name, run);
     if (plan === null) continue;
     candidates.push({
       id: def.id,
@@ -58,8 +64,8 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
 }
 
 /** The config with `def` applied, or null when it does not apply to this config. Never mutates `config`. */
-export function applyFix(def: FixDefinition, config: RunConfig, signals: Signals): RunConfig | null {
-  return planFix(def, config, signals, (id) => id)?.config ?? null;
+export function applyFix(def: FixDefinition, config: RunConfig, signals: Signals, run?: RunResult): RunConfig | null {
+  return planFix(def, config, signals, (id) => id, run)?.config ?? null;
 }
 
 interface FixPlan {
@@ -84,17 +90,27 @@ export function fillNames(how: string, caller: string, target: string, labels: R
   });
 }
 
-function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: (id: string) => string): FixPlan | null {
+function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: (id: string) => string, run?: RunResult): FixPlan | null {
   const callName = (ref: CallRef) => `${name(ref.owner)} → ${name(ref.policy.target)}`;
   const [caller, target] = [(ref: CallRef) => name(ref.owner), (ref: CallRef) => name(ref.policy.target)];
-  /** Who makes a call: "users' apps" (the client), "the API", or "the API's Cache lookups" (plural except a tier's main call). */
-  const maker = (ref: CallRef) =>
-    ref.owner === 'client' ? "users' apps" : ref.field === 'cacheAside' ? `the ${name(ref.owner)}'s ${name(ref.policy.target)} lookups` : `the ${name(ref.owner)}`;
+  /** A tier's own call (singular: "the API asks"), as opposed to users' apps or cache lookups (plural). */
+  const singular = (ref: CallRef) => ref.field === 'downstream' || ref.field === 'more';
+  /**
+   * Who makes a call: "users' apps" (the client), "the API", "the API's Cache lookups" (plural
+   * except a tier's own call), or, for a tier with several calls, "the API's calls to the DB".
+   */
+  const maker = (ref: CallRef) => {
+    if (ref.owner === 'client') return "users' apps";
+    if (ref.field === 'cacheAside') return `the ${name(ref.owner)}'s ${name(ref.policy.target)} lookups`;
+    return callsMadeBy(config, ref.owner) > 1 ? `the ${name(ref.owner)}'s calls to ${name(ref.policy.target)}` : `the ${name(ref.owner)}`;
+  };
+  const callInto = (id: string) => heaviestCallInto(config, id, run);
+  const retryCallFor = (applies: (ref: CallRef) => boolean) => retryCallTowards(config, signals, applies, run);
   switch (def.kind) {
     // Retry fixes change one call: see retryCallFor for which.
     case 'retryBudget': {
       const ratio = FIX_SETTINGS.retryBudgetRatio;
-      const ref = retryCallFor(config, signals, (r) => (r.policy.retryBudget ?? Infinity) > ratio);
+      const ref = retryCallFor((r) => (r.policy.retryBudget ?? Infinity) > ratio);
       if (ref === null) return null;
       return {
         config: withCall(config, ref, { retryBudget: ratio }),
@@ -105,7 +121,7 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
     }
     case 'capRetries': {
       const n = FIX_SETTINGS.maxRetries;
-      const ref = retryCallFor(config, signals, (r) => r.policy.retries > n);
+      const ref = retryCallFor((r) => r.policy.retries > n);
       if (ref === null) return null;
       return {
         config: withCall(config, ref, { retries: n }),
@@ -115,7 +131,7 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       };
     }
     case 'jitterBackoff': {
-      const ref = retryCallFor(config, signals, (r) => !(r.policy.jitter && r.policy.backoffBaseMs > 0));
+      const ref = retryCallFor((r) => !(r.policy.jitter && r.policy.backoffBaseMs > 0));
       if (ref === null) return null;
       // A call that retries immediately has no backoff to jitter, so it gets a base delay too.
       const patch = ref.policy.backoffBaseMs > 0 ? { jitter: true } : { jitter: true, backoffBaseMs: FIX_SETTINGS.jitterBaseMs };
@@ -131,43 +147,51 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       if (retrying.length < 2 || bottleneck(signals) === null) return null;
       // The call into the bottleneck if it retries, else the nearest retrying call in front of it;
       // failing both, the innermost retrying call.
-      const keep = retryCallFor(config, signals, () => true) ?? retrying[retrying.length - 1];
-      const others = retrying.filter((r) => r.owner !== keep.owner || r.field !== keep.field);
+      const keep = retryCallFor(() => true) ?? retrying[retrying.length - 1];
+      const others = retrying.filter((r) => !sameCall(r, keep));
       let fixed = config;
       for (const r of others) fixed = withCall(fixed, r, { retries: 0 });
       const makers = others.map(maker);
       const n = keep.policy.retries;
-      const plural = others.length > 1 || others[0].field !== 'downstream';
-      const only = keep.field === 'downstream' ? `Only ${maker(keep)} asks` : `Only ${maker(keep)} ask`;
+      const plural = others.length > 1 || !singular(others[0]) || callsMadeBy(config, others[0].owner) > 1;
+      const only = singular(keep) && callsMadeBy(config, keep.owner) === 1 ? `Only ${maker(keep)} asks` : `Only ${maker(keep)} ask`;
       return {
         config: fixed,
         ...ends(keep),
+        // The kept caller's other calls stop retrying too: the catalog's "every other layer" would leave them out.
+        how: callsMadeBy(config, keep.owner) > 1 ? '{Caller} asks {target} again and nothing else does: its other calls and every other layer pass errors straight back, so repeats no longer multiply from layer to layer.' : undefined,
         where: callName(keep),
         what: `${only} the ${target(keep)} again (${n === 1 ? 'once' : `up to ${n} times`}); ${listed(makers)} no longer ${plural ? 'retry' : 'retries'}.`,
       };
     }
     case 'boundQueue': {
+      // ASSUMPTION: with several callers, sized for the least patient one (the shortest timeout),
+      // so that whatever is let in can be served before any caller gives up. That is also the
+      // caller the signal quotes.
       const id = signals.queueWaitOverTimeout?.tier;
-      const timeoutMs = id === undefined ? null : callInto(config, id)?.policy.timeoutMs ?? null;
-      if (id === undefined || timeoutMs === null) return null;
+      const strictest = id === undefined ? null : strictestCallInto(config, id);
+      const timeoutMs = strictest?.policy.timeoutMs ?? null;
+      if (id === undefined || strictest === null || timeoutMs === null) return null;
       const tier = tierById(config, id);
       const limit = queueLimitFor(tier, timeoutMs);
       if (tier.queueLimit !== null && tier.queueLimit <= limit) return null;
       return {
         config: withTier(config, id, { queueLimit: limit }),
-        ...ends(callInto(config, id)!),
+        ...ends(strictest),
         where: `${name(id)}, at most ${limit} queued per instance`,
         what: `${name(id)} lets at most ${limit} requests wait per instance and turns the rest away immediately.`,
       };
     }
     case 'dropExpired': {
       const id = signals.wastedShare?.tier;
-      const ref = id === undefined ? null : callInto(config, id);
+      const ref = id === undefined ? null : callInto(id);
       // A tier nothing calls has no caller to give up on it.
       if (id === undefined || ref === null || tierById(config, id).dropExpired) return null;
       return {
         config: withTier(config, id, { dropExpired: true }),
         ...ends(ref),
+        // With several callers it skips work for any of them that gave up, not just one.
+        how: callersOfTier(config, id) > 1 ? '{Target} skips requests whose caller has already given up on them, so its time goes to requests someone is still waiting for.' : undefined,
         where: name(id),
         what: `${name(id)} skips requests whose caller has already timed out, instead of doing work nobody will use.`,
       };
@@ -180,7 +204,8 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
         config: withTier(config, tier.id, { coalesceMisses: true }),
         caller: tier.id,
         target: tier.downstream!.target, // validation: cacheAside needs a downstream
-
+        // With several calls behind the cache, a miss reads from all of them (or one, when split).
+        how: callsMadeBy(config, tier.id) > 1 ? 'When requests miss the cache for the same entry at once, one of them makes the reads behind it and the rest share its answer.' : undefined,
         where: name(tier.id),
         what: `When several requests miss the cache for the same key at once, ${name(tier.id)} makes one read and shares the result.`,
       };
@@ -200,7 +225,7 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
     }
     case 'longerTimeout': {
       const id = bottleneck(signals);
-      const ref = id === null ? null : callInto(config, id);
+      const ref = id === null ? null : callInto(id);
       if (ref === null || ref.policy.timeoutMs === null) return null;
       const timeoutMs = ref.policy.timeoutMs * FIX_SETTINGS.timeoutFactor;
       return {
@@ -216,7 +241,7 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       // bottleneck itself.
       const id = bottleneck(signals);
       if (id === null) return null;
-      const caller = callInto(config, id);
+      const caller = callInto(id);
       const target = caller === null || caller.owner === 'client' ? id : caller.owner;
       const before = tierById(config, target).instances;
       const instances = Math.ceil(before * FIX_SETTINGS.instanceFactor);
@@ -272,7 +297,8 @@ export function describeSignal(signal: keyof Signals, s: Signals, config: RunCon
       return `${percent(s.wastedShare!.value)} of ${name(s.wastedShare!.tier)} work was for requests whose caller had already given up`;
     case 'queueWaitOverTimeout': {
       const { tier, value } = s.queueWaitOverTimeout!;
-      const caller = callInto(config, tier)!;
+      // The least patient caller: the one the signal measured against (see computeSignals).
+      const caller = strictestCallInto(config, tier)!;
       return `requests waited in ${name(tier)}'s queue up to ${formatRatio(value)} longer than the ${name(caller.owner)}'s ${formatMs(caller.policy.timeoutMs!)} timeout`;
     }
     case 'idleSaturation':
@@ -296,24 +322,56 @@ const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times
 
 const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 
-/** A call policy in the config: the client's call, or a tier's downstream or cacheAside call. */
-interface CallRef {
+/**
+ * A call policy in the config, addressed so that a fix can change it:
+ * - field 'call': the client's call (owner 'client');
+ * - field 'downstream': a tier's first call (`downstream`);
+ * - field 'more': a tier's further call `moreDownstream[index]` (branching);
+ * - field 'cacheAside': a tier's cache lookups.
+ * `index` is 0 except for 'more'.
+ */
+export interface CallRef {
   /** 'client' or the calling tier's id. */
   owner: string;
-  field: 'call' | 'downstream' | 'cacheAside';
+  field: 'call' | 'downstream' | 'more' | 'cacheAside';
+  index: number;
   policy: CallPolicy;
 }
 
-/** The call into `tierId` (the same caller as analysis/helpers' callerOf), or null. */
-function callInto(config: RunConfig, tierId: string): CallRef | null {
-  if (config.client.call.target === tierId) return { owner: 'client', field: 'call', policy: config.client.call };
-  for (const t of config.tiers) {
-    for (const field of ['downstream', 'cacheAside'] as const) {
-      const policy = t[field];
-      if (policy?.target === tierId) return { owner: t.id, field, policy };
-    }
-  }
-  return null;
+/** The CallRef for a call edge of analysis/helpers (its downstream index 0 is `downstream`, k ≥ 1 is `moreDownstream[k − 1]`). */
+export function refOf(edge: CallEdge): CallRef {
+  if (edge.kind === 'call') return { owner: 'client', field: 'call', index: 0, policy: edge.policy };
+  if (edge.kind === 'cacheAside') return { owner: edge.from, field: 'cacheAside', index: 0, policy: edge.policy };
+  return edge.index === 0 ? { owner: edge.from, field: 'downstream', index: 0, policy: edge.policy } : { owner: edge.from, field: 'more', index: edge.index - 1, policy: edge.policy };
+}
+
+const sameCall = (a: CallRef, b: CallRef) => a.owner === b.owner && a.field === b.field && a.index === b.index;
+
+/** How many calls go into a tier (the client's and every tier's, cache lookups included). */
+function callersOfTier(config: RunConfig, id: string): number {
+  return allCallEdges(config).filter((e) => e.policy.target === id).length;
+}
+
+/** How many downstream calls a tier makes (cache lookups not counted). */
+function callsMadeBy(config: RunConfig, owner: string): number {
+  const tier = config.tiers.find((t) => t.id === owner);
+  return tier?.downstream ? 1 + (tier.moreDownstream?.length ?? 0) : 0;
+}
+
+/**
+ * The call into `tierId` a fix aimed at that tier changes, or null if nothing calls it. In a chain,
+ * the one caller. With fan-in, the caller sending it the most (from the run if given, else by
+ * share of user traffic; see analysis/helpers' heaviestCallerInto), the first on a tie.
+ */
+function heaviestCallInto(config: RunConfig, tierId: string, run?: RunResult): CallRef | null {
+  const edge = heaviestCallerInto(config, tierId, run);
+  return edge && refOf(edge);
+}
+
+/** The least patient call into `tierId` (shortest timeout; see strictestCallerInto), or null. */
+function strictestCallInto(config: RunConfig, tierId: string): CallRef | null {
+  const edge = strictestCallerInto(config, tierId);
+  return edge && refOf(edge);
 }
 
 /** The two ends of a call, for the catalog's {caller} and {target}. */
@@ -321,13 +379,14 @@ const ends = (ref: CallRef) => ({ caller: ref.owner, target: ref.policy.target }
 
 /**
  * The calls that lead to `tierId`: the call into it, then the call into that caller, and so on
- * out to the client's call (innermost first). Empty when nothing calls it.
+ * out to the client's call (innermost first). With fan-in, each step follows the caller sending
+ * the most (see heaviestCallInto). Empty when nothing calls it.
  */
-function callsTowards(config: RunConfig, tierId: string): CallRef[] {
+function callsTowards(config: RunConfig, tierId: string, run?: RunResult): CallRef[] {
   const path: CallRef[] = [];
   const seen = new Set<string>();
   // Validation forbids loops; `seen` makes sure a bad config cannot hang this.
-  for (let ref = callInto(config, tierId); ref !== null && !seen.has(ref.owner); ref = ref.owner === 'client' ? null : callInto(config, ref.owner)) {
+  for (let ref = heaviestCallInto(config, tierId, run); ref !== null && !seen.has(ref.owner); ref = ref.owner === 'client' ? null : heaviestCallInto(config, ref.owner, run)) {
     seen.add(ref.owner);
     path.push(ref);
   }
@@ -349,22 +408,18 @@ function callsTowards(config: RunConfig, tierId: string): CallRef[] {
  * rescue a request once the layers behind them have given up. Moving outwards from the bottleneck
  * lets "cap retries" reach the Gateway when the API already retries only once.
  */
-function retryCallFor(config: RunConfig, signals: Signals, applies: (ref: CallRef) => boolean): CallRef | null {
+function retryCallTowards(config: RunConfig, signals: Signals, applies: (ref: CallRef) => boolean, run?: RunResult): CallRef | null {
   const id = bottleneck(signals);
   if (id === null) return null;
-  return callsTowards(config, id).find((ref) => ref.policy.retries > 0 && applies(ref)) ?? null;
+  return callsTowards(config, id, run).find((ref) => ref.policy.retries > 0 && applies(ref)) ?? null;
 }
 
-/** Every call in the config, front to back: the client's, then each tier's cache-aside and downstream calls. */
-function allCalls(config: RunConfig): CallRef[] {
-  const calls: CallRef[] = [{ owner: 'client', field: 'call', policy: config.client.call }];
-  for (const t of config.tiers) {
-    for (const field of ['cacheAside', 'downstream'] as const) {
-      const policy = t[field];
-      if (policy) calls.push({ owner: t.id, field, policy });
-    }
-  }
-  return calls;
+/**
+ * Every call in the config, front to back: the client's, then each tier's cache-aside call and
+ * downstream calls (`downstream`, then each of `moreDownstream`), in config order.
+ */
+export function allCalls(config: RunConfig): CallRef[] {
+  return allCallEdges(config).map(refOf);
 }
 
 function tierById(config: RunConfig, id: string): TierConfig {
@@ -376,8 +431,13 @@ function withTier(config: RunConfig, id: string, patch: Partial<TierConfig>): Ru
   return { ...config, tiers: config.tiers.map((t) => (t.id === id ? { ...t, ...patch } : t)) };
 }
 
-function withCall(config: RunConfig, ref: CallRef, patch: Partial<CallPolicy>): RunConfig {
+/** A copy of the config with one call's policy patched (any call: see CallRef). Never mutates `config`. */
+export function withCall(config: RunConfig, ref: CallRef, patch: Partial<CallPolicy>): RunConfig {
   const policy = { ...ref.policy, ...patch };
-  if (ref.owner === 'client') return { ...config, client: { ...config.client, call: policy } };
+  if (ref.field === 'call') return { ...config, client: { ...config.client, call: policy } };
+  if (ref.field === 'more') {
+    const more = tierById(config, ref.owner).moreDownstream ?? [];
+    return withTier(config, ref.owner, { moreDownstream: more.map((c, i) => (i === ref.index ? policy : c)) });
+  }
   return withTier(config, ref.owner, { [ref.field]: policy });
 }

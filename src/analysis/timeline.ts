@@ -1,6 +1,6 @@
 import type { Fault, RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
-import { admittedIn, callerOf, formatMs, formatSeconds, leafCapacityRps, nameOf, percent } from './helpers';
+import { admittedIn, formatMs, formatSeconds, leafCapacityRps, nameOf, percent, strictestCallerInto } from './helpers';
 import type { RecoveryResult } from './recovery';
 import type { Signals } from './signals';
 
@@ -43,15 +43,20 @@ export function buildTimeline(
     if (f.endMs < run.durationMs) entries.push({ tMs: f.endMs, text: describeFaultEnd(f, name), kind: 'fault' });
   }
 
-  // A tier's slowest responses outgrow its caller's patience: the caller starts timing out.
+  // A tier's slowest responses outgrow its caller's patience: the caller starts timing out. With
+  // several callers, the least patient one is the first whose timeout is exceeded, so it is named.
+  const strictest = (id: string) => {
+    const call = strictestCallerInto(config, id);
+    return call && call.policy.timeoutMs !== null ? { id: call.from, timeoutMs: call.policy.timeoutMs } : null;
+  };
   for (let s = startSecond; s < endSecond; s++) {
     const hit = Object.values(run.tiers).find((t) => {
-      const timeout = callerOf(config, t.id)?.timeoutMs ?? null;
-      return timeout !== null && t.latencyP99Ms[s] > timeout;
+      const caller = strictest(t.id);
+      return caller !== null && t.latencyP99Ms[s] > caller.timeoutMs;
     });
     if (hit) {
-      const caller = callerOf(config, hit.id)!;
-      entries.push({ tMs: at(s), text: `${name(hit.id)} p99 ${formatMs(hit.latencyP99Ms[s])} exceeds the ${name(caller.id)}'s ${formatMs(caller.timeoutMs!)} timeout`, kind: 'info' });
+      const caller = strictest(hit.id)!;
+      entries.push({ tMs: at(s), text: `${name(hit.id)} p99 ${formatMs(hit.latencyP99Ms[s])} exceeds the ${name(caller.id)}'s ${formatMs(caller.timeoutMs)} timeout`, kind: 'info' });
       break;
     }
   }
@@ -93,14 +98,14 @@ export function buildTimeline(
   // before it is served, so the tier's work is wasted until the queue drains.
   for (let s = startSecond; s < endSecond; s++) {
     const hit = Object.values(run.tiers).find((t) => {
-      const timeout = callerOf(config, t.id)?.timeoutMs ?? null;
-      return timeout !== null && queuedWaitMs(run, t.id, s) > timeout;
+      const caller = strictest(t.id);
+      return caller !== null && queuedWaitMs(run, t.id, s) > caller.timeoutMs;
     });
     if (hit) {
-      const caller = callerOf(config, hit.id)!;
+      const caller = strictest(hit.id)!;
       entries.push({
         tMs: at(s),
-        text: `${name(hit.id)} queue holds ${formatMs(queuedWaitMs(run, hit.id, s))} of work against the ${name(caller.id)}'s ${formatMs(caller.timeoutMs!)} timeout: new requests expire before they are served`,
+        text: `${name(hit.id)} queue holds ${formatMs(queuedWaitMs(run, hit.id, s))} of work against the ${name(caller.id)}'s ${formatMs(caller.timeoutMs)} timeout: new requests expire before they are served`,
         kind: 'info',
       });
       break;

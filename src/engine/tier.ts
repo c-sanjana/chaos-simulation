@@ -314,8 +314,10 @@ export class Tier implements CallTarget {
    * With fanOut 'split': which call an attempt makes. Shares (default 1) are normalised, and a
    * uniform keyed by (request, attempt path, tier) picks the call whose cumulative share covers it.
    * ASSUMPTION: the pick is random per attempt (independent thinning, like a load balancer choosing
-   * a pool at random by weight), not round-robin across the pools. A retry is a new attempt with
-   * its own path, so it may go to a different pool, as a load balancer's retry would.
+   * a pool at random by weight), not round-robin across the pools.
+   * ASSUMPTION: the tier's own retries of the chosen call go to the same pool (each call keeps its
+   * own policy and budget); a retry by whoever calls this tier is a new attempt with its own path,
+   * so it is split afresh and may land on another pool.
    */
   private splitPick(attempt: Attempt): number {
     const shares = this.calls.map((c) => c.share ?? 1);
