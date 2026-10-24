@@ -121,7 +121,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     expect(view.spec.series.map((x) => x.label)).toEqual(['Slowest 1% wait (p99)', 'Typical wait (median)', "Users' apps give up on one try after 3 s"]);
     // Says why the wait is longer than one timeout, and why lines stop.
     expect(view.note).toMatch(/includes every retry until the final answer or error/);
-    expect(view.note).toMatch(/A line stops where/);
+    expect(view.note).toMatch(/Lines stop where requests had not finished when the run ended/);
     expect(chartView('latency', config, run, labels, 'db').note).toBeUndefined();
   });
 

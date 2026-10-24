@@ -20,7 +20,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     const more = snapshot(updateRetries(base.draft, 'api', 5));
     const c = compareRuns(base, more, labels);
     expect(c.changes).toEqual(['App server → DB retries 1 → 5']);
-    expect(c.rows.map((r) => r.label)).toEqual(['Failed requests', 'Retries sent (all layers)', 'DB load at its peak', 'App server workers busy after the failure']);
+    expect(c.rows.map((r) => r.label)).toEqual(['Failed requests', 'Retries sent (all layers)', 'DB peak load over the whole run', 'App server workers busy after the failure']);
     expect(c.rows[0]).toMatchObject({ change: 'same', tone: 'same' });
     expect(c.rows[1].tone).toBe('worse');
     expect(c.rows[3]).toMatchObject({ before: expect.stringMatching(/%$/), tone: 'worse' });

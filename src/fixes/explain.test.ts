@@ -122,6 +122,52 @@ describe('explainFix', { timeout: 120_000 }, () => {
     expect(e.text).not.toMatch(/undefined|NaN/);
   });
 
+  it('scaling out the overloaded part itself: measured against its new capacity', () => {
+    const scaled: RunConfig = { ...storm, tiers: storm.tiers.map((t) => (t.id === 'db' ? { ...t, instances: t.instances + 1 } : t)) };
+    const [before, after] = [analyzed(storm), analyzed(scaled)];
+    const e = explainFix('addInstances', false, { config: storm, result: before }, { config: scaled, result: after }, labels);
+    if (after.analysis.recovery.verdict === 'stuck') expect(e.text).toMatch(/^Even with more servers, the database had up to \d\.\d× the work it can now handle after the failure ended: users' apps \(5×\)/);
+    else expect(e.text).toMatch(/^It gets back to normal/);
+  });
+
+  it('says why skipping abandoned work worked, and falls back to the load alone when nothing else changed', () => {
+    const single = buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 0, api: 3 } });
+    const e = explain(single, 'drop-expired');
+    expect(e.helped).toBe(true);
+    expect(e.text).toMatch(/^The database skipped [\d,]+ requests nobody was waiting for any more, so after the failure ended/);
+    const same = analyzed(storm);
+    expect(explainFix('jitterBackoff', true, { config: storm, result: same }, { config: storm, result: same }, labels).text).toMatch(/^After the failure ended, the database had at most \d\.\d× the work it can handle, against \d\.\d× without the fix\.$/);
+  });
+
+  it('with no overloaded part and nobody retrying, says plainly that it never got back to normal', () => {
+    const calm = buildRunConfig(webChain, retryStorm, { rps: 40, retries: { client: 0, gateway: 0, api: 0 } });
+    const run = analyzed(calm);
+    const stuck = { ...run, analysis: { ...run.analysis, recovery: { ...run.analysis.recovery, verdict: 'stuck' as const, failedRequests: 12 } } };
+    expect(explainFix('dropExpired', false, { config: calm, result: run }, { config: calm, result: stuck }, labels).text).toBe("It still hadn't returned to normal by the end of the run, and 12 requests failed.");
+    expect(explainFix('dropExpired', true, { config: calm, result: run }, { config: calm, result: run }, labels).text).toBe('It got back to normal after the failure ended.');
+    const quiet = vi.spyOn(Number.prototype, 'toLocaleString').mockImplementation(() => {
+      throw new RangeError('bad locale');
+    });
+    expect(explainFix('dropExpired', false, { config: calm, result: run }, { config: calm, result: stuck }, labels).text).toMatch(/and 12 requests failed/);
+    quiet.mockRestore();
+  });
+
+  it('a queue that never catches up: more consumers leave messages waiting; one that drains has fewer waiting', () => {
+    const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
+    if (system.kind !== 'custom') throw new Error('expected a built system');
+    const queueLabels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
+    const backlog = system.scenarios.find((s) => s.id === 'custom-queue-backlog')!;
+    const config = buildRunConfig(system.topology, backlog, { rps: 150 });
+    const before = analyzed(config);
+    const fix = candidateFixes(config, before.analysis.signals, queueLabels).find((c) => c.id === 'more-consumers')!;
+    const after = analyzed(fix.config);
+    const notHelped = explainFix('moreConsumers', false, { config, result: before }, { config: fix.config, result: after }, queueLabels);
+    if (after.analysis.recovery.verdict === 'stuck' && (after.analysis.signals.queueBacklog?.value.atEnd ?? 0) >= 1) expect(notHelped.text).toMatch(/^[\d,]+ messages were still waiting in the queue 2 at the end of the run/);
+    const worked = explainFix('moreConsumers', true, { config, result: before }, { config: fix.config, result: after }, queueLabels);
+    if ((after.analysis.signals.queueBacklog?.value.peak ?? 0) < (before.analysis.signals.queueBacklog?.value.peak ?? 0)) expect(worked.text).toMatch(/^At most [\d,]+ messages waited instead of [\d,]+/);
+    expect(worked.title).toBe('Why it worked');
+  });
+
   it('every kind gives a sentence for every preset, with numbers and no placeholders', () => {
     for (const scenario of [retryStorm, cacheRestart, gatewaySlow]) {
       const config = buildRunConfig(webChain, scenario);

@@ -315,9 +315,7 @@ export function chartView(
         series.push(ref(label, flat(caller.timeoutMs)));
       }
       if (!tierScope) {
-        note =
-          'The wait includes every retry until the final answer or error, so it can be several timeouts long. ' +
-          "A line stops where none of the requests sent in that second finished before the run ended.";
+        note = 'The wait includes every retry until the final answer or error. Lines stop where requests had not finished when the run ended.';
       }
       break;
     }

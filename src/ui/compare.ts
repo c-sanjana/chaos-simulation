@@ -59,7 +59,7 @@ export function compareRuns(prev: RunSnapshot, next: RunSnapshot, labels: Record
   const peakPrev = peakLoad(prev.config, prev.result.run, bottleneck);
   const peakNext = peakLoad(next.config, next.result.run, bottleneck);
   if (peakPrev !== null && peakNext !== null) {
-    rows.push(ratioRow(`${name(bottleneck)} load at its peak`, peakPrev, peakNext, (v) => `${v.toFixed(1)}× capacity`));
+    rows.push(ratioRow(`${name(bottleneck)} peak load over the whole run`, peakPrev, peakNext, (v) => `${v.toFixed(1)}× capacity`));
   }
   // Workers: the tier whose workers changed most (the setting's effect inside the system); when
   // none moved, the tier where workers wait rather than work.

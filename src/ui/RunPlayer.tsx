@@ -8,7 +8,7 @@ import type { AnalyzeResult } from '../worker/jobs';
 import { ChartLegend } from './components/ChartLegend';
 import { MetricTabs } from './components/MetricTabs';
 import { PlaybackBar } from './components/PlaybackBar';
-import { TimeSeriesChart } from './components/TimeSeriesChart';
+import { CHART_HEIGHT, TimeSeriesChart } from './components/TimeSeriesChart';
 import { EventTrack } from './components/EventTrack';
 import { StoryCard, type StoryStepView } from './components/StoryCard';
 import { TopologyDiagram } from './components/TopologyDiagram';
@@ -69,6 +69,12 @@ export interface RunPlayerProps {
 }
 
 const COMPACT_CHART_HEIGHT = 175;
+/**
+ * Room a chart note takes under the legend (one line of 12px text and its margin), taken from the
+ * chart's height so a tab with a note is no taller than one without (the page fits 1440×900).
+ * ASSUMPTION: measured at 1440 px wide, where every note fits on one line.
+ */
+const NOTE_PX = 28;
 
 /**
  * Replays one computed run: topology with live flows, playback controls, metric charts and the
@@ -288,7 +294,7 @@ export function RunPlayer({
               )}
               <ChartLegend series={chart.spec.series} />
               {chart.note && <p className="csl-chart-note">{chart.note}</p>}
-              <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
+              <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={(chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : CHART_HEIGHT)) - (chart.note ? NOTE_PX : 0)} />
             </div>
             {sideTimeline && (
               <div className="csl-player__timeline csl-player__timeline--side">

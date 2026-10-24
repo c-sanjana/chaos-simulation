@@ -1920,9 +1920,15 @@ button.csl-map__cell {
   overflow-y: auto;
 }
 .csl-player__sidestack > .csl-timeline-window {
-  flex: 1 0 150px;
+  flex: 1 1 120px;
   height: auto;
-  min-height: 150px;
+  min-height: 120px;
+}
+/* The story never hides the details: it takes at most about half the height and scrolls inside. */
+.csl-player__sidestack > .csl-story--compact {
+  flex: 0 1 auto;
+  max-height: 55%;
+  overflow-y: auto;
 }
 .csl-story--compact {
   padding: 8px 10px;
@@ -1945,6 +1951,8 @@ button.csl-map__cell {
 .csl-glossary > summary {
   list-style: none;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
 .csl-glossary > summary::-webkit-details-marker {
   display: none;
