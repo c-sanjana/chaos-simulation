@@ -35,7 +35,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     const pool = new FakePool(verdict);
     render(<FixStep pool={pool} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     // Once every fix is tested and checked, the best is shown and the corner explains the map.
-    await screen.findByText('◆ = shown on the right; click any cell', undefined, SLOW);
+    await screen.findByText('◆ = the run in the replay; select any cell', undefined, SLOW);
     // One tab per fix, reliable helpers first; the best one is shown straight away once checked.
     const tabs = screen.getAllByRole('tab');
     expect(tabs.length).toBeGreaterThan(1);
@@ -43,7 +43,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     expect(tabs[0].textContent).toMatch(/^✓.*4 s$/);
     expect(tabs[0].getAttribute('aria-label')).toMatch(/: helped, back to normal 4 s after the failure ended$/);
     expect(tabs.at(-1)!.textContent).toMatch(/^✕/); // fixes that did not help come last, without a badge
-    expect(screen.getByText('Shown on the right')).toBeTruthy();
+    expect(screen.getByText('Shown in the replay')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Retry budget of 10%' })).toBeTruthy();
     expect(screen.getByText('Stuck → recovers in 4 s')).toBeTruthy();
     expect(screen.getByText('at your settings (200 req/s, a 5 s failure)')).toBeTruthy();
@@ -65,7 +65,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     for (const b of screen.getAllByRole('button', { name: /^80 requests per second, 2s failure length/ })) {
       expect(b.getAttribute('aria-pressed')).toBe('true');
       expect(b.textContent).toBe('◆');
-      expect(b.getAttribute('aria-label')).toMatch(/\(shown on the right\)$/);
+      expect(b.getAttribute('aria-label')).toMatch(/\(shown in the replay\)$/);
     }
     for (const b of screen.getAllByRole('button', { name: /^200 requests per second, 5s failure length/ })) expect(b.textContent).toBe('');
     expect(screen.getByText('Simulating 80 req/s · a 2 s failure without and with the fix…')).toBeTruthy();
@@ -97,7 +97,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
       return { verdict: 'stuck', recoveryMs: null, failedRequests: 9000 };
     };
     render(<FixStep pool={new FakePool(luck)} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
-    await screen.findByText('◆ = shown on the right; click any cell', undefined, SLOW);
+    await screen.findByText('◆ = the run in the replay; select any cell', undefined, SLOW);
     const tabs = screen.getAllByRole('tab');
     expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries: helped/);
     const budget = screen.getByRole('tab', { name: /^Retry budget: helped only sometimes/ });

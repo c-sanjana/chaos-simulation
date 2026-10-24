@@ -25,7 +25,8 @@ const ALERT: ReadonlySet<TimelineEntryView['kind']> = new Set(['fault', 'tip', '
  * With `nowMs` (the replay position) it plays along, newest first: only events the replay has
  * reached are shown, the latest at the top, with a count of what is still ahead. An event spanning
  * a time range ("35–117 s") is shown once the replay reaches the end of the range, so it never
- * states something the replay hasn't shown yet. Failure events are highlighted.
+ * states something the replay hasn't shown yet. Failure events are highlighted. The list is not a
+ * live region: the story is announced once, throttled, by the page (see Announcer).
  */
 export function Timeline({ entries, nowMs }: { entries: TimelineEntryView[]; nowMs?: number }) {
   if (entries.length === 0) return <p className="csl-empty">Nothing notable detected.</p>;
@@ -44,7 +45,7 @@ export function Timeline({ entries, nowMs }: { entries: TimelineEntryView[]; now
       {shown.length === 0 ? (
         <p className="csl-empty">Events appear here as the replay reaches them.</p>
       ) : (
-        <ol className="csl-timeline" aria-live="polite">
+        <ol className="csl-timeline">
           {shown.map((e, i) => {
             const strong = e.kind === 'tip' || e.kind === 'bad' || e.kind === 'good';
             const cls = `csl-timeline__text${strong ? ' csl-timeline__text--strong' : ''}${e.kind === 'tip' ? ' csl-timeline__text--tip' : ''}`;

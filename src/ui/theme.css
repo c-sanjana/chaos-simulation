@@ -22,14 +22,16 @@
   --csl-primary: #1f6feb;
   --csl-secondary: #8250df;
   --csl-reference: #8c939d;
-  --csl-before: #9aa1ab;
+  /* Graphics people need to see are at least 3:1 against the card (WCAG 1.4.11); the values are
+     checked in PLAN.md's decision log. Light fills that can't be darker get a 1px edge instead. */
+  --csl-before: #6e7781;
   --csl-bad: #e8590c;
   --csl-bad-text: #b23f00;
   --csl-failure-tint: rgba(232, 89, 12, 0.14);
   --csl-good: #2f9e6e;
   --csl-good-text: #1a7f52;
   --csl-warn-text: #9a6700;
-  --csl-info-dot: #aeb4bc;
+  --csl-info-dot: #7d8590;
   --csl-focus: #1f6feb;
   --csl-selected-ring: rgba(31, 111, 235, 0.35);
   --csl-selected-bg: #f3f8ff;
@@ -38,6 +40,7 @@
   --csl-arrow: #5c6670;
   --csl-instance-hot: #f5a26e;
   --csl-instance-calm: #c9e3d6;
+  --csl-instance-edge: #6a737d;
 
   /* Darker than the first mockups so recovered (blue) and stuck (orange) differ clearly in hue
      and lightness, including for colour-blind viewers. */
@@ -45,7 +48,8 @@
   --csl-map-slow: #5b95e6;
   --csl-map-barely: #2f6fd0;
   --csl-map-stuck: #e8590c;
-  --csl-map-pending: #e6e9ed;
+  --csl-map-pending: #f1f3f5;
+  --csl-map-pending-edge: #7d8590;
   --csl-map-cell: 30px;
   --csl-alert-bg: #fdeeee;
   --csl-on-ink: #ffffff;
@@ -85,7 +89,7 @@
   --csl-good: #3fb984;
   --csl-good-text: #3fb984;
   --csl-warn-text: #e3b341;
-  --csl-info-dot: #6e7681;
+  --csl-info-dot: #8b949e;
   --csl-focus: #4c8dff;
   --csl-selected-ring: rgba(76, 141, 255, 0.45);
   --csl-selected-bg: #19263a;
@@ -94,12 +98,14 @@
   --csl-arrow: #8b949e;
   --csl-instance-hot: #f0883e;
   --csl-instance-calm: #2f6150;
+  --csl-instance-edge: #8b949e;
 
   --csl-map-fast: #9cc0f2;
   --csl-map-slow: #5b95e6;
   --csl-map-barely: #2f6fd0;
   --csl-map-stuck: #e8590c;
   --csl-map-pending: #2b3139;
+  --csl-map-pending-edge: #7d8590;
   --csl-alert-bg: #3a1e1e;
   --csl-on-ink: #0f1216;
   --csl-chip-good-bg: #123528;
@@ -207,7 +213,7 @@ body {
   font-weight: 600;
 }
 .csl-node__count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
   font-family: var(--csl-font-mono);
 }
@@ -221,6 +227,8 @@ body {
   height: 14px;
   border-radius: 3px;
   display: inline-block;
+  box-sizing: border-box;
+  border: 1px solid var(--csl-instance-edge);
 }
 .csl-node__line {
   font-family: var(--csl-font-mono);
@@ -245,7 +253,7 @@ body {
   color: var(--csl-bad-text);
 }
 .csl-edge__detail {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
   text-align: center;
 }
@@ -528,6 +536,16 @@ body {
   gap: 3px;
   align-items: center;
 }
+/* The column headers lead the grid in the DOM but are drawn under the rows, above the axis name. */
+.csl-map__row--xlabels {
+  order: 1;
+}
+.csl-map__xaxis {
+  order: 2;
+}
+.csl-map__gridcell {
+  display: flex;
+}
 .csl-map__ylabel {
   font-family: var(--csl-font-mono);
   font-size: 12px;
@@ -537,7 +555,7 @@ body {
 }
 .csl-map__xlabel {
   font-family: var(--csl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
   text-align: center;
 }
@@ -560,8 +578,11 @@ body {
 button.csl-map__cell {
   cursor: pointer;
 }
-.csl-map__cell--pending {
+.csl-map__cell--pending,
+.csl-map-legend__swatch--pending {
   color: var(--csl-muted);
+  border: 1px solid var(--csl-map-pending-edge);
+  box-sizing: border-box;
 }
 .csl-map__cell[aria-pressed='true'] {
   box-shadow: 0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink);
@@ -959,11 +980,18 @@ button.csl-map__cell {
 .csl-page {
   max-width: 1680px;
   margin: 0 auto;
-  padding: 14px 20px 48px;
+  padding: 14px 20px 20px;
   display: flex;
   flex-direction: column;
   gap: 18px;
   box-sizing: border-box;
+}
+/* The banner (<header>) sits beside <main>, not inside it; main lays out its parts like the page did. */
+.csl-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
 }
 .csl-header {
   display: flex;
@@ -1181,7 +1209,7 @@ button.csl-map__cell {
 .csl-timeline__item--latest .csl-timeline__time::after {
   content: 'now';
   display: block;
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1250,7 +1278,8 @@ button.csl-map__cell {
   grid-template-columns:
     minmax(84px, 1fr) minmax(52px, 0.6fr) minmax(84px, 1fr) minmax(52px, 0.6fr)
     minmax(100px, 1.15fr) minmax(64px, 0.7fr) minmax(84px, 1fr);
-  grid-template-rows: auto 40px auto;
+  /* Tall enough for a cache arrow's two lines above the next box's badges (which sit just outside it). */
+  grid-template-rows: auto 46px auto;
 }
 .csl-topology-grid--compact .csl-node {
   padding: 6px 8px;
@@ -1269,7 +1298,7 @@ button.csl-map__cell {
   display: none;
 }
 .csl-topology-grid--compact .csl-node__line {
-  font-size: 11px;
+  font-size: 12px;
 }
 .csl-topology-grid--compact .csl-instance {
   width: 10px;
@@ -1277,7 +1306,7 @@ button.csl-map__cell {
 }
 .csl-topology-grid--compact .csl-edge__label,
 .csl-topology-grid--compact .csl-edge__detail {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 .csl-card--compact {
   padding: 14px 16px;
@@ -1293,7 +1322,7 @@ button.csl-map__cell {
   flex-basis: 240px;
 }
 .csl-card--compact .csl-topology-key {
-  font-size: 11px;
+  font-size: 12px;
 }
 /* Two columns on wide screens, stacked below ~1100px. */
 .csl-split {
@@ -1348,7 +1377,7 @@ button.csl-map__cell {
 }
 .csl-map--small .csl-map__xlabel,
 .csl-map--small .csl-map__ylabel {
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .csl-timeline-title {
@@ -1448,7 +1477,7 @@ button.csl-map__cell {
 }
 .csl-map--medium .csl-map__xlabel,
 .csl-map--medium .csl-map__ylabel {
-  font-size: 9.5px;
+  font-size: 11px;
 }
 .csl-split__side .csl-map {
   --csl-map-cell: 28px;
@@ -1465,7 +1494,7 @@ button.csl-map__cell {
   --csl-map-cell: 18px;
 }
 .csl-map--medium .csl-map__captions {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 /* Compact player trims: the static colour key is hidden (the arrows and squares carry it; the
@@ -1516,7 +1545,7 @@ button.csl-map__cell {
 }
 .csl-map--medium .csl-map__yaxis,
 .csl-map--medium .csl-map__xaxis {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 /* ---------- Fix tabs ---------- */
@@ -1562,7 +1591,7 @@ button.csl-map__cell {
   flex: none;
   white-space: nowrap;
   font-family: var(--csl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
 }
 .csl-fixtab--no {
@@ -1589,7 +1618,7 @@ button.csl-map__cell {
 }
 .csl-fixtabs__shown {
   flex: none;
-  font-size: 11.5px;
+  font-size: 12px;
   padding: 4px 8px;
 }
 .csl-fixtabs__panel {
@@ -1628,7 +1657,7 @@ button.csl-map__cell {
 }
 .csl-fixtabs__facts dt,
 .csl-procon__title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1759,11 +1788,11 @@ button.csl-map__cell {
 }
 .csl-split__side .csl-fix-maps .csl-map {
   --csl-map-cell: 15px;
-  --csl-map-label: 20px;
+  --csl-map-label: 26px;
 }
-/* Every other traffic label, so the numbers don't run together at this size. */
+/* Every other traffic label, so the numbers don't run together at this size (still read as headers). */
 .csl-fix-maps .csl-map__xlabel:nth-child(odd) {
-  visibility: hidden;
+  color: transparent;
 }
 .csl-fix-maps .csl-map__yaxis {
   padding-bottom: 28px;
@@ -2026,7 +2055,7 @@ button.csl-map__cell {
 }
 .csl-flow__time {
   font-family: var(--csl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
 }
 .csl-flow__step--latest .csl-flow__headline {
@@ -2067,7 +2096,7 @@ button.csl-map__cell {
   position: absolute;
   top: 10px;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--csl-muted);
 }
 .csl-cascade {
@@ -2080,7 +2109,7 @@ button.csl-map__cell {
   grid-template-columns: minmax(0, 1fr) auto 24px;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--csl-ink-2);
 }
 .csl-cascade__who {
@@ -2170,7 +2199,7 @@ button.csl-map__cell {
 }
 .csl-track__time {
   font-family: var(--csl-font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--csl-muted);
 }
 .csl-track__key {
@@ -2178,7 +2207,7 @@ button.csl-map__cell {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
 }
 .csl-track__key-band {
@@ -2218,7 +2247,7 @@ button.csl-map__cell {
 }
 .csl-track__detail-time {
   font-family: var(--csl-font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--csl-muted);
   margin-right: 4px;
 }
@@ -2236,7 +2265,7 @@ button.csl-map__cell {
   border-radius: 10px;
   background: var(--csl-subtle-bg);
   color: var(--csl-ink-2);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .csl-compare__chip--more {
   color: var(--csl-muted);
@@ -2260,7 +2289,7 @@ button.csl-map__cell {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--csl-muted);
 }
 .csl-compare__key .csl-compare__dot--now {
@@ -2289,7 +2318,7 @@ button.csl-map__cell {
   color: var(--csl-ink-2);
 }
 .csl-dumbbell__change {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   font-family: var(--csl-font-mono);
 }
@@ -2334,7 +2363,7 @@ button.csl-map__cell {
 }
 .csl-dumbbell__values {
   grid-column: 1 / -1;
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--csl-font-mono);
   color: var(--csl-muted);
 }
@@ -2342,6 +2371,117 @@ button.csl-map__cell {
   display: flex;
   gap: 6px;
   align-items: baseline;
+}
+
+/* ---------- Charts as text: a summary for screen readers and "Show as table" ---------- */
+.csl-legend__table {
+  margin-left: auto;
+}
+.csl-chart-toggle {
+  min-height: 0;
+  padding: 2px 4px;
+  font-size: 13px;
+}
+/* The table takes the chart's place at the chart's height and scrolls inside. */
+.csl-chart-table {
+  overflow: auto;
+  border: 1px solid var(--csl-border);
+  border-radius: 8px;
+}
+.csl-chart-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--csl-font-mono);
+  font-size: 12px;
+  color: var(--csl-ink);
+}
+.csl-chart-table caption {
+  caption-side: top;
+  padding: 6px 8px;
+  text-align: left;
+  font-family: var(--csl-font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--csl-ink-2);
+}
+.csl-chart-table th,
+.csl-chart-table td {
+  padding: 3px 8px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--csl-row-divider);
+}
+.csl-chart-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--csl-card);
+  font-family: var(--csl-font-sans);
+  font-weight: 600;
+}
+.csl-chart-table th[scope='row'] {
+  text-align: left;
+  font-weight: 400;
+  color: var(--csl-muted);
+}
+
+/* The story above the chart, on screens where the side column is far below (RunPlayer storyAbove). */
+.csl-player__story {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- Phones: nothing scrolls sideways except the diagram, inside its own frame ---------- */
+@media (max-width: 600px) {
+  .csl-page {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .csl-card {
+    padding: 14px 12px;
+  }
+  .csl-chip {
+    white-space: normal;
+  }
+  /* Playback: play, time and speeds on one line, the scrubber full width under them. */
+  .csl-playback,
+  .csl-card--compact .csl-playback {
+    flex-wrap: wrap;
+  }
+  .csl-scrubber {
+    order: 1;
+    flex-basis: 100%;
+  }
+  .csl-playback__readout {
+    margin-right: auto;
+  }
+  /* Step 3: the legend and chart get the full width; the timeline goes under them. */
+  .csl-player__chartrow--side {
+    flex-direction: column;
+  }
+  .csl-player__chartrow--side .csl-player__timeline--side {
+    flex: none;
+    height: 300px;
+  }
+  /* Fix tabs: one per line, names in full. */
+  .csl-fixtabs__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .csl-fixtab {
+    min-height: 40px;
+  }
+  .csl-fixtab__name {
+    white-space: normal;
+  }
+  .csl-fixtabs__head {
+    flex-wrap: wrap;
+  }
+  .csl-fixtabs__procon {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .csl-fixtabs__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---------- Build your own system (the canvas page) ---------- */

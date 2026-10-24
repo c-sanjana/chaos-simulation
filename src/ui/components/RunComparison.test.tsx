@@ -33,7 +33,8 @@ describe('RunComparison', () => {
 
     // The exact numbers in a table for screen readers.
     const rows = within(panel).getAllByRole('row');
-    expect(rows.map((r) => r.textContent)).toEqual(['Failed requests12,56112,651same', 'Retries sent (all layers)110,742135,545+22%', 'App server workers busy after the failure100%40%-60 pts']);
+    expect(within(panel).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Measure', 'Before', 'Now', 'Change']);
+    expect(rows.map((r) => r.textContent)).toEqual(['MeasureBeforeNowChange', 'Failed requests12,56112,651same', 'Retries sent (all layers)110,742135,545+22%', 'App server workers busy after the failure100%40%-60 pts']);
     expect(within(panel).getByText(comparison.takeaway)).toBeTruthy();
     expect(panel.querySelector('.csl-compare__takeaway-icon')!.textContent).toBe('ⓘ');
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));

@@ -23,7 +23,9 @@ describe('EventTrack', () => {
     expect(screen.getByText('1 of 3 events')).toBeTruthy();
     const mark = screen.getByRole('button', { name: /DB slows 8×/ });
     expect(mark.className).toContain('csl-track__mark--fault');
-    expect(mark.getAttribute('aria-pressed')).toBe('true');
+    // The spelled-out event is marked as current, not as a pressed toggle.
+    expect(mark.getAttribute('aria-current')).toBe('true');
+    expect(mark.hasAttribute('aria-pressed')).toBe(false);
     expect(mark.textContent).toBe('⚡');
     expect(detail().textContent).toMatch(/DB slows 8× \(injected failure\)$/);
     expect(screen.getByText('during the failure')).toBeTruthy();

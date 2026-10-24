@@ -41,9 +41,43 @@
   --csl-change-ink: #8ab8ff;
 }
 
-/* Room for the badges (which straddle the top and bottom borders) and the pulsing rings. */
+/* Room for the badges (which sit just outside the top and bottom borders) and the pulsing rings. */
 .csl-topology-scroll {
-  padding: 10px 4px;
+  padding: 14px 4px;
+}
+/* Phones: the diagram scrolls sideways inside its frame; a fade marks the side with more, and a
+   one-line hint above says so (TopologyDiagram's useSideScroll). */
+.csl-topology-fade {
+  position: relative;
+}
+.csl-topology-fade::before,
+.csl-topology-fade::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.csl-topology-fade::before {
+  left: 0;
+  background: linear-gradient(to right, var(--csl-card), transparent);
+}
+.csl-topology-fade::after {
+  right: 0;
+  background: linear-gradient(to left, var(--csl-card), transparent);
+}
+.csl-topology-fade--left::before,
+.csl-topology-fade--right::after {
+  opacity: 1;
+}
+.csl-topology-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--csl-muted);
 }
 
 /* ---------- Boxes ---------- */
@@ -90,11 +124,12 @@
   gap: 4px;
   pointer-events: none;
 }
+/* Mostly outside the box (4px overlap with the border), so a badge never covers the box's text. */
 .csl-node__edge--top {
-  top: -9px;
+  top: -13px;
 }
 .csl-node__edge--bottom {
-  bottom: -9px;
+  bottom: -13px;
 }
 .csl-node__fault,
 .csl-node__badge,
@@ -105,7 +140,7 @@
   border: 1px solid transparent;
   border-radius: 999px;
   font-family: var(--csl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 15px;
   white-space: nowrap;
@@ -184,7 +219,7 @@
   align-self: center;
   max-width: calc(100% + 12px);
   margin: 0 -6px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 14px;
   white-space: normal;
   text-align: center;
@@ -250,7 +285,7 @@
   background: var(--csl-fail-solid);
   color: var(--csl-on-fail);
   font-family: var(--csl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 16px;
   white-space: nowrap;
@@ -356,20 +391,20 @@
   right: 5px;
 }
 .csl-topology-grid--compact .csl-node__edge--top {
-  top: -8px;
+  top: -11px;
 }
 .csl-topology-grid--compact .csl-node__edge--bottom {
-  bottom: -8px;
+  bottom: -11px;
 }
 .csl-topology-grid--compact :is(.csl-node__fault, .csl-node__badge, .csl-node__overload, .csl-change) {
   padding: 0 5px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 13px;
 }
 /* Tighter when it wraps to two lines, so the arrow stays within the row height of the boxes. */
 .csl-topology-grid--compact .csl-edge__change {
   margin-top: -2px;
-  line-height: 12px;
+  line-height: 14px;
 }
 .csl-topology-grid--compact .csl-edge__label {
   padding: 0 5px;
@@ -401,6 +436,217 @@
   font-size: 9px;
   line-height: 14px;
   text-align: center;
+}
+
+/* Arrow captions with shorter forms ("↻ incl. 1015 retries", "↻ 1015 retries", "↻ 1015") show the
+   longest that fits the arrow instead of being cut off ("incl. 1015 retrie"). Fitted
+   (TopologyDiagram.tsx) estimates each form's width, rounded up to 10 px, and tags it
+   .csl-fit--min<its width> (hidden when narrower) and .csl-fit--max<the longer form's width>
+   (hidden when that one fits). Generated for 40..200 px. */
+.csl-edge--horizontal {
+  container: csl-edge / inline-size;
+}
+@container csl-edge (max-width: 39.98px) {
+  .csl-fit--min40 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 40px) {
+  .csl-fit--max40 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 49.98px) {
+  .csl-fit--min50 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 50px) {
+  .csl-fit--max50 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 59.98px) {
+  .csl-fit--min60 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 60px) {
+  .csl-fit--max60 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 69.98px) {
+  .csl-fit--min70 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 70px) {
+  .csl-fit--max70 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 79.98px) {
+  .csl-fit--min80 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 80px) {
+  .csl-fit--max80 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 89.98px) {
+  .csl-fit--min90 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 90px) {
+  .csl-fit--max90 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 99.98px) {
+  .csl-fit--min100 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 100px) {
+  .csl-fit--max100 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 109.98px) {
+  .csl-fit--min110 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 110px) {
+  .csl-fit--max110 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 119.98px) {
+  .csl-fit--min120 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 120px) {
+  .csl-fit--max120 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 129.98px) {
+  .csl-fit--min130 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 130px) {
+  .csl-fit--max130 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 139.98px) {
+  .csl-fit--min140 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 140px) {
+  .csl-fit--max140 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 149.98px) {
+  .csl-fit--min150 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 150px) {
+  .csl-fit--max150 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 159.98px) {
+  .csl-fit--min160 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 160px) {
+  .csl-fit--max160 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 169.98px) {
+  .csl-fit--min170 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 170px) {
+  .csl-fit--max170 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 179.98px) {
+  .csl-fit--min180 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 180px) {
+  .csl-fit--max180 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 189.98px) {
+  .csl-fit--min190 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 190px) {
+  .csl-fit--max190 {
+    display: none;
+  }
+}
+@container csl-edge (max-width: 199.98px) {
+  .csl-fit--min200 {
+    display: none;
+  }
+}
+@container csl-edge (min-width: 200px) {
+  .csl-fit--max200 {
+    display: none;
+  }
+}
+/* A compact cache arrow fills its row, and its text starts at the top, clear of the badges on the
+   box below. */
+.csl-topology-grid--compact .csl-edge--vertical {
+  height: 46px;
+}
+.csl-topology-grid--compact .csl-edge__vstack {
+  height: 42px;
+}
+.csl-topology-grid--compact .csl-edge--vertical .csl-edge__vtext {
+  align-self: flex-start;
+}
+
+/* A fix tag under an arrow wraps within the arrow's cell rather than spilling over the shafts beside it. */
+.csl-edge__change {
+  overflow-wrap: anywhere;
+}
+
+/* Long built chains (more than the presets' 7 columns): names may take two lines, smaller, and
+   long ones keep their end (keepEnd in TopologyDiagram.tsx); the full name is the tooltip. */
+.csl-topology-grid.csl-topology-grid--long .csl-node__label {
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.csl-topology-grid--long .csl-node__edit {
+  display: none;
 }
 
 /* The vertical rule sets animation-name with higher specificity, so it is listed too. */

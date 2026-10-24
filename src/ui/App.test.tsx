@@ -175,7 +175,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(within(dialog).getByRole('group', { name: 'App server' })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Edit all settings' }));
     expect(screen.getByRole('dialog', { name: 'All settings' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close All settings' }));
     fireEvent.click(screen.getByRole('button', { name: /^Edit Client settings/ }));
     const traffic = screen.getByRole('dialog', { name: 'Traffic settings' });
     expect(within(traffic).getByLabelText(/^User traffic/)).toBeTruthy();
@@ -227,7 +227,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset to preset' }));
     expect((within(screen.getByRole('dialog')).getByLabelText(/^User traffic/) as HTMLInputElement).value).toBe('200');
-    fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close All settings' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -326,7 +326,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByText("Couldn't simulate these settings")).toBeTruthy(); // the step tab says so too
     fireEvent.click(within(alert).getByRole('button', { name: '⚙ Edit settings' }));
     expect(screen.getByRole('dialog', { name: 'All settings' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Close all settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close All settings' }));
     fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
     expect(screen.getByRole('alert', { name: 'Simulation error' })).toBeTruthy(); // not "waiting" forever
     fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation error' })).getByRole('button', { name: 'Reset to the preset' }));
@@ -371,5 +371,56 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use the example system instead' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['gateway', 'api', 'cache', 'db']), SLOW);
     expect(screen.getByRole('button', { name: '✎ Build your own system' })).toBeTruthy();
+  });
+});
+
+describe('App focus, landmarks and announcements', { timeout: 60_000 }, () => {
+  it('puts the banner beside main, not inside it, and announces runs in one live region', async () => {
+    render(<App pool={new FakePool()} />);
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getByRole('heading', { name: 'Chaos Simulation Lab' })).toBeTruthy();
+    expect(screen.getByRole('main').contains(banner)).toBe(false);
+    const live = screen.getByTestId('announcer');
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    await waitFor(() => expect(live.textContent).toMatch(/Simulation ready\./), SLOW);
+  });
+
+  it('moves focus to the builder heading, back to the Build button, and to the step heading after a re-run', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    const build = screen.getByRole('button', { name: '✎ Build your own system' });
+    fireEvent.click(build);
+    const builder = screen.getByRole('region', { name: 'Build your own system' });
+    expect(document.activeElement).toBe(within(builder).getAllByRole('heading')[0]);
+    fireEvent.click(within(builder).getByRole('button', { name: 'Cancel' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '✎ Build your own system' }));
+
+    // Re-run from the drawer without changes: the run is the same, so focus goes straight to the heading.
+    fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run simulation' }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'What happened' }));
+
+    // Re-run from the failure editor with a change: focus waits for the new run.
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '80' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'What happened' })), SLOW);
+    expect(pool.analyzed.at(-1)!.client.rps).toBe(80);
+
+    // On another step, the re-run lands on that step's heading.
+    fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '120' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: "Where's the tipping point?" })), SLOW);
+  });
+
+  it('returns focus to the ? button when the first-visit tour closes', async () => {
+    localStorage.clear();
+    render(<App pool={new FakePool()} />);
+    const tour = await screen.findByRole('dialog', {}, SLOW);
+    fireEvent.click(within(tour).getByRole('button', { name: /Skip tour/ }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show the guided tour' }));
   });
 });

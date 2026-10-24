@@ -43,7 +43,7 @@ describe('FixTabs', () => {
     const panel = screen.getByRole('tabpanel');
     expect(panel.getAttribute('aria-labelledby')).toBe('fix-tab-retry-budget');
     expect(within(panel).getByRole('heading', { name: 'Retry budget of 10%' })).toBeTruthy();
-    expect(within(panel).getByText('Shown on the right')).toBeTruthy();
+    expect(within(panel).getByText('Shown in the replay')).toBeTruthy();
     expect(within(panel).getByText('How it helps').nextElementSibling!.textContent).toBe('Repeats stop piling up, so the database can catch up.');
     expect(within(panel).getByText('Why try it').nextElementSibling!.textContent).toBe("Retries made up 74% of DB's load.");
     const result = within(panel).getByText('Result').nextElementSibling!;
@@ -79,5 +79,48 @@ describe('FixTabs', () => {
   it('renders nothing when there are no fixes (the step explains why)', () => {
     const { container } = render(<FixTabs tabs={[]} selectedId={null} onSelect={() => {}} />);
     expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('FixTabs keyboard', () => {
+  it('is one tab stop; ←/→/Home/End move focus (wrapping) and Enter or a click chooses', () => {
+    const onSelect = vi.fn();
+    render(<FixTabs tabs={tabs} selectedId="cap-retries" onSelect={onSelect} />);
+    const all = screen.getAllByRole('tab');
+    expect(all.map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
+    all[1].focus();
+    fireEvent.keyDown(all[1], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(all[2]);
+    expect(all.map((t) => t.tabIndex)).toEqual([-1, -1, 0]);
+    fireEvent.keyDown(all[2], { key: 'ArrowRight' }); // wraps
+    expect(document.activeElement).toBe(all[0]);
+    fireEvent.keyDown(all[0], { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(all[2]);
+    fireEvent.keyDown(all[2], { key: 'Home' });
+    expect(document.activeElement).toBe(all[0]);
+    fireEvent.keyDown(all[0], { key: 'End' });
+    expect(document.activeElement).toBe(all[2]);
+    fireEvent.keyDown(all[2], { key: 'x' });
+    expect(document.activeElement).toBe(all[2]);
+    // Moving focus doesn't choose (choosing re-simulates); Enter/Space click the focused tab.
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(all[2]);
+    expect(onSelect).toHaveBeenCalledWith('jitter');
+  });
+
+  it('puts the tab stop back on the chosen tab when focus leaves the list, and the panel is focusable', () => {
+    render(
+      <>
+        <FixTabs tabs={tabs} selectedId="retry-budget" onSelect={() => {}} />
+        <button type="button">after</button>
+      </>,
+    );
+    const all = screen.getAllByRole('tab');
+    all[0].focus();
+    fireEvent.keyDown(all[0], { key: 'ArrowRight' });
+    expect(all[1].tabIndex).toBe(0);
+    fireEvent.blur(all[1], { relatedTarget: screen.getByRole('button', { name: 'after' }) });
+    expect(all.map((t) => t.tabIndex)).toEqual([0, -1, -1]);
+    expect(screen.getByRole('tabpanel').tabIndex).toBe(0);
   });
 });
