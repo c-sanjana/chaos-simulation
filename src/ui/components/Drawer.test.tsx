@@ -46,7 +46,7 @@ describe('Drawer', () => {
     const opener = screen.getByRole('button', { name: 'Settings' });
     opener.focus();
     fireEvent.click(opener);
-    const close = screen.getByRole('button', { name: 'Close settings' });
+    const close = screen.getByRole('button', { name: 'Close Settings' });
     expect(document.activeElement).toBe(close);
     fireEvent.click(close);
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -69,7 +69,7 @@ describe('Drawer', () => {
 
   it('keeps Tab focus inside the drawer', () => {
     render(<Harness initiallyOpen />);
-    const close = screen.getByRole('button', { name: 'Close settings' });
+    const close = screen.getByRole('button', { name: 'Close Settings' });
     const last = screen.getByRole('button', { name: 'Re-run simulation' });
     const input = screen.getByRole('textbox');
 

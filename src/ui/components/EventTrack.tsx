@@ -58,7 +58,7 @@ export function EventTrack({ entries, nowMs, failureWindows }: EventTrackProps) 
                   type="button"
                   className={`csl-track__mark csl-track__mark--${e.kind}${e === focus ? ' csl-track__mark--focus' : ''}`}
                   aria-label={`${timeLabel(e)}: ${e.text}`}
-                  aria-pressed={e === focus}
+                  aria-current={e === focus ? 'true' : undefined}
                   title={`${timeLabel(e)}: ${e.text}`}
                   onMouseEnter={() => setPicked(e)}
                   onFocus={() => setPicked(e)}

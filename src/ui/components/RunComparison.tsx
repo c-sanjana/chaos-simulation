@@ -46,6 +46,14 @@ export function RunComparison({ comparison, onDismiss }: { comparison: Compariso
       </div>
       <table className="csl-sr-only">
         <caption>Results before and now</caption>
+        <thead>
+          <tr>
+            <th scope="col">Measure</th>
+            <th scope="col">Before</th>
+            <th scope="col">Now</th>
+            <th scope="col">Change</th>
+          </tr>
+        </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.label}>

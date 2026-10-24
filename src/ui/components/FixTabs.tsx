@@ -1,3 +1,5 @@
+import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
+
 export interface FixTab {
   id: string;
   /** Short name for the tab, e.g. "Bound queue". */
@@ -54,11 +56,12 @@ export function tabLabel(t: FixTab): string {
  * and cons.
  */
 export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
+  const roving = useRovingTabs(tabs.map((t) => t.id), selectedId);
   if (tabs.length === 0) return null;
   const selected = tabs.find((t) => t.id === selectedId) ?? tabs[0];
   return (
     <div className="csl-fixtabs">
-      <div className="csl-fixtabs__list" role="tablist" aria-label="Fixes">
+      <div className="csl-fixtabs__list" role="tablist" aria-label="Fixes" ref={roving.listRef} onKeyDown={roving.onKeyDown} onBlur={roving.onBlur}>
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -70,6 +73,8 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
             aria-label={tabLabel(t)}
             title={tabLabel(t)}
             className={`csl-fixtab csl-fixtab--${t.status}`}
+            tabIndex={t.id === (roving.focusId ?? selected.id) ? 0 : -1}
+            onFocus={() => roving.setFocusId(t.id)}
             onClick={() => onSelect(t.id)}
           >
             <span className="csl-fixtab__mark" aria-hidden="true">
@@ -80,13 +85,13 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
           </button>
         ))}
       </div>
-      <div className="csl-fixtabs__panel" role="tabpanel" id="fix-tab-panel" aria-labelledby={`fix-tab-${selected.id}`}>
+      <div className="csl-fixtabs__panel" role="tabpanel" id="fix-tab-panel" aria-labelledby={`fix-tab-${selected.id}`} tabIndex={0}>
         <div className="csl-fixtabs__head">
           <div>
             <h3 className="csl-fixtabs__title">{selected.name}</h3>
             <p className="csl-fixtabs__what">{selected.what}</p>
           </div>
-          <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown on the right</span>
+          <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown in the replay</span>
         </div>
         <dl className="csl-fixtabs__facts">
           <dt>How it helps</dt>
@@ -109,6 +114,30 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * WAI-ARIA tabs keyboard pattern with manual activation: the tab list is one tab stop; ←/→ (and
+ * Home/End) move focus between tabs, Enter or Space chooses one. Choosing re-simulates the
+ * before/after comparison, so merely passing over a tab doesn't.
+ */
+export function useRovingTabs(ids: string[], selectedId: string | null) {
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const current = focusId !== null && ids.includes(focusId) ? focusId : selectedId !== null && ids.includes(selectedId) ? selectedId : (ids[0] ?? null);
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = current === null ? 0 : ids.indexOf(current);
+    const next = e.key === 'ArrowRight' ? (i + 1) % ids.length : e.key === 'ArrowLeft' ? (i - 1 + ids.length) % ids.length : e.key === 'Home' ? 0 : e.key === 'End' ? ids.length - 1 : null;
+    if (next === null || ids.length === 0) return;
+    e.preventDefault();
+    setFocusId(ids[next]);
+    listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
+  };
+  // Leaving the list: the tab stop goes back to the chosen tab.
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusId(null);
+  };
+  return { focusId: current, setFocusId, listRef, onKeyDown, onBlur };
 }
 
 /** One list with its count in the heading, so several cons are never missed. */

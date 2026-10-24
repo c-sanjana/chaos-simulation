@@ -27,6 +27,8 @@ describe('Timeline', () => {
     const items = screen.getAllByRole('listitem');
     expect(items).toHaveLength(6);
     expect(screen.getByRole('list').tagName).toBe('OL');
+    // Not a live region: the page announces the story itself, once and throttled.
+    expect(screen.getByRole('list').hasAttribute('aria-live')).toBe(false);
     expect(items[0].textContent).toBe('30 sDB slows 8× (injected failure)');
     expect(items[3].textContent).toContain('36–120 s');
   });

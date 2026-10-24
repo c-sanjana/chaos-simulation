@@ -188,7 +188,7 @@ function widthOf(el: HTMLElement): number {
  * layout changes), gets new data via setData when value arrays change identity, and only
  * redraws when the playhead or failure windows move.
  */
-export function TimeSeriesChart(spec: ChartSpec) {
+export function TimeSeriesChart({ describedBy, ...spec }: ChartSpec & { /** id of a text summary of the chart (aria-describedby). */ describedBy?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<uPlot | null>(null);
   const overlayRef = useRef<Overlay>(spec);
@@ -232,5 +232,5 @@ export function TimeSeriesChart(spec: ChartSpec) {
     appliedRef.current = { data: refs, overlay, reveal };
   });
 
-  return <div ref={containerRef} className="csl-chart" role="img" aria-label={spec.ariaLabel} />;
+  return <div ref={containerRef} className="csl-chart" role="img" aria-label={spec.ariaLabel} aria-describedby={describedBy} />;
 }

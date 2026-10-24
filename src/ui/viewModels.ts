@@ -11,7 +11,7 @@ import type { Axis, TopologyPreset } from '../data/types';
 import type { CellSummary } from '../worker/jobs';
 import type { ChartSpec, MapCellView, MapView, TimelineEntryView, TimeSeries, TopologyEdgeView, TopologyNodeView } from './components/types';
 
-export const COLORS = { primary: '#1F6FEB', secondary: '#8250DF', reference: '#8C939D', before: '#9AA1AB', bad: '#E8590C' };
+export const COLORS = { primary: '#1F6FEB', secondary: '#8250DF', reference: '#8C939D', before: '#6E7781', bad: '#E8590C' };
 
 export type MetricTab = 'throughput' | 'load' | 'latency' | 'errors' | 'workers';
 export const METRIC_TABS: Array<{ id: MetricTab; label: string }> = [
@@ -268,6 +268,8 @@ export interface ChartView {
   scopeLabel: string;
   /** Name for the default ("client") scope option: the tier it really shows on tabs that can't be end to end. */
   defaultScopeLabel: string;
+  /** The tier the default scope shows (null when it is end to end), so a scope picker can leave it out of the tier list. */
+  defaultScopeId: string | null;
 }
 
 /**
@@ -303,6 +305,7 @@ export function chartView(
   let unit: string;
   let scopeLabel: string;
   let defaultScopeLabel = 'End to end (users)';
+  let defaultScopeId: string | null = null;
 
   switch (tab) {
     case 'throughput':
@@ -316,6 +319,7 @@ export function chartView(
       unit = 'rps';
       scopeLabel = name(id);
       defaultScopeLabel = `${name(bottleneck)} (most overloaded)`;
+      defaultScopeId = bottleneck;
       const capacity = leafCapacityRps(tierConfig(config, id));
       const load = loadSplit(after && shownAfter ? after : run, id);
       const other = after ? (shownAfter ? run : after) : null;
@@ -374,6 +378,7 @@ export function chartView(
       unit = '%';
       scopeLabel = name(id);
       defaultScopeLabel = `${name(waiting)} (most workers waiting)`;
+      defaultScopeId = waiting;
       const share = (r: RunResult, key: 'busyWorkersAvg' | 'busyCoresAvg', of: number) => r.tiers[id][key].map((v) => (100 * v) / of);
       const t = run.tiers[id];
       series = after
@@ -391,6 +396,7 @@ export function chartView(
     spec: { xsSeconds, series, unit, yMax, failureWindows, playheadS, ariaLabel: `${label} (${scopeLabel}) over ${Math.round(run.durationMs / 1000)} seconds${after ? ', before and after the fix' : ''}` },
     scopeLabel,
     defaultScopeLabel,
+    defaultScopeId,
   };
 }
 

@@ -34,13 +34,15 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
       <div className="csl-split__col csl-split__side">
         <section className="csl-card csl-card--compact" aria-label="Tipping point" data-tour="map">
           <div className="csl-card__head">
-            <h2 className="csl-card__title">Where's the tipping point?</h2>
+            <h2 className="csl-card__title" id="csl-step-heading" tabIndex={-1}>
+              Where's the tipping point?
+            </h2>
             <span className="csl-status" aria-live="polite">
               {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs`}
             </span>
           </div>
           <p className="csl-card__sub" style={{ margin: 0 }}>
-            Each cell re-runs the same failure at another traffic level and {yAxis.label}. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Click a cell to replay it.
+            Each cell re-runs the same failure at another traffic level and {yAxis.label}. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Select a cell (click it, or arrow keys then Enter) to replay it.
           </p>
           <MapLegend />
           <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} />

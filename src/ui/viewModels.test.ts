@@ -108,6 +108,8 @@ describe('chartView', { timeout: 60_000 }, () => {
     expect(busiestTier(run)).not.toBe('api');
     const workers = chartView('workers', config, run, labels, null);
     expect([workers.scopeLabel, workers.defaultScopeLabel]).toEqual(['App server', 'App server (most workers waiting)']);
+    // Which tier the default is, so a scope picker doesn't list it twice; none for end to end.
+    expect([chartView('load', config, run, labels, null).defaultScopeId, workers.defaultScopeId, chartView('latency', config, run, labels, null).defaultScopeId]).toEqual(['db', 'api', null]);
   });
 
   it('measures end-to-end latency as time to an answer, errors included, so it rises when requests fail', () => {

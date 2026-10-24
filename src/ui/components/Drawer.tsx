@@ -13,6 +13,7 @@ const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([di
 
 /**
  * Modal side drawer. Closes on Escape, on the close button and on a click on the backdrop.
+ * The close button is named "Close <title>" with the title's own case ("Close DB settings").
  * Moves focus to the close button when opened, keeps Tab inside the drawer, and gives focus
  * back to whatever had it before when closed.
  */
@@ -59,7 +60,7 @@ export function Drawer({ open, title, subtitle, onClose, children, footer }: Dra
             </h2>
             {subtitle && <span className="csl-drawer__subtitle">{subtitle}</span>}
           </div>
-          <button ref={closeRef} type="button" className="csl-drawer__close" aria-label={`Close ${title.toLowerCase()}`} onClick={onClose}>
+          <button ref={closeRef} type="button" className="csl-drawer__close" aria-label={`Close ${title}`} onClick={onClose}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>

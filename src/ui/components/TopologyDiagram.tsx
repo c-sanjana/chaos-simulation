@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { Health, TopologyEdgeView, TopologyNodeView } from './types';
 import './topology.css';
 
@@ -105,8 +105,34 @@ function ChangeTag({ change, className }: { change: string; className: string })
   );
 }
 
-function Node({ node, selected, onSelect, editable }: { node: TopologyNodeView; selected: boolean; onSelect: (id: string) => void; editable: boolean }) {
+/**
+ * The value, except while the element is focused: then the value it had when focus arrived. A
+ * focused box's accessible name would otherwise change (and be re-read) every replay frame.
+ */
+export function useFrozenWhileFocused(value: string): { value: string; onFocus: () => void; onBlur: () => void } {
+  const [frozen, setFrozen] = useState<string | null>(null);
+  return { value: frozen ?? value, onFocus: () => setFrozen(value), onBlur: () => setFrozen(null) };
+}
+
+/** Labels longer than this, in a long chain, keep their start and end ("Payments…service 12"), so parts stay distinguishable. */
+export const LONG_CHAIN_LABEL_MAX = 18;
+
+/** "Payments gateway service 12" → "Payments…service 12": the end usually tells numbered parts apart. */
+export function keepEnd(label: string, max = LONG_CHAIN_LABEL_MAX): string {
+  if (label.length <= max) return label;
+  const head = Math.floor((max - 1) / 2);
+  const cut = label.length - (max - 1 - head);
+  // Start the end part at a word's beginning when one is a few letters away ("service 12", not
+  // "ervice 12" or "y service"): first looking back up to 3 letters, then forward up to 4.
+  const wordStart = (p: number) => p > 0 && label[p - 1] === ' ' && label[p] !== ' ';
+  const near = [0, 1, 2, 3].map((d) => cut - d).find(wordStart) ?? [1, 2, 3, 4].map((d) => cut + d).find((p) => p < label.length && wordStart(p));
+  const start = near ?? cut;
+  return `${label.slice(0, head).trimEnd()}…${label.slice(start).trimStart()}`;
+}
+
+function Node({ node, selected, onSelect, editable, longChain }: { node: TopologyNodeView; selected: boolean; onSelect: (id: string) => void; editable: boolean; longChain: boolean }) {
   const failing = isFailing(node.errorShare);
+  const name = useFrozenWhileFocused(editable ? `Edit ${node.label} settings. ${nodeAriaLabel(node)}` : nodeAriaLabel(node));
   const cls = `csl-node${node.health === 'bad' ? ' csl-node--bad' : ''}${failing ? ' csl-node--failing' : ''}${node.overloaded ? ' csl-node--overloaded' : ''}`;
   const style = { gridColumn: node.col, gridRow: node.row, '--csl-node-wash': `${errorWash(node.errorShare)}%` } as CSSProperties;
   return (
@@ -115,8 +141,10 @@ function Node({ node, selected, onSelect, editable }: { node: TopologyNodeView; 
       className={cls}
       style={style}
       aria-pressed={editable ? undefined : selected}
-      aria-label={editable ? `Edit ${node.label} settings. ${nodeAriaLabel(node)}` : nodeAriaLabel(node)}
-      title={editable ? `Edit ${node.label} settings` : undefined}
+      aria-label={name.value}
+      title={editable ? `Edit ${node.label} settings` : node.label}
+      onFocus={name.onFocus}
+      onBlur={name.onBlur}
       onClick={() => onSelect(node.id)}
     >
       {(node.fault || failing) && (
@@ -142,7 +170,7 @@ function Node({ node, selected, onSelect, editable }: { node: TopologyNodeView; 
       )}
       <span className="csl-node__head">
         <span className="csl-node__label" title={node.label}>
-          {node.label}
+          {longChain ? keepEnd(node.label) : node.label}
         </span>
         {node.instanceCountLabel && <span className="csl-node__count">{node.instanceCountLabel}</span>}
         {editable && (
@@ -247,12 +275,64 @@ function FailPill({ edge }: { edge: TopologyEdgeView }) {
   );
 }
 
-function Detail({ edge }: { edge: TopologyEdgeView }) {
+/**
+ * An arrow's caption, longest first, for arrows of shrinking width:
+ * "incl. 1015 retries" → ["↻ incl. 1015 retries", "↻ 1015 retries", "↻ 1015"], "no retries" →
+ * ["no retries", "↻ 0"]; other captions ("62% fail", "19% hits") have one form.
+ */
+export function detailForms(detail: string, retrying: boolean): string[] {
+  const m = /^incl\. ([\d,]+) retries?$/.exec(detail);
+  if (m) return [`↻ ${detail}`, `↻ ${m[1]} retries`, `↻ ${m[1]}`];
+  if (detail === 'no retries') return ['no retries', '↻ 0'];
+  return [retrying ? `↻ ${detail}` : detail];
+}
+
+/** An arrow's rate pill, longest first: "1015 rps" → ["1015 rps", "1015"] (the key says arrows are requests/s). */
+export function rateForms(label: string): string[] {
+  const short = label.replace(/^([\d,.]+k?) (rps|lookups\/s)$/, '$1');
+  return short === label ? [label] : [label, short];
+}
+
+/** Estimated px per character and extra px (pill padding and border) of arrow captions, at 12 px. */
+const FIT_METRICS = { label: { perChar: 7.3, extra: 18 }, detail: { perChar: 6.2, extra: 2 } } as const;
+
+/** The width bucket (px, rounded up to 10, within 40..200) a text needs; see .csl-fit--min/max* in topology.css. */
+export function fitBucket(text: string, kind: keyof typeof FIT_METRICS): number {
+  const { perChar, extra } = FIT_METRICS[kind];
+  return Math.min(200, Math.max(40, Math.ceil((Array.from(text).length * perChar + extra) / 10) * 10));
+}
+
+/**
+ * A caption with shorter forms for narrow arrows (horizontal arrows are size containers). Every
+ * form is rendered; container queries (topology.css) show each one only from the width it needs
+ * up to the width the next longer form needs, so exactly one shows and nothing is cut off
+ * mid-word. The shortest form has no lower limit.
+ */
+function Fitted({ forms, kind }: { forms: string[]; kind: keyof typeof FIT_METRICS }) {
+  if (forms.length === 1) return <>{forms[0]}</>;
+  const buckets = forms.map((f) => fitBucket(f, kind));
+  return (
+    <>
+      {forms.map((f, i) => {
+        const min = i < forms.length - 1 ? ` csl-fit--min${buckets[i]}` : '';
+        const max = i > 0 ? ` csl-fit--max${buckets[i - 1]}` : '';
+        return (
+          <span key={f} className={`csl-fit${min}${max}`}>
+            {f}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/** The caption under an arrow; only horizontal arrows (size containers) get the shorter forms. */
+function Detail({ edge, fit = true }: { edge: TopologyEdgeView; fit?: boolean }) {
   const retries = (edge.retryShare ?? 0) > 0;
+  const forms = detailForms(edge.detail, retries);
   return (
     <span className={`csl-edge__detail${retries ? ' csl-edge__detail--retry' : ''}`} aria-hidden="true">
-      {retries && <span aria-hidden="true">↻ </span>}
-      {edge.detail}
+      {fit ? <Fitted forms={forms} kind="detail" /> : forms[0]}
     </span>
   );
 }
@@ -277,7 +357,7 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
         </span>
         <span className="csl-edge__vtext" aria-hidden="true">
           <span className="csl-edge__label">{edge.label}</span>
-          <Detail edge={edge} />
+          <Detail edge={edge} fit={false} />
           {kind === 'failing' && <FailPill edge={edge} />}
           {change}
         </span>
@@ -287,7 +367,7 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
   return (
     <div className={cls} style={place} {...a11y}>
       <span className="csl-edge__label" aria-hidden="true">
-        {edge.label}
+        <Fitted forms={rateForms(edge.label)} kind="label" />
       </span>
       <span className="csl-edge__shaft-row" aria-hidden="true">
         <Shaft edge={edge} vertical={false} kind={kind} />
@@ -316,7 +396,7 @@ function Key({ showChange, note }: { showChange: boolean; note?: string }) {
       </span>
       <span className="csl-topology-legend__item">
         <span className="csl-key-arrow csl-key-arrow--retry" aria-hidden="true" />
-        stripes = retries (repeats)
+        stripes, ↻ = retries (repeats)
       </span>
       <span className="csl-topology-legend__item">
         <span className="csl-key-fail" aria-hidden="true">
@@ -352,7 +432,7 @@ export interface TopologyDiagramProps {
   edges: TopologyEdgeView[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  /** Extra sentence for the key line, e.g. "Snapshot at t = 60 s. Click a box to edit that tier." */
+  /** Extra sentence for the key line, e.g. "Snapshot at t = 60 s. Select a box to edit that tier." */
   note?: string;
   /** Clicking a box edits that tier (shows an edit mark and says so to screen readers). */
   editable?: boolean;
@@ -362,30 +442,77 @@ export interface TopologyDiagramProps {
   compact?: boolean;
 }
 
+/** Narrowest box in a long chain: below this the diagram scrolls sideways rather than squeezing names to a letter or two. */
+export const LONG_CHAIN_BOX_MIN_PX = 76;
+
 /**
  * Columns for a chain longer than the presets' 7: boxes and arrows alternate, sharing the width
  * (the presets keep their tuned 7-column template from the stylesheet).
  */
 export function gridStyle(nodes: TopologyNodeView[]): CSSProperties | undefined {
+  if (!isLongChain(nodes)) return undefined;
   const cols = Math.max(0, ...nodes.map((n) => n.col));
-  if (cols <= 7) return undefined;
-  const template = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? 'minmax(0, 1fr)' : 'minmax(40px, 0.55fr)')).join(' ');
+  const template = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? `minmax(${LONG_CHAIN_BOX_MIN_PX}px, 1fr)` : 'minmax(40px, 0.55fr)')).join(' ');
   return { gridTemplateColumns: template, minWidth: 0 };
 }
 
-/** System diagram: tiers as selectable cards on a grid (7×3 for the presets), flows as arrows between them. */
+/** More columns than the presets' 7: a built chain, drawn with smaller, two-line names. */
+export function isLongChain(nodes: TopologyNodeView[]): boolean {
+  return Math.max(0, ...nodes.map((n) => n.col)) > 7;
+}
+
+/** Whether a scroll box has more content to its left / right (re-checked on scroll and resize). */
+export function useSideScroll<T extends HTMLElement>(): { ref: RefObject<T>; more: { left: boolean; right: boolean } } {
+  const ref = useRef<T>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const left = el.scrollLeft > 1;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setMore((m) => (m.left === left && m.right === right ? m : { left, right }));
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
+    observer?.observe(el);
+    if (el.firstElementChild) observer?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  }, []);
+  return { ref, more };
+}
+
+/**
+ * System diagram: tiers as selectable cards on a grid (7×3 for the presets), flows as arrows
+ * between them. When it is wider than the screen (phones) it scrolls sideways inside its frame,
+ * with a fade on the side that has more and a one-line hint.
+ */
 export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, editable = false, actions, compact = false }: TopologyDiagramProps) {
+  const longChain = isLongChain(nodes);
+  const scroll = useSideScroll<HTMLDivElement>();
+  const scrolls = scroll.more.left || scroll.more.right;
   return (
     <div>
-      <div className="csl-topology-scroll">
-        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}`} style={gridStyle(nodes)}>
+      {scrolls && (
+        <p className="csl-topology-hint">
+          Scroll sideways to see every part <span aria-hidden="true">{scroll.more.right ? '→' : '←'}</span>
+        </p>
+      )}
+      <div className={`csl-topology-fade${scroll.more.left ? ' csl-topology-fade--left' : ''}${scroll.more.right ? ' csl-topology-fade--right' : ''}`}>
+      <div className="csl-topology-scroll" ref={scroll.ref}>
+        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}${longChain ? ' csl-topology-grid--long' : ''}`} style={gridStyle(nodes)}>
           {nodes.map((n) => (
-            <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} />
+            <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} longChain={longChain} />
           ))}
           {edges.map((e) => (
             <Edge key={e.id} edge={e} nodes={nodes} />
           ))}
         </div>
+      </div>
       </div>
       <div className={`csl-topology-key csl-topology-foot${actions ? ' csl-topology-foot--actions' : ''}`}>
         <Key showChange={nodes.some((n) => n.change) || edges.some((e) => e.change)} note={note} />

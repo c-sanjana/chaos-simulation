@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { TopologyDiagram, arrowThickness, edgeAriaLabel, edgeEnds, edgeKind, errorWash, flowDurationS, instanceColor, nodeAriaLabel, withoutIcon } from './TopologyDiagram';
+import { TopologyDiagram, arrowThickness, detailForms, edgeAriaLabel, edgeEnds, edgeKind, errorWash, fitBucket, flowDurationS, gridStyle, instanceColor, isLongChain, keepEnd, nodeAriaLabel, rateForms, withoutIcon } from './TopologyDiagram';
 import type { TopologyEdgeView, TopologyNodeView } from './types';
 
 const nodes: TopologyNodeView[] = [
@@ -135,7 +135,8 @@ describe('TopologyDiagram', () => {
     const shaft = within(bad).getByTestId('edge-shaft');
     expect(shaft.style.height).toBe('4px');
     expect(shaft.style.background).toBe('var(--csl-arrow)');
-    const texts = Array.from(bad.children).map((c) => c.textContent);
+    // Captions with shorter forms render every form; the first is the full one.
+    const texts = Array.from(bad.children).map((c) => (c.querySelector('.csl-fit') ?? c).textContent);
     expect(texts[0]).toBe('200 rps');
     expect(texts[2]).toBe('93% fail');
     expect(bad.querySelectorAll('svg')).toHaveLength(1);
@@ -168,7 +169,7 @@ describe('TopologyDiagram', () => {
     expect(Array.from(key.children).map((c) => c.textContent)).toEqual([
       'Key:',
       'arrow width = requests/s',
-      'stripes = retries (repeats)',
+      'stripes, ↻ = retries (repeats)',
       '✕red = failing',
       '⚠ = overloaded',
       '⚡ = injected failure',
@@ -294,7 +295,7 @@ describe('TopologyDiagram', () => {
     expect(r.className).toContain('csl-edge--retrying');
     expect(within(r).getByTestId('edge-shaft').style.background).toBe('var(--csl-arrow)');
     expect(within(r).getByTestId('edge-retry').style.height).toBe('50%');
-    expect(r.querySelector('.csl-edge__detail--retry')!.textContent).toBe('↻ incl. 300 retries');
+    expect(Array.from(r.querySelectorAll('.csl-edge__detail--retry .csl-fit')).map((e) => e.textContent)).toEqual(['↻ incl. 300 retries', '↻ 300 retries', '↻ 300']);
     expect(r.querySelector('.csl-edge__fail')).toBeNull();
 
     const f = screen.getByTestId('edge-fail');
@@ -375,5 +376,83 @@ describe('edgeKind', () => {
     expect(edgeKind({ ...base, retryShare: 0.2 })).toBe('retrying');
     expect(edgeKind({ ...base, health: 'bad' })).toBe('retrying');
     expect(edgeKind({ ...base, retryShare: 0.9, errorShare: 0.5 })).toBe('failing');
+  });
+});
+
+describe('arrow captions that fit', () => {
+  it('offers shorter forms of retry and rate captions, longest first', () => {
+    expect(detailForms('incl. 1015 retries', true)).toEqual(['↻ incl. 1015 retries', '↻ 1015 retries', '↻ 1015']);
+    expect(detailForms('no retries', false)).toEqual(['no retries', '↻ 0']);
+    expect(detailForms('62% fail', false)).toEqual(['62% fail']);
+    expect(detailForms('19% hits', true)).toEqual(['↻ 19% hits']);
+    expect(rateForms('1015 rps')).toEqual(['1015 rps', '1015']);
+    expect(rateForms('316 lookups/s')).toEqual(['316 lookups/s', '316']);
+    expect(rateForms('lots')).toEqual(['lots']);
+  });
+
+  it('estimates the width each form needs, in 10 px steps within 40..200', () => {
+    expect(fitBucket('↻ 44', 'detail')).toBe(40);
+    expect(fitBucket('↻ 44 retries', 'detail')).toBe(80);
+    expect(fitBucket('1015 rps', 'label')).toBe(80);
+    expect(fitBucket('x'.repeat(60), 'detail')).toBe(200);
+  });
+
+  it('tags each form with the widths it shows between, so exactly one fits', () => {
+    const edge: TopologyEdgeView = { ...edges[2], id: 'r', detail: 'incl. 44 retries', rps: 400, retryShare: 0.1 };
+    render(<TopologyDiagram nodes={[]} edges={[edge]} selectedId={null} onSelect={() => {}} />);
+    const forms = Array.from(screen.getByTestId('edge-r').querySelectorAll('.csl-edge__detail .csl-fit'));
+    expect(forms.map((f) => f.className)).toEqual(['csl-fit csl-fit--min120', 'csl-fit csl-fit--min80 csl-fit--max120', 'csl-fit csl-fit--max80']);
+    // A vertical (cache) arrow is not a size container, so it shows only the full caption.
+    render(<TopologyDiagram nodes={[]} edges={[{ ...edges[1], detail: 'no retries' }]} selectedId={null} onSelect={() => {}} />);
+    expect(screen.getByTestId('edge-a-c').querySelector('.csl-fit')).toBeNull();
+    expect(within(screen.getByTestId('edge-a-c')).getByText('no retries')).toBeTruthy();
+  });
+});
+
+describe('box names', () => {
+  it('keeps the accessible name still while the box is focused, and refreshes it on the next focus', () => {
+    const { rerender } = render(<TopologyDiagram nodes={nodes} edges={[]} selectedId={null} onSelect={() => {}} />);
+    const api = screen.getByRole('button', { name: /^API/ });
+    fireEvent.focus(api);
+    const busier = nodes.map((n) => (n.id === 'api' ? { ...n, lines: ['workers 50%', 'CPU 3%'] as [string, string] } : n));
+    rerender(<TopologyDiagram nodes={busier} edges={[]} selectedId={null} onSelect={() => {}} />);
+    expect(api.getAttribute('aria-label')).toMatch(/workers 100%/);
+    fireEvent.blur(api);
+    expect(api.getAttribute('aria-label')).toMatch(/workers 50%/);
+  });
+
+  it('shortens long names in a long built chain from the middle, keeping the end, with the full name as tooltip', () => {
+    expect(keepEnd('App server 2')).toBe('App server 2');
+    expect(keepEnd('Payments gateway service 12')).toBe('Payments…service 12');
+    expect(keepEnd('abcdefghij', 5)).toBe('ab…ij');
+    expect(keepEnd('Payments gateway service')).toBe('Payments…service'); // a word start a few letters ahead
+    const chain: TopologyNodeView[] = Array.from({ length: 6 }, (_, i) => ({ ...nodes[1], id: `n${i}`, label: `Payments gateway service ${i + 1}`, col: 1 + 2 * i, row: 3 }));
+    expect(isLongChain(chain)).toBe(true);
+    expect(isLongChain(nodes)).toBe(false);
+    const { container } = render(<TopologyDiagram nodes={chain} edges={[]} selectedId={null} onSelect={() => {}} />);
+    expect(container.querySelector('.csl-topology-grid--long')).not.toBeNull();
+    const label = container.querySelector('.csl-node__label') as HTMLElement;
+    expect(label.textContent).toBe('Payments…service 1');
+    expect(label.title).toBe('Payments gateway service 1');
+    expect(gridStyle(chain)!.gridTemplateColumns).toMatch(/^minmax\(76px, 1fr\) minmax\(40px, 0.55fr\)/);
+    expect(gridStyle(nodes)).toBeUndefined();
+  });
+});
+
+describe('sideways scrolling on narrow screens', () => {
+  it('fades the side with more and shows a hint while the diagram is wider than its frame', () => {
+    const { container } = render(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} />);
+    expect(screen.queryByText(/Scroll sideways/)).toBeNull(); // jsdom: nothing overflows
+    const scroller = container.querySelector('.csl-topology-scroll') as HTMLElement;
+    Object.defineProperty(scroller, 'scrollWidth', { value: 900, configurable: true });
+    Object.defineProperty(scroller, 'clientWidth', { value: 300, configurable: true });
+    fireEvent.scroll(scroller);
+    expect(screen.getByText(/Scroll sideways to see every part/).textContent).toMatch(/→$/);
+    expect(container.querySelector('.csl-topology-fade--right')).not.toBeNull();
+    scroller.scrollLeft = 600;
+    fireEvent.scroll(scroller);
+    expect(container.querySelector('.csl-topology-fade--left')).not.toBeNull();
+    expect(container.querySelector('.csl-topology-fade--right')).toBeNull();
+    expect(screen.getByText(/Scroll sideways/).textContent).toMatch(/←$/);
   });
 });

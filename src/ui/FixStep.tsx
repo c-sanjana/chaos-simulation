@@ -42,7 +42,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
   const best = allTested && !ranking.checking && helped.length > 0 ? helped[0].candidate.id : null;
   const appliedId = chosenId ?? best;
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
-  // The map cell shown before vs after on the right: the current settings (or the nearest cell)
+  // The map cell shown before vs after in the replay: the current settings (or the nearest cell)
   // until the viewer clicks another.
   const current = currentCell(scenario);
   const [cell, setCell] = useState(() => nearestCell(scenario));
@@ -90,11 +90,11 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         <section className="csl-card csl-card--compact" aria-label="Fixes">
           <div className="csl-fix-maps__panel" aria-label="Did the tipping point move?" data-tour="fix-maps">
             <div className="csl-fix-maps__head">
-              <h2 className="csl-section-title" style={{ margin: 0 }}>
+              <h2 className="csl-section-title" style={{ margin: 0 }} id="csl-step-heading" tabIndex={-1}>
                 Did the tipping point move?
               </h2>
               {/* Once everything is tested, the corner explains the map instead of the progress. */}
-              <span className="csl-status">{allTested && !ranking.checking && !ranking.error && applied ? '◆ = shown on the right; click any cell' : status}</span>
+              <span className="csl-status">{allTested && !ranking.checking && !ranking.error && applied ? '◆ = the run in the replay; select any cell' : status}</span>
             </div>
             {applied && before.result && after.result ? (
               <>
@@ -105,7 +105,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                   ].map((m) => (
                     <div key={m.title}>
                       <span className="csl-status">{m.title}</span>
-                      <TippingMap map={{ ...mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), cell), markLabel: 'shown on the right' }} selected={cell} onSelect={(c) => setCell({ x: c.x, y: c.y })} />
+                      <TippingMap map={{ ...mapView(m.title, xAxis, yAxis, (x, y) => m.sweep.get(x, y), cell), markLabel: 'shown in the replay' }} selected={cell} onSelect={(c) => setCell({ x: c.x, y: c.y })} />
                     </div>
                   ))}
                 </div>
@@ -153,7 +153,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             changes={changes}
             onEdit={onEdit}
             compact
-            chartHeight={155}
+            chartHeight={178}
             sideTimeline
           />
         )}

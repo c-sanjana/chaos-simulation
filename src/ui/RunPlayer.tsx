@@ -1,18 +1,21 @@
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { spokenName } from '../analysis/helpers';
 import type { Fault, RunConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
 import type { AnalyzeResult } from '../worker/jobs';
+import { useAnnounce } from './components/Announcer';
 import { ChartLegend } from './components/ChartLegend';
+import { chartSummary, ChartTable } from './components/ChartText';
 import { MetricTabs } from './components/MetricTabs';
 import { PlaybackBar } from './components/PlaybackBar';
-import { TimeSeriesChart } from './components/TimeSeriesChart';
+import { CHART_HEIGHT, TimeSeriesChart } from './components/TimeSeriesChart';
 import { EventTrack } from './components/EventTrack';
 import { StepActiveContext } from './components/StepPanel';
 import { StoryCard, type StoryStepView } from './components/StoryCard';
 import { TopologyDiagram } from './components/TopologyDiagram';
 import { usePlayback } from './components/usePlayback';
+import { usePrefersReducedMotion } from './useMediaQuery';
 import { chartView, labelsOf, METRIC_TABS, shortVerdict, timelineView, topologyView, verdictView, type ChangeLabel, type MetricTab } from './viewModels';
 
 export interface RunPlayerProps {
@@ -53,6 +56,10 @@ export interface RunPlayerProps {
    * there (a moment behind the replay is jumped to). The guided pause is off meanwhile.
    */
   demoAtMs?: number | null;
+  /** id for the title heading, which can then take focus (e.g. after a re-run). */
+  headingId?: string;
+  /** Show the story (and end panel) above the chart instead of with the timeline, e.g. on narrow screens where the side column is far below. */
+  storyAbove?: boolean;
 }
 
 const COMPACT_CHART_HEIGHT = 175;
@@ -81,10 +88,15 @@ export function RunPlayer({
   changes = [],
   endPanel,
   demoAtMs = null,
+  headingId,
+  storyAbove = false,
 }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
   // ASSUMPTION: 16× is the default (a 120 s run replays in ~8 s); 1× and 4× are there to slow down.
+  // With reduced motion the replay waits for Play and runs at 4×.
+  const reducedMotion = usePrefersReducedMotion();
+  const startSpeed = reducedMotion ? 4 : 16;
   // Load & retries first: retries piling up over capacity is the heart of the story.
   const [tab, setTab] = useState<MetricTab>('load');
   const [scope, setScope] = useState<string | null>(null);
@@ -101,9 +113,10 @@ export function RunPlayer({
   const resumeWhenShown = useRef(false);
   useEffect(() => {
     playback.seek(0);
-    playback.setSpeed(16);
+    playback.setSpeed(startSpeed);
     setGuide('pending');
-    const play = autoPlay && !holdPlayback;
+    // No autoplay under reduced motion; a replay that arrived while its step is hidden starts when shown.
+    const play = autoPlay && !holdPlayback && !reducedMotion;
     resumeWhenShown.current = play && !active;
     if (play && active) playback.play();
     else playback.pause();
@@ -156,13 +169,21 @@ export function RunPlayer({
   }, [playback.tMs, result.run.durationMs]);
   const keepWatching = () => {
     setGuide('done');
-    playback.setSpeed(16);
+    playback.setSpeed(startSpeed);
     playback.play();
   };
 
   // Chart data is rebuilt only when what it shows changes, so the playhead can move every frame cheaply.
+  const plotHeight = chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : CHART_HEIGHT);
   const chart = useMemo(() => chartView(tab, config, result.run, labels, scope, after?.result.run, undefined, showAfter), [tab, config, result, labels, scope, after, showAfter]);
   const shown = after && showAfter ? after : { config, result };
+  // The default scope already is one tier ("DB (most overloaded)"), so that tier isn't listed twice.
+  const scopeShown = scope === chart.defaultScopeId ? 'client' : (scope ?? 'client');
+  const [asTable, setAsTable] = useState(false);
+  const summaryId = useId();
+  const revealS = Math.floor(playback.tMs / 1000);
+  const shownSpec = useMemo(() => ({ ...chart.spec, revealS }), [chart.spec, revealS]);
+  const summaryText = useMemo(() => chartSummary(shownSpec), [shownSpec]);
   const { nodes, edges } = topologyView(topology, shown.config, shown.result.run, playback.tMs, after && showAfter ? changes : []);
   // The verdict is revealed when the replay gets there, not given away at the start.
   const recovery = result.analysis.recovery;
@@ -172,6 +193,7 @@ export function RunPlayer({
     : playback.tMs >= verdictAtMs
       ? verdictView(recovery)
       : { text: 'Replaying… the verdict comes when the replay gets there', tone: 'neutral' as const };
+  useAnnouncements(story, playback.tMs, chip.tone === 'neutral' ? null : after ? compareWords(result, after.result) : chip.text, guide === 'paused' ? `Paused: the failure is over: ${failureOverText(faults, labels)}. Watch whether the system recovers.` : null);
   const failureWindowsMs = (config.faults ?? []).map((f) => [f.startMs, f.endMs] as [number, number]);
   const timelineWindow = (
     <section className="csl-timeline-window" data-tour="timeline" aria-label="Live timeline">
@@ -184,19 +206,26 @@ export function RunPlayer({
       </div>
     </section>
   );
-  const timeline = (
+  const storyPart = (
     <>
       {ended && endPanel}
       {story && <StoryCard steps={story} nowMs={playback.tMs} />}
+    </>
+  );
+  const timeline = (
+    <>
+      {!storyAbove && storyPart}
       {timelineWindow}
     </>
   );
 
   return (
-    <section className={`csl-card${compact ? ' csl-card--compact' : ''}`} aria-label={title}>
+    <section className={`csl-card csl-player${compact ? ' csl-card--compact' : ''}`} aria-label={title}>
       <div className="csl-card__head">
         <div>
-          <h2 className="csl-card__title">{title}</h2>
+          <h2 className="csl-card__title" id={headingId} tabIndex={headingId ? -1 : undefined}>
+            {title}
+          </h2>
           <p className="csl-card__sub">{subtitle}</p>
         </div>
         <div className="csl-row" style={{ gap: 10, alignItems: 'center' }}>
@@ -222,7 +251,7 @@ export function RunPlayer({
         onSelect={(id) => onEdit?.(id)}
         editable={onEdit !== undefined}
         compact={compact}
-        note={`Snapshot at t = ${Math.floor(playback.tMs / 1000)} s${after ? (showAfter ? ', after the fix' : ', before the fix') : ''}.${onEdit ? ' Click a box to edit that tier.' : ''}`}
+        note={`Snapshot at t = ${Math.floor(playback.tMs / 1000)} s${after ? (showAfter ? ', after the fix' : ', before the fix') : ''}.${onEdit ? ' Select a box to edit that tier.' : ''}`}
         actions={
           onEdit && (
             <button type="button" className="csl-btn csl-btn--small" onClick={() => onEdit(null)}>
@@ -247,6 +276,8 @@ export function RunPlayer({
       />
       </div>
 
+      {storyAbove && story && <div className="csl-player__story">{storyPart}</div>}
+
       <div className="csl-player__body">
         <div className="csl-player__charts" data-tour="charts">
           <MetricTabs
@@ -254,14 +285,14 @@ export function RunPlayer({
             selected={tab}
             onSelect={(id) => setTab(id as MetricTab)}
             scopeLabel={chart.scopeLabel}
-            scopes={[{ id: 'client', label: chart.defaultScopeLabel }, ...shown.config.tiers.map((t) => ({ id: t.id, label: labels[t.id] ?? t.id }))]}
-            scope={scope ?? 'client'}
+            scopes={[{ id: 'client', label: chart.defaultScopeLabel }, ...shown.config.tiers.filter((t) => t.id !== chart.defaultScopeId).map((t) => ({ id: t.id, label: labels[t.id] ?? t.id }))]}
+            scope={scopeShown}
             onScope={(id) => setScope(id === 'client' ? null : id)}
           />
           <div className={`csl-player__chartrow${sideTimeline ? ' csl-player__chartrow--side' : ''}`}>
             <div className="csl-player__chart">
               {guide === 'paused' && (
-                <div className="csl-guide" role="status">
+                <div className="csl-guide">
                   <span>
                     ⏸ <b>The failure is over: {failureOverText(faults, labels)}.</b> Watch whether the system recovers.
                   </span>
@@ -270,8 +301,24 @@ export function RunPlayer({
                   </button>
                 </div>
               )}
-              <ChartLegend series={chart.spec.series} />
-              <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : undefined)} />
+              <ChartLegend
+                series={chart.spec.series}
+                extra={
+                  <li className="csl-legend__item csl-legend__table">
+                    <button type="button" className="csl-btn csl-btn--link csl-chart-toggle" aria-pressed={asTable} onClick={() => setAsTable((t) => !t)}>
+                      {asTable ? 'Show as chart' : 'Show as table'}
+                    </button>
+                  </li>
+                }
+              />
+              <p id={summaryId} className="csl-sr-only">
+                {summaryText}
+              </p>
+              {asTable ? (
+                <ChartTable spec={shownSpec} height={plotHeight} />
+              ) : (
+                <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={plotHeight} describedBy={summaryId} />
+              )}
             </div>
             {sideTimeline && <div className="csl-player__timeline csl-player__timeline--side">{timeline}</div>}
           </div>
@@ -297,6 +344,39 @@ export function verdictRevealMs(r: AnalyzeResult['analysis']['recovery'], durati
   if (r.verdict === 'recovered') return r.lastFaultEndMs + (r.recoveryMs ?? 0);
   if (r.verdict === 'unaffected') return r.lastFaultEndMs;
   return Math.min(durationMs, r.judgedUntilMs);
+}
+
+/**
+ * Says the story steps as the replay reveals them, the verdict once it is shown, and the guided
+ * pause, in the page's live region (throttled there). Seeking back re-arms the steps quietly.
+ */
+function useAnnouncements(story: StoryStepView[] | undefined, nowMs: number, verdict: string | null, pause: string | null) {
+  const announce = useAnnounce();
+  const shown = story ? story.filter((s) => s.tMs <= nowMs) : [];
+  const said = useRef(0);
+  const saidFor = useRef(story);
+  const count = shown.length;
+  useEffect(() => {
+    if (saidFor.current !== story) {
+      // A new run: the replay is about to restart, so nothing from the old position is said.
+      saidFor.current = story;
+      said.current = count;
+      return;
+    }
+    if (count > said.current) announce(shown.slice(said.current).map((s) => s.text).join(' '));
+    said.current = count;
+  }, [count, story]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (verdict) announce(verdict, 'verdict');
+  }, [verdict, announce]);
+  useEffect(() => {
+    if (pause) announce(pause, 'pause');
+  }, [pause, announce]);
+}
+
+/** The compare chip in words: "Before the fix: stuck. After the fix: recovers in 16 s." */
+function compareWords(before: AnalyzeResult, after: AnalyzeResult): string {
+  return `Before the fix: ${shortVerdict(summary(before))}. After the fix: ${shortVerdict(summary(after))}.`;
 }
 
 function summary(r: AnalyzeResult) {

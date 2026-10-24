@@ -16,6 +16,7 @@ import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
 import { BuilderScreen } from './builder/BuilderScreen';
 import { draftProblems, type Draft } from './draft';
+import { AnnouncerProvider, useAnnounce } from './components/Announcer';
 import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
@@ -26,11 +27,25 @@ import { carryOver, customSystem, editedDraft, PRESET_SYSTEM, scenarioCatalog, s
 import { ThemeToggle } from './themeMode';
 import { TippingStep } from './TippingStep';
 import { tourStops } from './tourStops';
+import { usePendingFocus } from './usePendingFocus';
 import { useTour } from './useTour';
-import { useCancellableAnalysis } from './useSimulation';
+import { useCancellableAnalysis, type Async } from './useSimulation';
+import { useMediaQuery } from './useMediaQuery';
 import { labelsOf } from './viewModels';
 
 const DEFAULT_SCENARIO = 'retry-storm';
+
+/** Where focus goes after big actions (see usePendingFocus). */
+const FOCUS = {
+  /** The current step's main heading (or the error in its place). */
+  stepHeading: '#csl-step-heading',
+  buildButton: '#csl-build-button',
+  builderHeading: '#csl-builder h2',
+  help: '[data-tour="help"]',
+};
+
+/** Below this width the replay's story moves above its chart (the side column is below the fold or gone). */
+const STORY_ABOVE_QUERY = '(max-width: 1200px)';
 
 export interface AppProps {
   /** Injected in tests; the app creates a Web Worker pool by default. */
@@ -98,6 +113,8 @@ export function App({ pool: injected }: AppProps) {
   );
   // First visit: the walkthrough opens once the first run is ready (so its targets exist).
   const tour = useTour();
+  const focusAfter = usePendingFocus(main.status !== 'running');
+  const storyAbove = useMediaQuery(STORY_ABOVE_QUERY);
   /** The step the tour was started from, to return to when it closes. */
   const [tourFrom, setTourFrom] = useState(0);
   /** The replay moment the demo is showing (null between demo stops and outside the tour). */
@@ -130,6 +147,7 @@ export function App({ pool: injected }: AppProps) {
   };
   const endTour = (completed: boolean) => {
     tour.close(completed);
+    focusAfter(FOCUS.help);
     setStep(tourFrom);
     setDemoAtMs(null);
     const back = beforeDemo.current;
@@ -163,6 +181,7 @@ export function App({ pool: injected }: AppProps) {
     setDraft(next);
     setEditingFailure(false);
     setNotice(null);
+    focusAfter(FOCUS.stepHeading, true); // the step's heading, once the new run is ready
   };
   const resetToPreset = () => {
     if (main.status === 'cancelled') retryMain();
@@ -191,11 +210,13 @@ export function App({ pool: injected }: AppProps) {
     setCanvas(graph);
     setKeptCanvas(null);
     setNotice(null);
+    focusAfter(FOCUS.builderHeading);
   };
   /** Cancel: back to the system as it was; a changed drawing is kept for next time. */
   const cancelBuilder = () => {
     if (JSON.stringify(canvas) !== JSON.stringify(openedWith.current)) setKeptCanvas(canvas);
     setCanvas(null);
+    focusAfter(FOCUS.buildButton);
   };
   /** "Use this topology": the new system keeps the current failure and step where it can (system.ts carryOver). */
   const useCanvas = (graph: BuilderGraph) => {
@@ -211,6 +232,7 @@ export function App({ pool: injected }: AppProps) {
     setCanvas(null);
     setKeptCanvas(null);
     setNotice(kept.reset ? { text: kept.reset } : null);
+    focusAfter(FOCUS.buildButton);
   };
   /** "Use the example system instead", with an Undo; the drawing is kept for the builder. */
   const useExample = () => {
@@ -218,6 +240,7 @@ export function App({ pool: injected }: AppProps) {
     switchSystem(PRESET_SYSTEM);
     setKeptCanvas(canvas);
     setCanvas(null);
+    focusAfter(FOCUS.buildButton);
     setNotice({
       text: 'Switched to the example system. Your drawing is kept: ✎ Build your own system opens it again.',
       undo: () => {
@@ -243,7 +266,9 @@ export function App({ pool: injected }: AppProps) {
   const built = system.kind === 'custom';
 
   return (
-    <main className="csl-page">
+    <AnnouncerProvider>
+    <AnnounceRun status={main.status} />
+    <div className="csl-page">
       <header className="csl-topbar">
         <h1 className="csl-topbar__title" title="See where a system stops recovering on its own, and whether a fix moves that point.">
           Chaos Simulation Lab
@@ -254,7 +279,7 @@ export function App({ pool: injected }: AppProps) {
         </div>
         <div className="csl-topbar__actions">
           {canvas === null && (
-            <button type="button" className="csl-btn csl-btn--small" onClick={openBuilder}>
+            <button type="button" id="csl-build-button" className="csl-btn csl-btn--small" onClick={openBuilder}>
               {system.kind === 'custom' ? '✎ Edit your system' : '✎ Build your own system'}
             </button>
           )}
@@ -262,6 +287,7 @@ export function App({ pool: injected }: AppProps) {
           <TourButton onClick={startTour} />
         </div>
       </header>
+      <main className="csl-main">
       <Tour
         stops={tourStops}
         open={tour.open && main.status === 'done'}
@@ -284,7 +310,7 @@ export function App({ pool: injected }: AppProps) {
         </p>
       )}
       {canvas !== null && (
-        <section className="csl-card csl-card--compact csl-builder-page" aria-label="Build your own system">
+        <section id="csl-builder" className="csl-card csl-card--compact csl-builder-page" aria-label="Build your own system">
           {/* Cancel and "use the example" sit in the builder's own toolbar, so the page fits one screen. */}
           <BuilderScreen
             graph={canvas}
@@ -339,6 +365,8 @@ export function App({ pool: injected }: AppProps) {
             {main.status === 'done' && (
               <RunPlayer
                 title="What happened"
+                headingId="csl-step-heading"
+                storyAbove={storyAbove}
                 subtitle={`${applied.scenario.title} · ${applied.scenario.rps} requests/s · seed ${config.seed}`}
                 topology={applied.topology}
                 config={config}
@@ -434,8 +462,21 @@ export function App({ pool: injected }: AppProps) {
           )}
         </form>
       </Drawer>
-    </main>
+      </main>
+    </div>
+    </AnnouncerProvider>
   );
+}
+
+/** Says "Simulating…" and "Simulation ready" in the page's live region as the main run starts and ends. */
+function AnnounceRun({ status }: { status: Async<unknown>['status'] }) {
+  const announce = useAnnounce();
+  useEffect(() => {
+    if (status === 'running') announce('Simulating…', 'run');
+    else if (status === 'done') announce('Simulation ready.', 'run');
+    else if (status === 'error') announce("These settings couldn't be simulated.", 'run');
+  }, [status, announce]);
+  return null;
 }
 
 /** ASSUMPTION: about the height of step 1's player at 1440 × 900 (measured), so the page doesn't jump when it appears. */
@@ -448,7 +489,9 @@ const MAIN_PLAYER_HEIGHT = 670;
 function SimulationError({ message, stopped = false, onEdit, onReset, onRetry, built }: { message?: string; stopped?: boolean; onEdit: () => void; onReset: () => void; onRetry?: () => void; built: boolean }) {
   return (
     <section className="csl-card csl-card--compact" role="alert" aria-label={stopped ? 'Simulation stopped' : 'Simulation error'}>
-      <h2 className="csl-card__title">{stopped ? 'You stopped this run before it finished' : "These settings couldn't be simulated"}</h2>
+      <h2 className="csl-card__title" id="csl-step-heading" tabIndex={-1}>
+        {stopped ? 'You stopped this run before it finished' : "These settings couldn't be simulated"}
+      </h2>
       <p className={stopped ? 'csl-status' : 'csl-error'} style={{ margin: 0 }}>
         {stopped ? 'Long runs (lots of traffic, or a long run time) take a while. Change the settings, or run it anyway.' : (message ?? '').replace(/^(Error: )?Invalid config: /, '')}
       </p>

@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { AnnouncerProvider } from './components/Announcer';
 import { retryStormRun } from '../analysis/testRuns';
 import { webChain } from '../data/topologies';
 import { failureOverText, RunPlayer } from './RunPlayer';
@@ -55,7 +56,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(onEdit).toHaveBeenLastCalledWith('api');
     fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     expect(onEdit).toHaveBeenLastCalledWith(null);
-    expect(screen.getByText(/Click a box to edit that tier/)).toBeTruthy();
+    expect(screen.getByText(/Select a box to edit that tier/)).toBeTruthy();
   });
 
   it('has no edit affordances without an edit handler', () => {
@@ -131,15 +132,15 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     seek(27_500);
     expect(speed(4)).toBe('true');
     seek(36_600);
-    const callout = screen.getByRole('status');
+    const callout = document.querySelector<HTMLElement>('.csl-guide')!;
     expect(callout.textContent).toMatch(/The failure is over: the database is back to normal speed/);
     expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
     fireEvent.click(within(callout).getByRole('button', { name: '▶ Keep watching' }));
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.querySelector('.csl-guide')).toBeNull();
     expect(speed(16)).toBe('true');
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
     seek(37_000); // once dismissed, it doesn't pause again
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.querySelector('.csl-guide')).toBeNull();
     vi.unstubAllGlobals();
   });
 
@@ -150,7 +151,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     await act(async () => {});
     seek(80_000);
     seek(85_000);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.querySelector('.csl-guide')).toBeNull();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
     vi.unstubAllGlobals();
   });
@@ -203,5 +204,120 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
         labels,
       ),
     ).toBe('the gateway is back up');
+  });
+});
+
+describe('RunPlayer accessibility', { timeout: 60_000 }, () => {
+  const story = [
+    { tMs: 30_000, text: 'At 30 s the database became 8× slower for 5 seconds.', tone: 'fault' as const },
+    { tMs: 31_000, text: 'The app server gave up and everyone asked again.', tone: 'bad' as const },
+    { tMs: 117_000, text: 'It never recovered.', tone: 'bad' as const },
+  ];
+  const announcer = () => screen.getByTestId('announcer');
+
+  it('announces story steps as the replay reveals them, and the verdict, in the page live region (throttled)', () => {
+    vi.useFakeTimers();
+    const player = (r = stuck) => (
+      <AnnouncerProvider>
+        <RunPlayer title="t" subtitle="s" topology={webChain} config={r.config} result={result(r)} autoPlay={false} story={story} />
+      </AnnouncerProvider>
+    );
+    const { rerender } = render(player());
+    seek(31_000);
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(announcer().textContent).toBe(`${story[0].text} ${story[1].text}`);
+    seek(10_000); // seeking back says nothing, and re-arms the steps
+    seek(30_000);
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(announcer().textContent).toBe(story[0].text);
+    seek(120_000);
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(announcer().textContent).toBe(`${story[1].text} ${story[2].text} Stuck: did not recover after the failure ended`);
+    // A new run starts quietly from the beginning.
+    rerender(player(recovered));
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(announcer().textContent).not.toMatch(/never recovered.*never recovered/);
+    vi.useRealTimers();
+  });
+
+  it('announces the before/after outcome in words in compare mode', () => {
+    vi.useFakeTimers();
+    render(
+      <AnnouncerProvider>
+        <RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} after={{ config: recovered.config, result: result(recovered) }} autoPlay={false} />
+      </AnnouncerProvider>,
+    );
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(announcer().textContent).toMatch(/^Before the fix: stuck\. After the fix: (recovers in \d+ s|unaffected)\.$/);
+    vi.useRealTimers();
+  });
+
+  it('announces the guided pause', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    render(
+      <AnnouncerProvider intervalMs={0}>
+        <RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} guided />
+      </AnnouncerProvider>,
+    );
+    await act(async () => {});
+    seek(36_600);
+    await waitFor(() => expect(announcer().textContent).toMatch(/Paused: the failure is over: the database is back to normal speed\./));
+    vi.unstubAllGlobals();
+  });
+
+  it('respects reduced motion: no autoplay, and 4× when played', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduced-motion'), addEventListener: () => {}, removeEventListener: () => {} }));
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} guided />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Speed 4×' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    seek(36_600);
+    fireEvent.click(screen.getByRole('button', { name: '▶ Keep watching' }));
+    expect(screen.getByRole('button', { name: 'Speed 4×' }).getAttribute('aria-pressed')).toBe('true');
+    vi.unstubAllGlobals();
+  });
+
+  it('gives the title a focus target, and can put the story above the chart', () => {
+    const { container } = render(
+      <RunPlayer title="What happened" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} story={story} headingId="step-heading" storyAbove />,
+    );
+    const heading = screen.getByRole('heading', { name: 'What happened' });
+    expect(heading.id).toBe('step-heading');
+    expect(heading.tabIndex).toBe(-1);
+    const above = container.querySelector('.csl-player__story')!;
+    expect(within(above as HTMLElement).getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    // The story comes before the charts in reading order, and isn't repeated by the timeline.
+    expect(above.compareDocumentPosition(container.querySelector('.csl-player__charts')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('heading', { name: "What's happening" })).toHaveLength(1);
+  });
+
+  it('describes the chart in words and can show it as a table of what has been revealed', () => {
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
+    const chart = screen.getByRole('img', { name: /^Load & retries/ });
+    const summary = document.getElementById(chart.getAttribute('aria-describedby')!)!;
+    expect(summary.textContent).toMatch(/^Users' new requests \+ Repeats \(from any layer\) \(total\): about \d+ rps until 0 s \(so far\)/);
+    seek(60_000);
+    expect(summary.textContent).toMatch(/Above DB capacity/);
+    fireEvent.click(screen.getByRole('button', { name: 'Show as table' }));
+    const table = screen.getByRole('region', { name: /as a table$/ });
+    expect(within(table).getAllByRole('row')).toHaveLength(14); // header + 0, 5, …, 60 s
+    expect(screen.queryByRole('img', { name: /^Load & retries/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show as chart' }));
+    expect(screen.getByRole('img', { name: /^Load & retries/ })).toBeTruthy();
+  });
+
+  it('lists the tier behind the default scope once ("DB (most overloaded)", not DB again)', () => {
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
+    const scope = screen.getByLabelText('Show metrics for') as HTMLSelectElement;
+    expect(Array.from(scope.options).map((o) => o.text)).toEqual(['DB (most overloaded)', 'Gateway', 'App server', 'Cache']);
+    // Picked on a tab where it isn't the default, then back on Load & retries: shown as the default.
+    fireEvent.click(screen.getByRole('button', { name: 'Latency' }));
+    fireEvent.change(scope, { target: { value: 'db' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load & retries' }));
+    expect(scope.value).toBe('client');
   });
 });
