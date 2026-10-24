@@ -50,7 +50,7 @@ export function buildStory(run: RunResult, config: RunConfig, analysis: Analysis
   const pressure = pressureTier(ctx, main);
   // Any layer asking again makes the pile one of repeated requests: retries further up arrive
   // further down as new requests.
-  const retries = retryingCalls(config).length;
+  const retries = askingAgain(ctx, main.tier).length;
   const hadPile = [pressure, main.tier].some((id) => id !== null && queueAtEnd(ctx, id, r.lastFaultEndMs) >= 1);
 
   const steps: StoryStep[] = [];
@@ -200,6 +200,9 @@ function faultEndText(f: Fault, ctx: Context): string {
 function afterTheFailure(f: Fault, ctx: Context, retries: number, hadPile: boolean): string {
   if (ctx.analysis.recovery.verdict === 'stuck') {
     const but = f.flushAtEnd ? 'and' : 'but'; // "back up, but empty" already has a "but"
+    // Behind a queue the pile is of messages, whatever retried in front of it.
+    const queue = ctx.config.tiers.find((t) => t.queue && ctx.run.tiers[t.id].backlogAvg[Math.floor(f.endMs / ctx.bucketMs)] >= 1);
+    if (queue) return ` — ${but} the pile of messages in ${ctx.say(queue.id)} was still there.`;
     return ` — ${but} the pile of ${retries > 0 ? 'repeated' : 'waiting'} requests was still there.`;
   }
   return hadPile ? ' and started on the requests that had piled up.' : '.';
@@ -225,11 +228,35 @@ function askAgain(policy: CallPolicy, callerId: string, ctx: Context): string {
   return policy.retryBudget === undefined ? again : `${again}, as long as repeats stay under ${percent(policy.retryBudget)} of ${verb('its', 'their')} requests`;
 }
 
-/** The calls along the chain (the client's call and each tier's downstream call) that retry, front to back. */
-function retryingCalls(config: RunConfig): Array<{ id: string; policy: CallPolicy }> {
+/** The calls along the chain (the client's call and each tier's downstream call), front to back. */
+function chainCalls(config: RunConfig): Array<{ id: string; policy: CallPolicy }> {
   // ASSUMPTION: cache lookups are a side call, not a layer of the chain; they are left out.
-  const chain = [{ id: 'client', policy: config.client.call }, ...config.tiers.flatMap((t) => (t.downstream ? [{ id: t.id, policy: t.downstream }] : []))];
-  return chain.filter((c) => c.policy.retries > 0);
+  const byId = new Map(config.tiers.map((t) => [t.id, t]));
+  const calls: Array<{ id: string; policy: CallPolicy }> = [{ id: 'client', policy: config.client.call }];
+  for (let t = byId.get(config.client.call.target); t?.downstream && calls.length <= config.tiers.length; t = byId.get(t.downstream.target)) {
+    calls.push({ id: t.id, policy: t.downstream });
+  }
+  return calls;
+}
+
+/**
+ * The layers that really asked again around this failure, front to back: calls that retry and
+ * sent at least one retry from the failure's start to the end of the judged range (review 2:
+ * "everyone asks again" in runs where nobody did). A caller in front of a message queue that sits
+ * between it and the failing part is left out: the queue answered it as soon as it stored the
+ * message, so it never saw the failure (review 2: queue stories listed users' apps and the load
+ * balancer as retrying when they couldn't).
+ */
+function askingAgain(ctx: Context, faultTier: string): Array<{ id: string; policy: CallPolicy }> {
+  const calls = chainCalls(ctx.config);
+  const position = (id: string) => calls.findIndex((c) => c.id === id); // the client is 0; a tier is where its call is
+  const fault = calls.findIndex((c) => c.policy.target === faultTier);
+  const queueBetween = (caller: number) =>
+    calls.some((c, i) => i > caller && i <= fault && tierOf(ctx.config, c.id).queue !== undefined);
+  const from = Math.floor(Math.min(...(ctx.config.faults ?? []).map((f) => f.startMs)) / ctx.bucketMs);
+  const to = Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs);
+  const retriesSent = (c: { policy: CallPolicy }) => sumRange(ctx.run.tiers[c.policy.target].arrivalsRetry, from, to);
+  return calls.filter((c) => c.policy.retries > 0 && retriesSent(c) > 0 && !(fault >= 0 && position(c.id) < fault && queueBetween(position(c.id))));
 }
 
 /** Who calls `id`, who calls that one, and so on out to the client (nearest first). */
@@ -250,7 +277,7 @@ function callersInFront(config: RunConfig, id: string): string[] {
  * sentence of its own.
  */
 function cascadeText(f: Fault, callerId: string, ctx: Context): string {
-  const calls = retryingCalls(ctx.config);
+  const calls = askingAgain(ctx, f.tier);
   // One retrying layer matters here only if it is in front of the caller that noticed (its
   // repeats come back to that caller); behind it, it has nothing to do with this failure.
   if (calls.length === 0 || (calls.length === 1 && !callersInFront(ctx.config, callerId).includes(calls[0].id))) return '';
@@ -266,7 +293,7 @@ function cascadeText(f: Fault, callerId: string, ctx: Context): string {
     const n = calls[0].policy.retries;
     return ` ${capitalise(name)} ${verb('asks', 'ask')} again when ${verb('it gives', 'they give')} up, ${n === 1 ? 'once' : `up to ${n} times`}.${budgets}`;
   }
-  const every = calls.length === 1 + ctx.config.tiers.filter((t) => t.downstream).length;
+  const every = calls.length === chainCalls(ctx.config).length;
   const list = calls.map(({ id, policy }, i) => `${callerWords(id, ctx).name} ${i === 0 && policy.retries > 1 ? 'up to ' : ''}${times(policy.retries)}`);
   const answer = f.kind === 'dead' && !tierOf(ctx.config, f.tier).cache ? 'failed' : 'slow';
   return ` ${every ? 'Every layer asks again when it gives' : 'Several layers ask again when they give'} up: ${list.join(', ')}.${budgets} One ${answer} answer can come back as many requests.`;
@@ -293,11 +320,13 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
     return null;
   };
   const cascade = cascadeText(f, call.id, ctx);
-  const layers = cascade === '' ? undefined : retryingCalls(ctx.config).map(({ id, policy }) => ({ who: shortCaller(id, ctx), retries: policy.retries }));
+  const asking = askingAgain(ctx, f.tier);
+  const layers = cascade === '' ? undefined : asking.map(({ id, policy }) => ({ who: shortCaller(id, ctx), retries: policy.retries }));
+  const everyone = asking.length === chainCalls(ctx.config).length;
   const headline = `${capitalise(shortCaller(call.id, ctx))} ${verb('gives', 'give')} up`;
   const figure = call.policy.timeoutMs === null ? undefined : formatMs(call.policy.timeoutMs);
   const step = (tMs: number | null, text: string, head = headline, fig = figure): StoryStep | null =>
-    tMs === null ? null : { tMs, text: text + cascade, tone: 'info', kind: 'giveup', headline: layers ? `${head}, everyone asks again` : head, figure: fig, ...(layers ? { cascade: layers } : {}) };
+    tMs === null ? null : { tMs, text: text + cascade, tone: 'info', kind: 'giveup', headline: layers ? `${head}, ${everyone ? 'everyone asks' : 'others ask'} again` : head, figure: fig, ...(layers ? { cascade: layers } : {}) };
 
   const callerTier = call.id === 'client' ? null : tierOf(ctx.config, call.id);
   if (tierOf(ctx.config, f.tier).cache && callerTier?.cacheAside?.target === f.tier && callerTier.downstream) {

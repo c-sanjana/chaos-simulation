@@ -55,6 +55,21 @@ describe('a built topology with a message queue', { timeout: 120_000 }, () => {
     expect(story.find((s) => s.headline === 'Too much traffic anyway')!.text).toBe('Even without the failure, this much traffic is more than the system can handle: work piles up in the queue 2 faster than it gets done.');
   });
 
+  it('callers in front of the queue never saw a slowdown behind it, so the story does not say they asked again', () => {
+    const { story } = analyse(scenario('custom-db-slow'), 100);
+    const giveup = story.find((s) => s.kind === 'giveup')!;
+    expect(giveup.text).not.toMatch(/users' apps|load balancer/);
+    expect((giveup.cascade ?? []).map((c) => c.who)).not.toContain("users' apps");
+    expect(giveup.headline).not.toMatch(/everyone/);
+  });
+
+  it('a slowdown in front of the queue: users do ask again, and the pile left is of messages', () => {
+    const { story, analysis } = analyse(scenario('custom-front-slow'), 100);
+    expect(story.find((s) => s.kind === 'giveup')!.text).toMatch(/^Users' apps give up/);
+    const back = story.find((s) => s.kind === 'back')!;
+    if (analysis.recovery.verdict === 'stuck') expect(back.text).toMatch(/the pile of messages in the queue 2 was still there\.$/);
+  });
+
   it('a dropped message is told once, in the singular', () => {
     const { analysis, story } = analyse(scenario('custom-db-slow'), 140);
     expect(analysis.signals.queueBacklog!.value.deadLettered).toBe(1); // measured

@@ -326,6 +326,15 @@ describe('buildStory pictures: a few words, a number, a meter or the cascade per
   });
 });
 
+describe('buildStory tells only the asking again that happened', { timeout: 60_000 }, () => {
+  it('at low traffic the cache restart sends lookups to the database and nobody asks again', () => {
+    const story = storyOf(buildRunConfig(webChain, cacheRestart, { rps: 80 }));
+    const step = story.find((s) => s.kind === 'giveup');
+    expect(step?.headline ?? '').not.toMatch(/asks? again/);
+    expect(step?.text ?? '').not.toMatch(/asks again when it gives up/);
+  });
+});
+
 describe('buildStory on small systems', { timeout: 60_000 }, () => {
   /** Users call a two-instance service directly. */
   const direct = (fault: Fault, timeoutMs: number | null = 200): RunConfig => ({
