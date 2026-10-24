@@ -15,6 +15,8 @@ export interface TourStop {
   body: string;
   /** Preferred side for the popover; it flips to another side when there is no room. Default 'auto'. */
   placement?: TourPlacement;
+  /** For a demo: the replay moment (ms into the run) this stop shows; see `onStop`. */
+  atMs?: number;
 }
 
 export interface TourProps {
@@ -24,6 +26,8 @@ export interface TourProps {
   onClose: (completed: boolean) => void;
   /** Called before showing a stop on another screen so the app can switch tabs. */
   onScreen: (screen: TourScreen) => void;
+  /** Called as each stop is shown (e.g. to move the replay to its `atMs`). */
+  onStop?: (stop: TourStop) => void;
 }
 
 /** Space between the target's edge and the highlight ring, px. */
@@ -152,7 +156,7 @@ export function Tour({ open, ...rest }: TourProps) {
   return open && rest.stops.length > 0 ? createPortal(<TourRun {...rest} />, document.body) : null;
 }
 
-function TourRun({ stops, onClose, onScreen }: Omit<TourProps, 'open'>) {
+function TourRun({ stops, onClose, onScreen, onStop }: Omit<TourProps, 'open'>) {
   const [index, setIndex] = useState(0);
   const [measure, setMeasure] = useState<Measure>(() => ({ spot: { kind: 'finding' }, view: viewport() }));
   const [pos, setPos] = useState<PopoverPosition | null>(null);
@@ -164,8 +168,10 @@ function TourRun({ stops, onClose, onScreen }: Omit<TourProps, 'open'>) {
   // Callbacks in refs so a parent re-render doesn't restart the effects below.
   const onScreenRef = useRef(onScreen);
   const onCloseRef = useRef(onClose);
+  const onStopRef = useRef(onStop);
   onScreenRef.current = onScreen;
   onCloseRef.current = onClose;
+  onStopRef.current = onStop;
 
   const stop = stops[index];
   const last = index === stops.length - 1;
@@ -190,6 +196,7 @@ function TourRun({ stops, onClose, onScreen }: Omit<TourProps, 'open'>) {
       screenRef.current = screen;
       onScreenRef.current(screen);
     }
+    onStopRef.current?.(stops[index]);
     const deadline = Date.now() + FIND_TIMEOUT_MS;
     let scrolled = false;
     let lastKey = '';

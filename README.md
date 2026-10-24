@@ -18,9 +18,13 @@ DB once (all editable per layer). Two other presets fail elsewhere in the stack:
 empty** (the cache goes down for 5 s and comes back cold, so every lookup stampedes the DB) and
 **Gateway slows down** (the front door slows 50× for 20 s and users' retries pile onto it). Any
 part can fail (slow down, go down, lose one server, or for the cache restart empty), and several
-failures can be combined. On a first visit a 30-second guided tour points out each part
-of the page (skip it, or replay it any time with **?** at the top right; ☾ beside it switches to
-dark mode, and the page stays light unless you choose dark).
+failures can be combined. On a first visit a one-minute guided demo follows the retry storm on
+the default system: it plays the replay forward and pauses at each moment that matters (calm
+traffic, the database slowing down, repeats piling up, the failure ending, stuck for good), then
+shows the tipping point and a fix that holds up, introducing each part of the page as it goes.
+Skip it, or replay it any time with **?** at the top right; started with other settings, the demo
+sets them aside and puts them back afterwards. ☾ beside it switches to dark mode (the page stays
+light unless you choose dark).
 
 1. **What happened.** The system never recovers, even though the failure is over. The side panel
    builds up as the replay reaches each moment, as pictures more than text: one row per step with

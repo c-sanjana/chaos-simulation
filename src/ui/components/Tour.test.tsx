@@ -137,6 +137,16 @@ describe('Tour', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('tells the app which stop is showing, as it is shown', () => {
+    const onStop = vi.fn();
+    render(<Tour stops={STOPS} open onClose={() => {}} onScreen={() => {}} onStop={onStop} />);
+    expect(onStop).toHaveBeenLastCalledWith(STOPS[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(onStop).toHaveBeenLastCalledWith(STOPS[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(onStop).toHaveBeenLastCalledWith(STOPS[0]);
+  });
+
   it('skips with the Skip button and with Escape', () => {
     const onClose = vi.fn();
     const { unmount } = render(<Harness onClose={onClose} />);

@@ -7,7 +7,7 @@ vi.mock('uplot', () => import('./testing/fakeUplot'));
 const SLOW = { timeout: 30_000 };
 
 // The guided tour opens on a first visit; these tests start as returning visitors (the tour has its own tests).
-beforeEach(() => localStorage.setItem('csl-tour-seen-v1', 'completed'));
+beforeEach(() => localStorage.setItem('csl-tour-seen-v2', 'completed'));
 afterEach(() => localStorage.clear());
 
 describe('App', { timeout: 60_000 }, () => {
@@ -247,10 +247,10 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={new FakePool()} />);
     expect(screen.queryByRole('dialog')).toBeNull(); // waits for the first run, so its targets exist
     const tour = await screen.findByRole('dialog', {}, SLOW);
-    expect(tour.textContent).toMatch(/The failure/);
+    expect(tour.textContent).toMatch(/Demo: a retry storm/);
     fireEvent.click(within(tour).getByRole('button', { name: /Skip tour/ }));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(localStorage.getItem('csl-tour-seen-v1')).toBe('skipped');
+    expect(localStorage.getItem('csl-tour-seen-v2')).toBe('skipped');
     // The replay waits for the tour to close.
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Show the guided tour' }));
@@ -261,6 +261,31 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByRole('button', { name: /Where's the tipping point/ }).getAttribute('aria-current')).toBe('step');
     // The theme toggle sits beside it in the top bar.
     expect(screen.getByRole('button', { name: /Switch to (dark|light) mode/ })).toBeTruthy();
+  });
+
+  it('the tour is a demo of the default retry storm: other settings are set aside for it and come back after', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.change(screen.getByLabelText(/^Traffic/), { target: { value: '80' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show the guided tour' }));
+    await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(200), SLOW); // the demo's run
+    const tour = await screen.findByRole('dialog', {}, SLOW);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/200 req\/s/);
+    // Each demo stop moves the replay to its moment.
+    fireEvent.click(within(tour).getByRole('button', { name: 'Next' }));
+    expect(within(screen.getByRole('dialog')).getByText('Normal traffic')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()); // playing forward to 20 s
+    fireEvent.keyDown(document, { key: 'ArrowLeft' });
+    await waitFor(() => expect(Number((screen.getByLabelText('Playback position') as HTMLInputElement).value)).toBe(0)); // back: jumps
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW); // the viewer's settings, back
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/80 req\/s/);
   });
 
   it('explains invalid input and blocks running it', async () => {

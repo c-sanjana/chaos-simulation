@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 
 /** Bump the version to show the tour again to everyone after it changes substantially. */
-export const TOUR_SEEN_KEY = 'csl-tour-seen-v1';
+export const TOUR_SEEN_KEY = 'csl-tour-seen-v2'; // v2: the tour became a retry-storm demo
 
 type TourStorage = Pick<Storage, 'getItem' | 'setItem'>;
 

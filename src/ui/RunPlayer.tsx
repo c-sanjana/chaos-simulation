@@ -47,6 +47,11 @@ export interface RunPlayerProps {
   changes?: ChangeLabel[];
   /** Shown above the story once the replay has reached the end (e.g. the comparison with the last run). */
   endPanel?: ReactNode;
+  /**
+   * The guided demo's moment (ms into the run), or null: the replay plays forward to it and pauses
+   * there (a moment behind the replay is jumped to). The guided pause is off meanwhile.
+   */
+  demoAtMs?: number | null;
 }
 
 const COMPACT_CHART_HEIGHT = 175;
@@ -74,6 +79,7 @@ export function RunPlayer({
   story,
   changes = [],
   endPanel,
+  demoAtMs = null,
 }: RunPlayerProps) {
   const labels = useMemo(() => labelsOf(topology), [topology]);
   const playback = usePlayback(result.run.durationMs, { speeds: [1, 4, 16] });
@@ -97,7 +103,26 @@ export function RunPlayer({
     else playback.pause();
   }, [result, after?.result, holdPlayback]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The demo: play forward to its moment (briskly over long stretches), or jump back to it.
   useEffect(() => {
+    if (demoAtMs === null) return;
+    if (demoAtMs <= playback.tMs) {
+      playback.seek(demoAtMs);
+      playback.pause();
+      return;
+    }
+    playback.setSpeed(demoAtMs - playback.tMs > 15_000 ? 16 : 4);
+    playback.play();
+  }, [demoAtMs, result]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (demoAtMs !== null && playback.playing && playback.tMs >= demoAtMs) {
+      playback.pause();
+      playback.seek(demoAtMs);
+    }
+  }, [playback.tMs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (demoAtMs !== null) return; // the demo moves the replay itself
     if (guidePauseMs === null || guideSlowMs === null || !playback.playing || guide === 'paused' || guide === 'done') return;
     if (playback.tMs > guidePauseMs + 3000) setGuide('done'); // the viewer scrubbed past it
     else if (playback.tMs >= guidePauseMs) {

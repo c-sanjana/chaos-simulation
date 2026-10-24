@@ -80,7 +80,46 @@ export function App({ pool: injected }: AppProps) {
   const tour = useTour();
   /** The step the tour was started from, to return to when it closes. */
   const [tourFrom, setTourFrom] = useState(0);
-  const startTour = () => (setTourFrom(step), tour.start());
+  /** The replay moment the demo is showing (null between demo stops and outside the tour). */
+  const [demoAtMs, setDemoAtMs] = useState<number | null>(null);
+  /**
+   * The tour is a demo of the default retry storm. Started from "?" with other settings (another
+   * failure, edits, a built system, the canvas open), it switches to the default for the demo and
+   * puts everything back when it closes.
+   */
+  const beforeDemo = useRef<{ system: System; scenarioId: string; applied: Draft; draft: Draft; canvas: BuilderGraph | null } | null>(null);
+  const startTour = () => {
+    setTourFrom(step);
+    const demo = systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO);
+    if (system.kind !== 'preset' || canvas !== null || JSON.stringify(applied) !== JSON.stringify(demo) || JSON.stringify(draft) !== JSON.stringify(demo)) {
+      beforeDemo.current = { system, scenarioId, applied, draft, canvas };
+      setSystem(PRESET_SYSTEM);
+      setScenarioId(DEFAULT_SCENARIO);
+      setApplied(demo);
+      setDraft(demo);
+      setCanvas(null);
+      setEditingFailure(false);
+    }
+    lastRun.current = null; // the demo run isn't a re-run to compare with
+    setPreviousRun(null);
+    tour.start();
+  };
+  const endTour = (completed: boolean) => {
+    tour.close(completed);
+    setStep(tourFrom);
+    setDemoAtMs(null);
+    const back = beforeDemo.current;
+    beforeDemo.current = null;
+    if (back) {
+      setSystem(back.system);
+      setScenarioId(back.scenarioId);
+      setApplied(back.applied);
+      setDraft(back.draft);
+      setCanvas(back.canvas);
+      lastRun.current = null;
+      setPreviousRun(null);
+    }
+  };
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied);
   const problems = draftProblems(draft);
 
@@ -136,11 +175,9 @@ export function App({ pool: injected }: AppProps) {
       <Tour
         stops={tourStops}
         open={tour.open && main.status === 'done'}
-        onClose={(completed) => {
-          tour.close(completed);
-          setStep(tourFrom);
-        }}
+        onClose={endTour}
         onScreen={setStep}
+        onStop={(stop) => setDemoAtMs(stop.atMs ?? null)}
       />
 
       {canvas !== null && (
@@ -200,6 +237,7 @@ export function App({ pool: injected }: AppProps) {
                 chartHeight={232}
                 timelineTarget={timelineEl}
                 holdPlayback={tour.open}
+                demoAtMs={tour.open ? demoAtMs : null}
                 guided
                 story={story}
                 endPanel={comparison && comparison.changes.length > 0 ? <RunComparison comparison={comparison} onDismiss={() => setPreviousRun(null)} /> : undefined}
