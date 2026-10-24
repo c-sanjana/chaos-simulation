@@ -96,11 +96,32 @@ steps on the system, keeping the current failure if its parts are still there.
 - **One set of words.** The settings drawer uses the builder's labels and limits, and can say "no
   timeout" and "entries never expire". For a built system it says "Your system" and "Reset to how
   you built it".
-- **Chains for now.** Each part calls one next part, plus one cache for an app server. Branching (an
-  app server calling several parts, a load balancer splitting over several pools) is next.
-- **Scenarios are picked by what each part is:** the database slows down; the cache restarts
-  empty; the front door slows down enough to serve about half the traffic (described per request,
-  e.g. "takes ~250 ms a request instead of ~4 ms"); the work behind a queue slows down.
+- **Branches.** A load balancer may spread requests over several parts: each request goes to one
+  of them, evenly unless you change the **share of traffic** on an arrow (in percent; its other
+  arrows share the rest in their proportions). An app server may call several parts (a database,
+  another app server, a queue), **one after another** (the default: top to bottom as placed on the
+  canvas, so moving a box changes the order; the first failure fails the request) or **all at
+  once** (it answers when the slowest has). Several parts may share one (two app servers using one
+  database). The Client and a queue each send to one part, an app server uses at most one cache,
+  and calls may not go round in a loop; every problem message names the parts, says why it can't
+  be simulated and how to fix it.
+- **Branches on the run diagram.** Columns follow the longest path from the users; a load
+  balancer's servers fan out above and below it, a cache sits above its server, and a shared
+  database sits level with the middle of its callers. Arrows between rows bend at right angles and
+  keep the straight arrows' look (thickness, retry stripes, red when failing, the rate and retries
+  beside them, on the side away from the bend). With three or more rows of boxes the boxes get
+  slimmer and the chart gives up some height, so a nine-part system fits 1440×900 on steps 1 and 2.
+  A shared part's arrivals are divided between its arrows by what each caller sent (the engine
+  counts arrivals per part, not per call).
+- **Every call is editable** in the settings drawer (timeout, retries and backoff per call, the
+  share on a load balancer's arrows, one after another / all at once) and in the failure editor
+  (retries per call). The header says who asks again in one line: "users' apps 2× · App server
+  1× / 2× · the rest 1×".
+- **Scenarios are picked by what each part is:** each database slows down (the busiest first, up to
+  three); each cache restarts empty; the front door slows down enough to serve about half the
+  traffic (described per request, e.g. "takes ~250 ms a request instead of ~4 ms"); the work behind
+  each queue slows down. Capacity and slowdowns use each part's share of the traffic (a load
+  balancer over three servers sends each about a third).
 - **The map is centred on your traffic.** Whole numbers in round steps from about a third of the
   client's traffic to about twice it, widened to take in the capacity estimate (without cache help)
   when it is nearby, stopping at 1.25× that estimate for a system without a cache (further right
