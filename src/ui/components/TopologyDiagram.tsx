@@ -134,19 +134,19 @@ export function keepEnd(label: string, max = LONG_CHAIN_LABEL_MAX): string {
   return `${label.slice(0, head).trimEnd()}…${label.slice(start).trimStart()}`;
 }
 
-/** In a dense diagram, a box shows at most this many copy squares in its title row, then "+N". */
-export const DENSE_SQUARES = 4;
-
-/** One square per copy, coloured by how busy it is. */
-function Instances({ node, max }: { node: TopologyNodeView; max?: number }) {
-  const shown = max !== undefined && node.instanceBusy.length > max ? node.instanceBusy.slice(0, max - 1) : node.instanceBusy;
-  const more = node.instanceBusy.length - shown.length;
+/**
+ * One square per copy, coloured by how busy it is. `short` (dense diagrams): one square and the
+ * number of copies ("▪ ×4"), so the title row keeps room for the name (every copy is drawn at the
+ * tier's average anyway).
+ */
+function Instances({ node, short = false }: { node: TopologyNodeView; short?: boolean }) {
+  const shown = short ? node.instanceBusy.slice(0, 1) : node.instanceBusy;
   return (
     <span className="csl-node__instances" data-testid={`instances-${node.id}`}>
       {shown.map((busy, i) => (
         <span key={i} className="csl-instance" title={`instance ${i + 1}: ${Math.round(busy * 100)}% of workers busy`} style={{ background: instanceColor(busy) }} />
       ))}
-      {more > 0 && <span className="csl-node__more">+{more}</span>}
+      {short && node.instanceBusy.length > 1 && <span className="csl-node__more">×{node.instanceBusy.length}</span>}
     </span>
   );
 }
@@ -195,7 +195,7 @@ function Node({ node, selected, onSelect, editable, longChain, dense = false }: 
           {longChain ? keepEnd(node.label) : node.label}
         </span>
         {node.instanceCountLabel && <span className="csl-node__count">{node.instanceCountLabel}</span>}
-        {dense && node.instanceBusy.length > 0 && <Instances node={node} max={DENSE_SQUARES} />}
+        {dense && node.instanceBusy.length > 0 && <Instances node={node} short />}
         {editable && (
           <span className="csl-node__edit" aria-hidden="true">
             ✎
@@ -616,8 +616,8 @@ export function gridStyle(nodes: TopologyNodeView[], edges: TopologyEdgeView[] =
     style.gridTemplateRows = Array.from({ length: rows }, (_, i) => {
       const r = i + 1;
       if (r % 2 === 1) return 'auto';
-      if (edges.some((e) => e.orientation === 'vertical' && e.row === r)) return compact ? '46px' : '64px';
-      return boxesOn(r - 1) && boxesOn(r + 1) ? (compact ? '8px' : '16px') : '0px';
+      if (edges.some((e) => e.orientation === 'vertical' && e.row === r)) return compact ? '40px' : '56px';
+      return boxesOn(r - 1) && boxesOn(r + 1) ? (compact ? '4px' : '12px') : '0px';
     }).join(' ');
   }
   return Object.keys(style).length > 0 ? style : undefined;

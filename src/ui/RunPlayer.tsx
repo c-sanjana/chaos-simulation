@@ -37,6 +37,11 @@ export interface RunPlayerProps {
   timelineTarget?: HTMLElement | null;
   /** Chart height in px (defaults: full layout 240, compact 175). */
   chartHeight?: number;
+  /**
+   * A branched system's taller diagram takes its extra height from the chart (default), so the page
+   * still fits the screen. Turn off where the chart's height matters more than fitting.
+   */
+  shrinkChartForTallDiagram?: boolean;
   /** Show the live timeline beside the chart (under the metric tabs), as tall as the chart. */
   sideTimeline?: boolean;
   /** Keep the replay at the start and paused (e.g. while the guided tour is open); it plays when released. */
@@ -84,7 +89,7 @@ const COMPACT_CHART_HEIGHT = 175;
  * row of boxes and its gap are ~70 px, the rest of the room comes from the chart.
  */
 const PLOT_PX_PER_EXTRA_ROW = 50;
-const MIN_PLOT_PX = 120;
+const MIN_PLOT_PX = 96;
 /**
  * Room a chart note takes under the legend (one line of 12px text and its margin), taken from the
  * chart's height so a tab with a note is no taller than one without (the page fits 1440×900).
@@ -109,6 +114,7 @@ export function RunPlayer({
   compact = false,
   timelineTarget,
   chartHeight,
+  shrinkChartForTallDiagram = true,
   sideTimeline = false,
   holdPlayback = false,
   guided = false,
@@ -215,9 +221,9 @@ export function RunPlayer({
   // Chart data is rebuilt only when what it shows changes, so the playhead can move every frame cheaply.
   const chart = useMemo(() => chartView(tab, config, result.run, labels, scope, after?.result.run, undefined, showAfter), [tab, config, result, labels, scope, after, showAfter]);
   // A chart note takes its room from the plot, so a tab with a note is no taller than one without.
-  const extraRows = Math.max(0, boxRowCount(Object.values(topology.layout)) - 2);
+  const extraRows = shrinkChartForTallDiagram ? Math.max(0, boxRowCount(Object.values(topology.layout)) - 2) : 0;
   const baseHeight = chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : CHART_HEIGHT);
-  const plotHeight = Math.max(Math.min(baseHeight, MIN_PLOT_PX), baseHeight - extraRows * PLOT_PX_PER_EXTRA_ROW) - (chart.note ? NOTE_PX : 0);
+  const plotHeight = Math.max(Math.min(baseHeight, MIN_PLOT_PX), baseHeight - extraRows * PLOT_PX_PER_EXTRA_ROW - (chart.note ? NOTE_PX : 0));
   const shown = after && showAfter ? after : { config, result };
   // The default scope already is one tier ("DB (most overloaded)"), so that tier isn't listed twice.
   const scopeShown = scope === chart.defaultScopeId ? 'client' : (scope ?? 'client');
@@ -338,7 +344,7 @@ export function RunPlayer({
             scope={scopeShown}
             onScope={(id) => setScope(id === 'client' ? null : id)}
           />
-          <div className={`csl-player__chartrow${sideTimeline ? ' csl-player__chartrow--side' : ''}`}>
+          <div className={`csl-player__chartrow${sideTimeline ? ' csl-player__chartrow--side' : ''}${extraRows > 0 ? ' csl-player__chartrow--short' : ''}`}>
             <div className="csl-player__chart">
               {guide === 'paused' && (
                 <div className="csl-guide">

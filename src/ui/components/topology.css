@@ -760,8 +760,8 @@
 
 /* Dense diagrams (three or more rows of boxes): shorter boxes, the copy squares in the title row. */
 .csl-topology-grid--dense .csl-node {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 .csl-topology-grid--dense .csl-node__head {
   justify-content: flex-start;
@@ -769,9 +769,12 @@
 .csl-topology-grid--dense .csl-node__head .csl-node__label {
   flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+/* A narrow box keeps its title row for the name. */
+@container csl-node (max-width: 96px) {
+  .csl-topology-grid--dense .csl-node__head .csl-node__instances {
+    display: none;
+  }
 }
 .csl-topology-grid--dense .csl-node__head .csl-node__instances {
   flex: none;
@@ -789,4 +792,18 @@
   font-family: var(--csl-font-mono);
   font-size: 11px;
   color: var(--csl-muted);
+}
+
+/* A dense diagram's cache arrow is a little shorter (its row is too, see gridStyle). */
+.csl-topology-grid--dense .csl-edge--vertical {
+  height: 52px;
+}
+.csl-topology-grid--dense .csl-edge__vstack {
+  height: 48px;
+}
+.csl-topology-grid--compact.csl-topology-grid--dense .csl-edge--vertical {
+  height: 40px;
+}
+.csl-topology-grid--compact.csl-topology-grid--dense .csl-edge__vstack {
+  height: 36px;
 }

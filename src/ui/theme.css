@@ -2752,3 +2752,9 @@ button.csl-map__cell {
   padding-top: 8px;
   border-top: 1px dashed var(--csl-border-strong);
 }
+
+/* A branched system's taller diagram leaves less room: the column beside the chart may be shorter
+   (it scrolls inside), so the chart can shrink with it. */
+.csl-player__chartrow--side.csl-player__chartrow--short .csl-player__timeline--side {
+  min-height: 140px;
+}
