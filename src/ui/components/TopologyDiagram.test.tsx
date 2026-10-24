@@ -425,6 +425,7 @@ describe('box names', () => {
     expect(keepEnd('App server 2')).toBe('App server 2');
     expect(keepEnd('Payments gateway service 12')).toBe('Payments…service 12');
     expect(keepEnd('abcdefghij', 5)).toBe('ab…ij');
+    expect(keepEnd('Payments gateway service')).toBe('Payments…service'); // a word start a few letters ahead
     const chain: TopologyNodeView[] = Array.from({ length: 6 }, (_, i) => ({ ...nodes[1], id: `n${i}`, label: `Payments gateway service ${i + 1}`, col: 1 + 2 * i, row: 3 }));
     expect(isLongChain(chain)).toBe(true);
     expect(isLongChain(nodes)).toBe(false);
@@ -433,7 +434,7 @@ describe('box names', () => {
     const label = container.querySelector('.csl-node__label') as HTMLElement;
     expect(label.textContent).toBe('Payments…service 1');
     expect(label.title).toBe('Payments gateway service 1');
-    expect(gridStyle(chain)!.gridTemplateColumns).toMatch(/^minmax\(0, 1fr\) minmax\(40px, 0.55fr\)/);
+    expect(gridStyle(chain)!.gridTemplateColumns).toMatch(/^minmax\(76px, 1fr\) minmax\(40px, 0.55fr\)/);
     expect(gridStyle(nodes)).toBeUndefined();
   });
 });

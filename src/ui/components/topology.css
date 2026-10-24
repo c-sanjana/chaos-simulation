@@ -135,6 +135,7 @@
 .csl-node__badge,
 .csl-node__overload,
 .csl-change {
+  box-sizing: border-box; /* so max-width: 100% includes the padding and border */
   min-width: 0;
   padding: 0 6px;
   border: 1px solid transparent;
@@ -421,6 +422,13 @@
     display: none;
   }
 }
+/* A very narrow box (long built chains) keeps only the symbol and number even with one badge, so
+   the badge never pokes out past the box (and makes the diagram scroll for nothing). */
+@container csl-node (max-width: 110px) {
+  .csl-node__badge-word {
+    display: none;
+  }
+}
 .csl-edge__fail-word,
 .csl-topology-grid--compact .csl-edge__fail-pct {
   position: absolute;
@@ -628,9 +636,10 @@
   align-self: flex-start;
 }
 
-/* A fix tag under an arrow wraps within the arrow's cell rather than spilling over the shafts beside it. */
+/* A fix tag under an arrow may wrap to a few lines in a narrow cell: rounded corners rather than a
+   pill, so its border stays tidy around the lines. */
 .csl-edge__change {
-  overflow-wrap: anywhere;
+  border-radius: 8px;
 }
 
 /* Long built chains (more than the presets' 7 columns): names may take two lines, smaller, and

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { FixTabs, tabLabel, type FixTab } from './FixTabs';
 
 const tab = (over: Partial<FixTab>): FixTab => ({
@@ -88,7 +88,7 @@ describe('FixTabs keyboard', () => {
     render(<FixTabs tabs={tabs} selectedId="cap-retries" onSelect={onSelect} />);
     const all = screen.getAllByRole('tab');
     expect(all.map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
-    all[1].focus();
+    act(() => all[1].focus());
     fireEvent.keyDown(all[1], { key: 'ArrowRight' });
     expect(document.activeElement).toBe(all[2]);
     expect(all.map((t) => t.tabIndex)).toEqual([-1, -1, 0]);
@@ -116,7 +116,7 @@ describe('FixTabs keyboard', () => {
       </>,
     );
     const all = screen.getAllByRole('tab');
-    all[0].focus();
+    act(() => all[0].focus());
     fireEvent.keyDown(all[0], { key: 'ArrowRight' });
     expect(all[1].tabIndex).toBe(0);
     fireEvent.blur(all[1], { relatedTarget: screen.getByRole('button', { name: 'after' }) });

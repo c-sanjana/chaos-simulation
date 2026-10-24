@@ -204,7 +204,7 @@ export function RunPlayer({
   );
 
   return (
-    <section className={`csl-card${compact ? ' csl-card--compact' : ''}`} aria-label={title}>
+    <section className={`csl-card csl-player${compact ? ' csl-card--compact' : ''}`} aria-label={title}>
       <div className="csl-card__head">
         <div>
           <h2 className="csl-card__title" id={headingId} tabIndex={headingId ? -1 : undefined}>

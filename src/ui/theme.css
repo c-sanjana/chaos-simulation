@@ -525,6 +525,8 @@ body {
 /* ---------- Tipping-point map ---------- */
 .csl-map-scroll {
   overflow-x: auto;
+  /* Contains the headers' screen-reader text (absolutely positioned) so it can't widen the page. */
+  position: relative;
 }
 .csl-map {
   display: inline-flex;
@@ -1870,6 +1872,22 @@ button.csl-map__cell {
   height: auto;
   min-height: 0;
 }
+/* When the player is narrow (step 3 at ~1280 px, or stacked), the timeline goes under the chart
+   so the chart keeps a readable width. */
+/* (The container is the player card, a block box: on the flex item holding the charts, inline-size
+   containment made Chrome size its height as if it had no width.) */
+.csl-player {
+  container: csl-player / inline-size;
+}
+@container csl-player (max-width: 672px) {
+  .csl-player__chartrow--side {
+    flex-direction: column;
+  }
+  .csl-player__chartrow--side .csl-player__timeline--side {
+    flex: none;
+    height: 210px;
+  }
+}
 /* On step 3 the ◆ marks the replayed cell, so the selection ring would only repeat it. */
 .csl-fix-maps .csl-map__cell[aria-pressed='true'] {
   box-shadow: none;
@@ -2481,6 +2499,13 @@ button.csl-map__cell {
   }
   .csl-fixtabs__facts {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* The guided pause sits above the legend instead of covering it. */
+  .csl-guide {
+    position: static;
+    transform: none;
+    width: auto;
+    flex-wrap: wrap;
   }
 }
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MapLegend, TippingMap, cellAriaLabel, cellColor, cellText, gridMove } from './TippingMap';
 import type { MapCellView, MapView } from './types';
 
@@ -85,7 +85,7 @@ describe('TippingMap', () => {
     const buttons = screen.getAllByRole('button');
     // Only the selected cell is in the tab order.
     expect(buttons.map((b) => b.tabIndex)).toEqual([-1, 0, -1, -1, -1, -1]);
-    buttons[1].focus();
+    act(() => buttons[1].focus());
     fireEvent.keyDown(buttons[1], { key: 'ArrowRight' });
     expect(document.activeElement).toBe(buttons[2]);
     expect(buttons.map((b) => b.tabIndex)).toEqual([-1, -1, 0, -1, -1, -1]);

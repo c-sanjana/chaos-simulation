@@ -118,10 +118,12 @@ export const LONG_CHAIN_LABEL_MAX = 18;
 export function keepEnd(label: string, max = LONG_CHAIN_LABEL_MAX): string {
   if (label.length <= max) return label;
   const head = Math.floor((max - 1) / 2);
-  let start = label.length - (max - 1 - head);
-  // Start the end part at a word's beginning when one is a few letters back ("service 12", not "ervice 12").
-  for (let back = 1; back <= 3 && /\S/.test(label[start - 1] ?? ' '); back++) start--;
-  if (/\S/.test(label[start - 1] ?? ' ')) start += 3;
+  const cut = label.length - (max - 1 - head);
+  // Start the end part at a word's beginning when one is a few letters away ("service 12", not
+  // "ervice 12" or "y service"): first looking back up to 3 letters, then forward up to 4.
+  const wordStart = (p: number) => p > 0 && label[p - 1] === ' ' && label[p] !== ' ';
+  const near = [0, 1, 2, 3].map((d) => cut - d).find(wordStart) ?? [1, 2, 3, 4].map((d) => cut + d).find((p) => p < label.length && wordStart(p));
+  const start = near ?? cut;
   return `${label.slice(0, head).trimEnd()}…${label.slice(start).trimStart()}`;
 }
 
@@ -437,6 +439,9 @@ export interface TopologyDiagramProps {
   compact?: boolean;
 }
 
+/** Narrowest box in a long chain: below this the diagram scrolls sideways rather than squeezing names to a letter or two. */
+export const LONG_CHAIN_BOX_MIN_PX = 76;
+
 /**
  * Columns for a chain longer than the presets' 7: boxes and arrows alternate, sharing the width
  * (the presets keep their tuned 7-column template from the stylesheet).
@@ -444,7 +449,7 @@ export interface TopologyDiagramProps {
 export function gridStyle(nodes: TopologyNodeView[]): CSSProperties | undefined {
   if (!isLongChain(nodes)) return undefined;
   const cols = Math.max(0, ...nodes.map((n) => n.col));
-  const template = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? 'minmax(0, 1fr)' : 'minmax(40px, 0.55fr)')).join(' ');
+  const template = Array.from({ length: cols }, (_, i) => (i % 2 === 0 ? `minmax(${LONG_CHAIN_BOX_MIN_PX}px, 1fr)` : 'minmax(40px, 0.55fr)')).join(' ');
   return { gridTemplateColumns: template, minWidth: 0 };
 }
 

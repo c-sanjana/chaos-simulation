@@ -152,7 +152,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             changes={changes}
             onEdit={onEdit}
             compact
-            chartHeight={190}
+            chartHeight={178}
             sideTimeline
           />
         )}
