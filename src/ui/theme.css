@@ -1712,13 +1712,58 @@ button.csl-map__cell {
   flex-direction: column;
   gap: 8px;
 }
-/* Five tabs per row (eleven fixes take three rows); a long name wraps instead of being cut off. */
+/* The fixes that helped: one ranked row each, with its time to recover and failed requests, so they
+   compare at a glance. The ones that didn't help take two columns. A long name wraps, never cut off. */
 .csl-fixtabs__list {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
 }
-/* The key to the tabs' marks and numbers. */
+.csl-fixtabs__list--not {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.csl-fixtabs__list[hidden],
+.csl-fixtabs__key[hidden] {
+  display: none;
+}
+/* The view switch ("Fixes that helped" / "Tried, didn't help") and the key to the tabs' marks. */
+.csl-fixtabs__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.csl-fixtabs__views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--csl-border);
+  border-radius: 8px;
+  background: var(--csl-ground);
+}
+.csl-fixtabs__view {
+  font: inherit;
+  font-size: 12.5px;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--csl-ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.csl-fixtabs__view[aria-pressed='true'] {
+  background: var(--csl-card);
+  border-color: var(--csl-border-strong);
+  color: var(--csl-ink);
+  font-weight: 600;
+}
+.csl-fixtabs__count {
+  font-weight: 400;
+  color: var(--csl-muted);
+}
 .csl-fixtabs__key {
   display: flex;
   flex-wrap: wrap;
@@ -1727,16 +1772,22 @@ button.csl-map__cell {
   font-size: 12px; /* text people read is at least 12 px */
   color: var(--csl-muted);
 }
+.csl-fixtabs__none {
+  margin: 0;
+  font-size: 13px;
+  color: var(--csl-ink-2);
+}
 .csl-fixtab {
   font: inherit;
-  font-size: 12px;
-  line-height: 1.2;
-  display: inline-flex;
+  font-size: 12.5px;
+  line-height: 1.25;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-height: 30px;
   min-width: 0;
-  padding: 3px 8px;
+  padding: 3px 10px;
   border: 1px solid var(--csl-border-strong);
   border-radius: 8px;
   background: var(--csl-card);
@@ -1753,12 +1804,24 @@ button.csl-map__cell {
   color: var(--csl-good-text);
   font-weight: 700;
 }
-.csl-fixtab__badge {
-  flex: none;
+.csl-fixtab__badge,
+.csl-fixtab__failed {
   white-space: nowrap;
   font-family: var(--csl-font-mono);
   font-size: 12px;
   color: var(--csl-muted);
+  text-align: right;
+}
+/* Fixed widths, so the numbers line up from row to row. */
+.csl-fixtab__badge {
+  min-width: 4ch;
+  color: var(--csl-ink-2);
+}
+.csl-fixtab__failed {
+  min-width: 13ch;
+}
+.csl-fixtabs__list--not .csl-fixtab__failed {
+  min-width: 0;
 }
 .csl-fixtab--no,
 .csl-fixtab--rare {
@@ -1834,22 +1897,94 @@ button.csl-map__cell {
   margin: 2px 0 0;
   color: var(--csl-ink-2);
 }
-/* Label column + text: "Why try it" and "Result" read as two short facts. */
+/* The result leads the panel; one line on why follows. */
+.csl-fixtabs__result {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.csl-fixtabs__result > b {
+  font-weight: 600;
+}
+.csl-fixtabs__why,
+.csl-fixtabs__across {
+  margin: 0;
+  font-size: 13px;
+  color: var(--csl-ink-2);
+}
+.csl-fixtabs__label {
+  font-weight: 600;
+  color: var(--csl-ink);
+}
+.csl-fixtabs__pending {
+  color: var(--csl-muted);
+}
+/* Retry fixes: "48× → 26×", the factors under it. */
+.csl-fixtabs__across {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+}
+.csl-fixtabs__across-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.csl-fixtabs__x {
+  font-family: var(--csl-font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--csl-ink);
+}
+.csl-fixtabs__across-what {
+  color: var(--csl-muted);
+  font-size: 12.5px;
+}
+.csl-fixtabs__factors {
+  font-family: var(--csl-font-mono);
+  font-size: 12px;
+  color: var(--csl-muted);
+}
+/* "More about this fix": a quiet disclosure under the summary. */
+.csl-fixtabs__more-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  min-height: 26px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--csl-primary);
+  cursor: pointer;
+}
+.csl-fixtabs__chevron {
+  width: 10px;
+}
+.csl-fixtabs__more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--csl-border);
+  padding-top: 8px;
+}
+/* Label column + text, under "More about this fix". */
 .csl-fixtabs__facts {
   display: grid;
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: 136px 1fr;
   gap: 4px 10px;
   margin: 0;
   font-size: 12.5px;
 }
 .csl-fixtabs__facts dt,
 .csl-procon__title {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--csl-muted);
-  padding-top: 2px;
+  color: var(--csl-ink-2);
 }
 .csl-fixtabs__facts dd {
   margin: 0;
@@ -1869,8 +2004,6 @@ button.csl-map__cell {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  border-top: 1px solid var(--csl-border);
-  padding-top: 6px;
 }
 .csl-procon__title {
   margin: 0 0 4px;
@@ -2001,21 +2134,28 @@ button.csl-map__cell {
     flex: 1 1 auto;
     min-height: 0;
   }
+  /* As tall as its content (no empty box under a short summary); it scrolls inside only when "More
+     about this fix" is open and the card has no more room. */
   .csl-split__side--wide .csl-fixtabs__panel {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-height: 160px;
     overflow-y: auto;
   }
 }
 
-/* Step 3: before and after maps side by side, small enough to leave room for the fixes. */
+/* Step 3: before and after maps side by side, sharing the panel's width (cells grow wider; the rows
+   stay short to leave room for the fixes). On a phone they stack, each full width. */
 .csl-fix-maps {
   display: flex;
-  gap: 18px;
+  gap: 16px;
   flex-wrap: wrap;
 }
+.csl-fix-maps > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
 .csl-split__side .csl-fix-maps .csl-map {
-  --csl-map-cell: 17px;
+  --csl-map-cell: 19px;
   --csl-map-label: 26px;
 }
 /* Every other traffic label, so the numbers don't run together at this size (still read as headers). */
@@ -2250,6 +2390,87 @@ button.csl-map__cell {
   font-size: 12px;
   padding: 0;
   min-height: 0;
+}
+
+/* ---------- A map that fills its container (TippingMap's `fill`) ---------- */
+/* 'width': the columns share the container's width, so cells grow wider; rows keep --csl-map-cell. */
+.csl-map-scroll--fill-width .csl-map-frame,
+.csl-map-scroll--fill-both .csl-map-frame {
+  display: flex;
+  width: 100%;
+}
+.csl-map-scroll--fill-width .csl-map,
+.csl-map-scroll--fill-both .csl-map {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  --csl-map-col: minmax(0, 1fr);
+}
+.csl-map-scroll--fill-width .csl-map__cell,
+.csl-map-scroll--fill-both .csl-map__cell {
+  width: 100%;
+}
+/* 'both': the rows also share the height the card gives the map (at least --csl-map-cell each). */
+.csl-map-scroll--fill-both {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.csl-map-scroll--fill-both .csl-map-frame {
+  flex: 1 1 auto;
+}
+.csl-map-scroll--fill-both .csl-map__row:not(.csl-map__row--xlabels) {
+  flex: 1 1 0;
+  min-height: var(--csl-map-cell);
+  align-items: stretch;
+}
+.csl-map-scroll--fill-both .csl-map__cell {
+  height: auto;
+  min-height: var(--csl-map-cell);
+}
+.csl-map-scroll--fill-both .csl-map__ylabel {
+  align-self: center;
+}
+
+/* ---------- Step 2: the map card is as tall as the replay beside it, and the map takes the room ---------- */
+.csl-tipping__intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.csl-tipping__result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* The finding reads first; the reason (who asks again) is quieter. */
+.csl-tipping__finding {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--csl-ink);
+}
+.csl-tipping__why {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--csl-muted);
+}
+.csl-tipping .csl-map__xlabel,
+.csl-tipping .csl-map__ylabel {
+  font-size: 12px;
+}
+@media (min-width: 1101px) {
+  .csl-split__side--tipping > .csl-card {
+    flex: 1 1 auto;
+  }
+}
+/* A little more width for the map where the replay has room to spare. */
+@media (min-width: 1400px) {
+  .csl-split__side--tipping {
+    flex-basis: 520px;
+  }
 }
 
 /* The glossary in the top bar: a disclosure whose panel floats below its button. */

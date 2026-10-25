@@ -34,30 +34,42 @@ function verdict(c: RunConfig): CellSummary {
 }
 
 describe('FixStep', { timeout: 60_000 }, () => {
+  beforeEach(() => sessionStorage.clear()); // "More about this fix" is remembered for the session
   it('ranks fixes, checks they hold up, and shows the chosen fix everywhere: details, maps and replay', async () => {
     const pool = new FakePool(verdict);
     render(<FixStep pool={pool} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     // Once every fix is tested and checked, the best is shown and the corner explains the map.
     await screen.findByText('◆ = the run in the replay; select any cell', undefined, SLOW);
-    // One tab per fix, reliable helpers first; the best one is shown straight away once checked.
+    // One tab per fix that helped, reliable ones first; the best one is shown straight away once checked.
     const tabs = screen.getAllByRole('tab');
     expect(tabs.length).toBeGreaterThan(1);
+    expect(tabs.every((t) => /^[✓⚠]/.test(t.textContent!))).toBe(true);
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
-    expect(tabs[0].textContent).toMatch(/^✓.*4 s$/);
-    expect(tabs[0].getAttribute('aria-label')).toMatch(/: helped, back to normal 4 s after the failure ended$/);
-    expect(tabs.at(-1)!.textContent).toMatch(/^✕/); // fixes that did not help come last, without a badge
+    expect(tabs[0].textContent).toMatch(/^✓.*4 s10 failed$/);
+    expect(tabs[0].getAttribute('aria-label')).toMatch(/: helped, back to normal 4 s after the failure ended; 10 failed requests$/);
+    // The fixes that did not help are in their own view, without a badge.
+    const notHelped = screen.getByRole('button', { name: /^Tried, didn't help \(\d+\)$/ });
+    fireEvent.click(notHelped);
+    expect(screen.getAllByRole('tab').every((t) => t.textContent!.startsWith('✕') && t.querySelector('.csl-fixtab__badge')!.textContent === '')).toBe(true);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true'); // the chosen fix stays
+    fireEvent.click(screen.getByRole('button', { name: /^Fixes that helped \(\d+\)$/ }));
     expect(screen.getByText('Shown in the replay')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Retry budget of 10%' })).toBeTruthy();
     expect(screen.getByText('Stuck → recovers in 4 s')).toBeTruthy();
     expect(screen.getByText('at your settings (200 req/s, a 5 s failure)')).toBeTruthy();
-    // Checked on other random runs and with a slowdown twice as long (canned physics: both hold).
+    expect(screen.getByText(/12 s = time to recover/)).toBeTruthy();
+    // Measured in the run with the fix at your settings: why it worked.
+    await screen.findByText('Why it worked:', undefined, SLOW);
+    // The rest is one click away: checked on other random runs and with a slowdown twice as long
+    // (canned physics: both hold), how it works, why it is first, pros and cons.
+    expect(screen.queryByText('How it works')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More about this fix' }));
     expect(screen.getByText(/helped in 5 of 5 random runs · still helps if the slowdown lasts 10 s/)).toBeTruthy();
     expect(screen.getByText('How it works')).toBeTruthy();
-    // Measured in the run with the fix at your settings: why it worked, and why it is first.
-    await screen.findByText('Why it worked', undefined, SLOW);
     expect(screen.getByText("Why it's ranked first")).toBeTruthy();
-    expect(screen.getByText(/= time to recover after the failure ended/)).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Cons' }).textContent).toMatch(/^Cons \(\d\)/);
+    // Both maps share the panel's width.
+    expect(document.querySelectorAll('.csl-fix-maps .csl-map-scroll--fill-width')).toHaveLength(2);
     await screen.findByRole('heading', { name: /^Before vs after: Retry budget/ }, SLOW);
     await screen.findByText(/the system used to tip at 120 req\/s; with the fix it recovers at every traffic level shown/, undefined, SLOW);
     expect(screen.getByText(/^200 req\/s · a 5 s failure \(yours\) · only the fix differs$/)).toBeTruthy();
@@ -107,10 +119,15 @@ describe('FixStep', { timeout: 60_000 }, () => {
     await screen.findByText('◆ = the run in the replay; select any cell', undefined, SLOW);
     const tabs = screen.getAllByRole('tab');
     expect(tabs[0].getAttribute('aria-label')).toMatch(/^Cap retries at 1 \(one layer\): helped/);
-    // Helping in 1 of 5 random runs is luck: marked like a fix that did not help.
+    // Helping in 1 of 5 random runs is luck: marked like a fix that did not help, and listed with them.
+    expect(screen.queryByRole('tab', { name: /^Budget, one layer/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Tried, didn't help/ }));
     const budget = screen.getByRole('tab', { name: /^Budget, one layer: helped only by luck/ });
     expect(budget.textContent).toMatch(/^✕/);
     fireEvent.click(budget);
+    // Its checks sit next to its result; the drawbacks they show are under "More about this fix".
+    expect(screen.getByText(/helped in 1 of 5 random runs · doesn't help if it lasts 10 s/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'More about this fix' }));
     expect(screen.getByText('Helped in only 1 of 5 random runs, so the result depends on luck')).toBeTruthy();
     expect(screen.getByText("Didn't help when the slowdown lasted 10 s")).toBeTruthy();
   });
@@ -121,7 +138,12 @@ describe('FixStep', { timeout: 60_000 }, () => {
     const neverHelps = new FakePool(() => ({ verdict: 'stuck', recoveryMs: null, failedRequests: 9000 }));
     rerender(<FixStep pool={neverHelps} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
     await screen.findByText(/^\d+ fixes tested$/, undefined, SLOW);
+    // The view of fixes that didn't help opens by itself, with the note.
     expect(screen.getByText('None of the fixes tried made this run recover.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Tried, didn't help/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Fixes that helped (0)' })).toBeTruthy();
+    expect(screen.getAllByRole('tab').length).toBeGreaterThan(0);
+    expect(screen.getByText('Choose a fix below to see its before and after maps anyway.')).toBeTruthy();
     expect(screen.getByText('No fix helped, so there is nothing to compare.')).toBeTruthy();
   });
 

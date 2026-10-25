@@ -37,8 +37,8 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
 
   return (
     <div className="csl-split csl-split--stretch">
-      <div className="csl-split__col csl-split__side">
-        <section className="csl-card csl-card--compact" aria-label="Tipping point" data-tour="map" data-tour-ready={finished || undefined}>
+      <div className="csl-split__col csl-split__side csl-split__side--tipping">
+        <section className="csl-card csl-card--compact csl-tipping" aria-label="Tipping point" data-tour="map" data-tour-ready={finished || undefined}>
           <div className="csl-card__head">
             <h2 className="csl-card__title" id="csl-step-heading" tabIndex={-1}>
               Where's the tipping point?
@@ -47,26 +47,25 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
               {sweep.error ? <span className="csl-error">{sweep.error}</span> : `${sweep.done} of ${sweep.total} runs`}
             </span>
           </div>
-          <p className="csl-card__sub" style={{ margin: 0 }}>
-            Each cell re-runs the same failure at another traffic level and {yAxis.label}. The <b>tipping point</b> is the lowest traffic at which the system gets stuck for good. Select a cell (click it, or arrow keys then Enter) to replay it.
+          <p className="csl-card__sub csl-tipping__intro">
+            Each cell is one run of the same failure, at other traffic and {yAxis.label}. The <b>tipping point</b> is the lowest traffic that leaves the system stuck for good. Select a cell to replay it<span className="csl-sr-only"> (arrow keys move, Enter replays)</span>.
           </p>
-          <MapLegend />
-          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} tips={tips} />
-          <div className="csl-selected-line" aria-label="Selected cell">
-            <span className="csl-mono">{cellTitle}</span>
-            <strong style={{ fontWeight: 600 }}>{verdictText}</strong>
-            {summary && summary.failedRequests > 0 && <span className="csl-status">{formatCount(summary.failedRequests)} failed requests</span>}
+          <MapLegend showPending={!finished} compact />
+          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} tips={tips} fill="both" />
+          <div className="csl-tipping__result">
+            <div className="csl-selected-line" aria-label="Selected cell">
+              <span className="csl-mono">{cellTitle}</span>
+              <strong style={{ fontWeight: 600 }}>{verdictText}</strong>
+              {summary && summary.failedRequests > 0 && <span className="csl-status">{formatCount(summary.failedRequests)} failed requests</span>}
+            </div>
+            {!onMap(scenario) && (
+              <p className="csl-status" style={{ margin: 0 }}>
+                Your settings ({current.x} req/s, {axisPhrase(yAxis, current.y)}) aren't one of the map's cells; the nearest is selected.
+              </p>
+            )}
+            {rowTip && <p className="csl-tipping__finding">{tippingSentence({ tip: rowTip, yAxis, current, currentVerdict })}</p>}
+            {rowTip && cascade && <p className="csl-tipping__why">{cascade}</p>}
           </div>
-          {!onMap(scenario) && (
-            <p className="csl-status" style={{ margin: 0 }}>
-              Your settings ({current.x} req/s, {axisPhrase(yAxis, current.y)}) aren't one of the map's cells; the nearest is selected.
-            </p>
-          )}
-          {rowTip && (
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--csl-ink-2)' }}>
-              {tippingSentence({ tip: rowTip, yAxis, current, currentVerdict })} {cascade}
-            </p>
-          )}
         </section>
       </div>
       <div className="csl-split__main" data-tour="replay">
@@ -81,7 +80,6 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             compact
             chartHeight={200}
             sideTimeline
-            compactStory
           />
         )}
         {replay.status === 'running' && <PlayerPlaceholder text={`Simulating ${cellTitle}…`} progress={replay.progress} minHeight={REPLAY_PLAYER_HEIGHT} />}

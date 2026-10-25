@@ -101,6 +101,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
     fixTab(f, ranking.original!, ranking.robustness[f.candidate.id], where, longerS, f === applied ? { explanation, before: original, after: fixedAtYours.status === 'done' ? fixedAtYours.value : null } : undefined, failure),
   );
   const cellTitle = `${cell.x} req/s · ${axisPhrase(yAxis, cell.y)}`;
+  const recoversAlone = original.analysis.recovery.verdict === 'recovered' || original.analysis.recovery.verdict === 'unaffected';
+  const noneHelped = recoversAlone ? 'This run already recovers on its own, and none of the fixes made it recover faster.' : 'None of the fixes tried made this run recover.';
   const mapsDone = before.result !== null && after.result !== null && before.done === before.total && after.done === after.total;
   const status = ranking.error ? (
     <span className="csl-error">{ranking.error}</span>
@@ -139,6 +141,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                         selected={cell}
                         onSelect={(c) => setCell({ x: c.x, y: c.y })}
                         tips={m.sweep.done === m.sweep.total ? tippingPoints(m.sweep) : []}
+                        fill="width"
                       />
                     </div>
                   ))}
@@ -165,15 +168,13 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                     : ranking.checking
                       ? `Checking which fixes hold up: other random runs and a longer ${failure}…`
                       : helped.length === 0
-                        ? original.analysis.recovery.verdict === 'recovered' || original.analysis.recovery.verdict === 'unaffected'
-                          ? 'This run already recovers on its own, and none of the fixes made it recover faster.'
-                          : 'None of the fixes tried made this run recover.'
+                        ? 'Choose a fix below to see its before and after maps anyway.'
                         : 'Choose a fix to see whether it moves the tipping point.'}
               </span>
             )}
           </div>
           <div data-tour="fix-tabs" data-tour-ready={finished || undefined}>
-            {allTested && <FixTabs tabs={tabs} selectedId={appliedId} onSelect={setChosenId} />}
+            {allTested && <FixTabs tabs={tabs} selectedId={appliedId} onSelect={setChosenId} noneHelped={noneHelped} />}
           </div>
         </section>
       </div>
@@ -191,7 +192,6 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             compact
             chartHeight={178}
             sideTimeline
-            compactStory
           />
         )}
         {applied && (fixed.status === 'running' || beforeRun.status === 'running') && (

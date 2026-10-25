@@ -654,7 +654,7 @@ describe('App: switching steps keeps finished work and state', { timeout: 120_00
     expect(new Set(pool.analyzed.map((c) => stableKey(c))).size).toBe(pool.analyzed.length);
     const tabs = screen.getAllByRole('tab');
     fireEvent.click(tabs[1]);
-    const short = tabs[1].textContent!.replace(/^[✓⚠✕]|\d+ s$/g, '');
+    const short = tabs[1].querySelector('.csl-fixtab__name')!.textContent;
     await screen.findByText(`After: ${short}`, undefined, SLOW);
     await screen.findByRole('heading', { name: /^Before vs after/ }, SLOW);
     const work = [pool.cells.length, pool.analyzed.length];
