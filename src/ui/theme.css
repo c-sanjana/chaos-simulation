@@ -1333,11 +1333,16 @@ button.csl-map__cell {
 }
 .csl-topology-grid--compact .csl-node__label {
   font-size: 13px;
-  /* One line, so a long name ("Load balancer") doesn't make every box taller; the full name is the tooltip. */
+  line-height: 1.2;
+  /* A name too wide for the narrow box ("Load balancer") wraps onto a second line rather than being
+     cut off: names are how the story and fixes refer to parts. Longer ones are clamped at two
+     lines; the full name is the tooltip. */
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .csl-topology-grid--compact .csl-node__count {
   display: none;
