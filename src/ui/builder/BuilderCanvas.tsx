@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useId, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { connect, connectRefusal, GRID_COLS, GRID_ROWS, nodeAt, type Cell } from '../../builder/edit';
 import { KIND_LABELS, type BuilderGraph, type BuilderNode, type ComponentKind } from '../../builder/graph';
 import { displayName, edgeLabel, edgeLabelName, nodeLines, nodeSummary } from './describe';
@@ -12,10 +12,24 @@ export type Drag = { type: 'new'; kind: ComponentKind } | { type: 'move'; id: st
 
 export type Selection = { type: 'node' | 'edge'; id: string } | null;
 
+/** A box or arrow with a problem: amber while it is only unfinished, red when something is wrong; and the messages. */
+export interface CanvasMark {
+  severity: 'unfinished' | 'wrong';
+  texts: string[];
+}
+
+/** The marked boxes and arrows, by id. */
+export interface CanvasMarks {
+  nodes: Map<string, CanvasMark>;
+  edges: Map<string, CanvasMark>;
+}
+
 export interface BuilderCanvasProps {
   graph: BuilderGraph;
   selection: Selection;
   drag: Drag | null;
+  /** Boxes and arrows to mark with their problems (an outline and a ⚠, the messages as tooltip and description). */
+  marks?: CanvasMarks;
   onSelect: (selection: Selection) => void;
   onDragStart: (drag: Drag) => void;
   onDragEnd: () => void;
@@ -57,6 +71,11 @@ export function canCallAnything(kind: ComponentKind): boolean {
   return PALETTE_KINDS.some((to) => connectRefusal(kind, to) === null);
 }
 
+/** A mark's messages as screen readers hear them, on the ⚠ (its name) and on the marked box or arrow (its description). */
+function problemText(mark: CanvasMark): string {
+  return `Problem: ${mark.texts.join(' ')}`;
+}
+
 const ARROW_KEYS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 const cells: Cell[] = Array.from({ length: GRID_COLS * GRID_ROWS }, (_, i) => ({ col: (i % GRID_COLS) + 1, row: Math.floor(i / GRID_COLS) + 1 }));
@@ -75,10 +94,12 @@ const cells: Cell[] = Array.from({ length: GRID_COLS * GRID_ROWS }, (_, i) => ({
  * Drags use HTML5 drag and drop. What is being dragged is kept in React state (not read back from
  * dataTransfer), because browsers hide the dragged data until the drop.
  */
-export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, onDragEnd, onAdd, onMove, onConnect, onRefused, onDelete, onOpen, emptyHint }: BuilderCanvasProps) {
+export function BuilderCanvas({ graph, selection, drag, marks, onSelect, onDragStart, onDragEnd, onAdd, onMove, onConnect, onRefused, onDelete, onOpen, emptyHint }: BuilderCanvasProps) {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = useSideScroll<HTMLDivElement>();
   const markerId = `csl-arrow-${useId().replace(/:/g, '')}`;
+  /** Ids of the elements holding each mark's text, for aria-describedby. */
+  const markId = (type: 'node' | 'edge', id: string) => `${markerId}-${type}-problem-${id}`;
   /** The box under a dragged call or box, and why it can't be dropped on (if it can't). */
   const [hover, setHover] = useState<{ id: string; reason?: string } | null>(null);
   const [hoverCell, setHoverCell] = useState<Cell | null>(null);
@@ -218,10 +239,17 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
             <marker id={`${markerId}-sel`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
               <path d="M0 0 L10 5 L0 10 Z" className="csl-bcanvas__head csl-bcanvas__head--selected" />
             </marker>
+            {(['unfinished', 'wrong'] as const).map((severity) => (
+              <marker key={severity} id={`${markerId}-${severity}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 Z" className={`csl-bcanvas__head csl-bcanvas__head--${severity}`} />
+              </marker>
+            ))}
           </defs>
           {lines.map(({ edge, line }) => {
             const selected = isSelected('edge', edge.id);
-            const head = `url(#${selected ? `${markerId}-sel` : markerId})`;
+            const mark = marks?.edges.get(edge.id);
+            // Selected wins (blue), so the arrow being edited is clear; its label keeps the mark.
+            const head = `url(#${selected ? `${markerId}-sel` : mark ? `${markerId}-${mark.severity}` : markerId})`;
             // Cache lookups are drawn like the preset's cache link: double-headed (asked, answered).
             const cache = graph.nodes.find((n) => n.id === edge.to)?.settings.kind === 'cache';
             const d = line.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y}`).join(' ');
@@ -230,7 +258,7 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                 <path d={d} className="csl-bcanvas__hit" onClick={() => onSelect({ type: 'edge', id: edge.id })} />
                 <path
                   d={d}
-                  className={`csl-bcanvas__line${selected ? ' csl-bcanvas__line--selected' : ''}${cache ? ' csl-bcanvas__line--cache' : ''}`}
+                  className={`csl-bcanvas__line${selected ? ' csl-bcanvas__line--selected' : mark ? ` csl-bcanvas__line--${mark.severity}` : ''}${cache ? ' csl-bcanvas__line--cache' : ''}`}
                   markerEnd={head}
                   markerStart={cache ? head : undefined}
                 />
@@ -242,22 +270,39 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
           )}
         </svg>
 
-        {lines.map(({ edge, line }) => (
-          <button
-            key={edge.id}
-            type="button"
-            className={`csl-bcanvas__edge-label csl-bcanvas__edge-label--${line.labelSide}${line.labelWrap ? ' csl-bcanvas__edge-label--wrap' : ''}`}
-            style={{ left: line.mid.x, top: line.mid.y }}
-            aria-pressed={isSelected('edge', edge.id)}
-            aria-label={edgeLabelName(graph, edge)}
-            title="Edit this call"
-            onKeyDown={(e) => deleteKey(e, { type: 'edge', id: edge.id })}
-            // A click from the keyboard (Enter or Space: no pointer, so detail 0) also moves focus to the settings.
-            onClick={(e) => (e.detail === 0 ? onOpen({ type: 'edge', id: edge.id }) : onSelect({ type: 'edge', id: edge.id }))}
-          >
-            {line.labelWrap ? <WrappedLabel text={edgeLabel(graph, edge)} /> : edgeLabel(graph, edge)}
-          </button>
-        ))}
+        {lines.map(({ edge, line }) => {
+          const mark = marks?.edges.get(edge.id);
+          return (
+            <Fragment key={edge.id}>
+              <button
+                type="button"
+                className={`csl-bcanvas__edge-label csl-bcanvas__edge-label--${line.labelSide}${line.labelWrap ? ' csl-bcanvas__edge-label--wrap' : ''}${mark ? ` csl-bcanvas__edge-label--${mark.severity}` : ''}`}
+                style={{ left: line.mid.x, top: line.mid.y }}
+                data-edge-label={edge.id}
+                aria-pressed={isSelected('edge', edge.id)}
+                aria-label={edgeLabelName(graph, edge)}
+                aria-describedby={mark ? markId('edge', edge.id) : undefined}
+                title={mark ? `Edit this call\n⚠ ${mark.texts.join('\n⚠ ')}` : 'Edit this call'}
+                onKeyDown={(e) => deleteKey(e, { type: 'edge', id: edge.id })}
+                // A click from the keyboard (Enter or Space: no pointer, so detail 0) also moves focus to the settings.
+                onClick={(e) => (e.detail === 0 ? onOpen({ type: 'edge', id: edge.id }) : onSelect({ type: 'edge', id: edge.id }))}
+              >
+                {line.labelWrap ? <WrappedLabel text={edgeLabel(graph, edge)} /> : edgeLabel(graph, edge)}
+                {mark && (
+                  <span className={`csl-bcanvas__warn csl-bcanvas__warn--${mark.severity}`} aria-hidden="true">
+                    ⚠
+                  </span>
+                )}
+              </button>
+              {mark && (
+                // The label's description: what is wrong with this arrow (a button's own content can't carry it).
+                <span className="csl-sr-only" id={markId('edge', edge.id)}>
+                  {problemText(mark)}
+                </span>
+              )}
+            </Fragment>
+          );
+        })}
 
         {graph.nodes.map((node) => {
           const selected = isSelected('node', node.id);
@@ -266,6 +311,8 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
           if (drag?.type === 'connect' && drag.from !== node.id) cls += connect(graph, drag.from, node.id).reason ? ' csl-bnode--no' : ' csl-bnode--ok';
           if (drag?.type === 'connect' && drag.from === node.id) cls += ' csl-bnode--source';
           if (drag?.type === 'move' && drag.id === node.id) cls += ' csl-bnode--moving';
+          const mark = marks?.nodes.get(node.id);
+          if (mark) cls += ` csl-bnode--${mark.severity}`;
           return (
             <div
               key={node.id}
@@ -282,7 +329,8 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                 className={`csl-bnode__box csl-bnode__box--${node.settings.kind}`}
                 aria-pressed={selected}
                 aria-label={nodeSummary(node)}
-                title={`${nodeSummary(node)}. Drag to move; click to edit.`}
+                aria-describedby={mark ? markId('node', node.id) : undefined}
+                title={`${nodeSummary(node)}. Drag to move; click to edit.${mark ? `\n⚠ ${mark.texts.join('\n⚠ ')}` : ''}`}
                 draggable
                 onDragStart={(e) => {
                   startDrag(e, node.id, 'move');
@@ -318,6 +366,19 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                   }}
                   onDragEnd={endDrag}
                 />
+              )}
+              {mark && (
+                // The ⚠ on the box's corner: named by its messages, which also describe the box itself.
+                <span
+                  className={`csl-bnode__warn csl-bcanvas__warn csl-bcanvas__warn--${mark.severity}`}
+                  id={markId('node', node.id)}
+                  role="img"
+                  aria-label={problemText(mark)}
+                  title={mark.texts.join('\n')}
+                  onClick={() => onSelect({ type: 'node', id: node.id })}
+                >
+                  ⚠
+                </span>
               )}
               {target && (
                 // Under the box, except on the bottom row, where it goes above so it stays on the canvas.

@@ -180,16 +180,16 @@ describe('connect', () => {
 
   it('refuses self-calls, duplicates, unknown ids and pairs canConnect rules out', () => {
     const g = starterGraph();
-    expect(connect(g, 'server-1', 'server-1')).toEqual({ graph: g, reason: "A component can't call itself." });
-    expect(connect(g, 'server-1', 'database-1')).toEqual({ graph: g, reason: 'App server already calls Database.' });
+    expect(connect(g, 'server-1', 'server-1')).toEqual({ graph: g, reason: "A box can't have an arrow to itself." });
+    expect(connect(g, 'server-1', 'database-1')).toEqual({ graph: g, reason: "There's already an arrow from App server to Database." });
     expect(connect(g, 'server-1', 'ghost').reason).toMatch(/no longer exists/);
-    expect(connect(g, 'database-1', 'server-1')).toEqual({ graph: g, reason: "A database only answers calls; it doesn't call other components." });
+    expect(connect(g, 'database-1', 'server-1')).toEqual({ graph: g, reason: "A database only answers requests; it doesn't send any." });
     expect(connect(g, 'loadBalancer-1', 'cache-1').reason).toBe('Only an app server looks things up in a cache.');
   });
 
   it('names blank-labelled components by their kind in reasons', () => {
     const g = updateNode(updateNode(starterGraph(), 'server-1', { label: '' }), 'database-1', { label: '' });
-    expect(connect(g, 'server-1', 'database-1').reason).toBe('App server already calls Database.');
+    expect(connect(g, 'server-1', 'database-1').reason).toBe("There's already an arrow from App server to Database.");
   });
 
   it('reports whether a connection would work', () => {
@@ -210,8 +210,8 @@ describe('connectRefusal', () => {
   });
 
   it('words each kind of refusal plainly', () => {
-    expect(connectRefusal('server', 'client')).toMatch(/Nothing calls the Client/);
-    expect(connectRefusal('cache', 'database')).toMatch(/A cache only answers calls/);
+    expect(connectRefusal('server', 'client')).toMatch(/nothing sends to it/);
+    expect(connectRefusal('cache', 'database')).toMatch(/A cache only answers requests/);
     expect(connectRefusal('client', 'database')).toMatch(/not straight to a database/);
     expect(connectRefusal('client', 'cache')).toMatch(/not straight to a cache/);
     expect(connectRefusal('queue', 'cache')).toMatch(/Only an app server/);
