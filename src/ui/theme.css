@@ -471,7 +471,7 @@ body {
 .csl-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
+  gap: 10px 22px;
   font-size: 13px;
   color: var(--csl-ink-2);
   align-items: center;
@@ -617,10 +617,10 @@ button.csl-map__cell {
 .csl-map-legend__item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 .csl-map-legend__group {
-  gap: 8px;
+  gap: 14px;
 }
 .csl-map-legend__swatch--stuck {
   color: #fff;
@@ -646,7 +646,7 @@ button.csl-map__cell {
 .csl-map-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
+  gap: 10px 20px;
   font-size: 12.5px;
   color: var(--csl-ink-2);
   align-items: center;
@@ -656,11 +656,11 @@ button.csl-map__cell {
 }
 /* Step 3: one line under the heading. */
 .csl-map-legend--compact {
-  gap: 4px 12px;
+  gap: 8px 18px;
   font-size: 12px;
 }
 .csl-map-legend--compact .csl-map-legend__group {
-  gap: 6px;
+  gap: 12px;
 }
 .csl-map-legend__swatch {
   width: 14px;
@@ -1046,7 +1046,7 @@ button.csl-map__cell {
 .csl-main {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   min-width: 0;
 }
 .csl-header {
@@ -1585,7 +1585,7 @@ button.csl-map__cell {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: -8px 0 -10px;
+  margin: -8px 0 4px;
   min-width: 0;
 }
 .csl-topbar__row {
@@ -2158,7 +2158,7 @@ button.csl-map__cell {
    stay short to leave room for the fixes). On a phone they stack, each full width. */
 .csl-fix-maps {
   display: flex;
-  gap: 16px;
+  gap: 16px 32px;
   flex-wrap: wrap;
 }
 .csl-fix-maps > div {
@@ -2185,8 +2185,8 @@ button.csl-map__cell {
 .csl-fix-maps__panel {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding-bottom: 6px;
+  gap: 14px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--csl-border);
 }
 /* Each map is its title over the grid, with no line-box gaps around either (the panel is kept
@@ -3276,5 +3276,23 @@ button.csl-map__cell {
 @container csl-player (max-width: 672px) {
   .csl-player__chartrow--side .csl-player__timeline--side {
     height: auto;
+  }
+}
+
+/* Room to breathe (user request, 2026-10-25): legends sit apart from what they explain. Step 2's map
+   legend gets space above the grid; step 3's before/after titles sit a little apart from their grids;
+   and on wide screens step 3's two columns ("Did the tipping point move?" and "Before vs after") are
+   the same width. */
+.csl-tipping .csl-map-legend {
+  margin: 4px 0 10px;
+}
+.csl-fix-maps > div {
+  gap: 6px;
+}
+@media (min-width: 1101px) {
+  .csl-split__side--wide,
+  .csl-split__side--wide + .csl-split__main {
+    flex: 1 1 0;
+    max-width: none;
   }
 }
