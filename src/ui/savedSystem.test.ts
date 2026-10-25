@@ -204,5 +204,9 @@ describe('saved system', () => {
     expect(Object.values(back.applied.topology.layout).map((l) => l.label)).toContain('Load balancer');
     expect(back.applied.topology.tiers[1].instances).toBe(7);
     expect(back.applied.scenario.rps).toBe(150);
+    // Nothing edited: exactly the default draft, so the summary doesn't say "(edited)".
+    store.data.set(SAVED_SYSTEM_KEY, JSON.stringify({ system: old, scenarioId: front.id, applied: systemDraft(system, front.id), canvas: null, canvasOpen: false }));
+    const plain = loadSaved(store)!;
+    expect(JSON.stringify(plain.applied)).toBe(JSON.stringify(systemDraft(plain.system, plain.scenarioId)));
   });
 });

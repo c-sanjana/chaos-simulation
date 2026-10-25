@@ -182,10 +182,23 @@ export function loadSaved(storage?: SystemStorage): Restored | null {
   const scenarioId = resolveScenarioId(system, '');
   const fresh = systemDraft(system, scenarioId);
   const kept = fits(saved.applied ?? null, system) ? saved.applied! : null;
-  const applied = kept === null ? fresh : withTrafficAxis({ topology: { ...kept.topology, layout: fresh.topology.layout }, scenario: { ...fresh.scenario, rps: kept.scenario.rps } });
+  const applied = kept === null ? fresh : restoredDraft(fresh, kept);
   const canvas = isGraph(saved.canvas) ? upgraded(saved.canvas) : null;
   const notice = leftOut(saved.system != null && built === null, saved.canvas != null && canvas === null);
   return { system, scenarioId, applied, canvas, canvasOpen: canvas !== null && saved.canvasOpen === true, ...(notice ? { notice } : {}) };
+}
+
+/**
+ * The default draft with the settings edits and traffic of a saved one; the default itself when
+ * nothing was edited, so the summary doesn't say "(edited)" (the app compares drafts as JSON, in
+ * systemDraft's key order).
+ */
+function restoredDraft(fresh: Draft, kept: Draft): Draft {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const edited = !same(kept.topology.tiers, fresh.topology.tiers) || !same(kept.topology.clientCall, fresh.topology.clientCall);
+  const topology = edited ? { ...fresh.topology, tiers: kept.topology.tiers, clientCall: kept.topology.clientCall } : fresh.topology;
+  const scenario = kept.scenario.rps === fresh.scenario.rps ? fresh.scenario : { ...fresh.scenario, rps: kept.scenario.rps };
+  return withTrafficAxis({ scenario, topology });
 }
 
 /** Forgets the saved state ("Start again" after the page broke: the save might be what broke it). */
