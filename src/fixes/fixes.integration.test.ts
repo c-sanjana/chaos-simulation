@@ -8,7 +8,7 @@
  */
 import { analyzed, retryStormRun } from '../analysis/testRuns';
 import { buildRunConfig } from '../data/buildConfig';
-import { cacheRestart, gatewaySlow, retryStorm } from '../data/scenarios';
+import { cacheRestart, loadBalancerSlow, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { ScenarioPreset } from '../data/types';
 import { runSimulation } from '../engine/run';
@@ -215,8 +215,8 @@ describe('fixes for the default cache restart (200 rps, cache down 5 s and back 
   });
 });
 
-describe('fixes for the default gateway slowdown (200 rps, Load balancer 50× slower for 20 s)', { timeout: 120_000 }, () => {
-  const { original, ranked, byId } = rankPreset(gatewaySlow);
+describe('fixes for the default lb slowdown (200 rps, Load balancer 50× slower for 20 s)', { timeout: 120_000 }, () => {
+  const { original, ranked, byId } = rankPreset(loadBalancerSlow);
 
   // The load balancer's pile lands on the DB when it recovers: shedding load at the DB helps, and so does
   // limiting retries at every layer; a longer App server → DB timeout does not (the pile comes from in front).

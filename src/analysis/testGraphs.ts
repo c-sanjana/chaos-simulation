@@ -21,7 +21,7 @@ export const graphLabels: Record<string, string> = {
 /**
  * The web app with a second call behind the app server: on a cache miss it asks the DB and a
  * search service (made like the DB, a little faster), one after the other or at once. Default
- * retries (users 5, gateway 3, app server 1 on each call); the DB slows 8× for 5 s at 30 s.
+ * retries (users 5, lb 3, app server 1 on each call); the DB slows 8× for 5 s at 30 s.
  */
 export function webWithSearch(fanOut: 'sequence' | 'parallel', rps = 200, faults?: Fault[]): RunConfig {
   const base = buildRunConfig(webChain, retryStorm, { rps });
@@ -65,7 +65,7 @@ export function splitPools(o: { shareBlue?: number; retries?: number; clientRetr
 }
 
 /**
- * Fan-in: users → gateway, which asks Orders and Reports at once; both call the DB, Orders with
+ * Fan-in: users → lb, which asks Orders and Reports at once; both call the DB, Orders with
  * a 1.5 s timeout, Reports with 800 ms. The DB slows `factor`× for 5 s at 30 s.
  */
 export function fanIn(o: { rps?: number; factor?: number; reportsRetries?: number } = {}): RunConfig {
@@ -74,9 +74,9 @@ export function fanIn(o: { rps?: number; factor?: number; reportsRetries?: numbe
   return {
     seed: 42,
     durationMs: 120_000,
-    client: { rps: o.rps ?? 60, call: call('gateway', { timeoutMs: 3000, retries: 0 }) },
+    client: { rps: o.rps ?? 60, call: call('lb', { timeoutMs: 3000, retries: 0 }) },
     tiers: [
-      tier('gateway', { kind: 'lognormal', medianMs: 1, p99Ms: 5 }, { instances: 2, workersPerInstance: 256, coresPerInstance: 4, downstream: call('orders', { timeoutMs: 2000 }), moreDownstream: [call('reports', { timeoutMs: 2000 })], fanOut: 'parallel' }),
+      tier('lb', { kind: 'lognormal', medianMs: 1, p99Ms: 5 }, { instances: 2, workersPerInstance: 256, coresPerInstance: 4, downstream: call('orders', { timeoutMs: 2000 }), moreDownstream: [call('reports', { timeoutMs: 2000 })], fanOut: 'parallel' }),
       app('orders', 1500, 1),
       app('reports', 800, o.reportsRetries ?? 1),
       tier('db', { kind: 'lognormal', medianMs: 20, p99Ms: 100 }, { workersPerInstance: 64, coresPerInstance: 4 }),

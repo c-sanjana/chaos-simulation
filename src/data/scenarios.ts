@@ -15,7 +15,8 @@ const failureLength = (seconds: number[]): Axis => ({ param: 'outageMs', label: 
 /** A short DB slowdown; retries at every layer pile up and can keep the system down afterwards. */
 export const retryStorm: ScenarioPreset = {
   id: 'retry-storm',
-  title: 'Retry storm',
+  // Named after its failure, as every scenario is now (src/data/failure.ts failureTitle).
+  title: 'DB slows down',
   blurb: 'A short DB slowdown; every layer retries, and the retries pile up.',
   topology: 'web-chain',
   rps: 200,
@@ -42,14 +43,14 @@ export const cacheRestart: ScenarioPreset = {
  * The front door slows down. ASSUMPTION: 50× (1 ms → 50 ms per request, e.g. CPU throttling or long
  * GC pauses); the load balancer has so much spare capacity that a smaller slowdown is barely noticed.
  */
-export const gatewaySlow: ScenarioPreset = {
-  id: 'gateway-slow',
+export const loadBalancerSlow: ScenarioPreset = {
+  id: 'load-balancer-slow',
   title: 'Load balancer slows down',
   blurb: "The load balancer slows down; users' clients retry, and the repeats pile onto it.",
   topology: 'web-chain',
   rps: 200,
   durationMs: 120_000,
-  faults: [{ tier: 'gateway', kind: 'slow', factor: 50, startMs: 30_000, endMs: 50_000 }],
+  faults: [{ tier: 'lb', kind: 'slow', factor: 50, startMs: 30_000, endMs: 50_000 }],
   // Measured: up to 5 s it always recovers; 10 s tips at 220 req/s, 20 s at 180.
   map: { x: TRAFFIC, y: failureLength([30, 20, 10, 5, 2]) },
 };
@@ -57,5 +58,5 @@ export const gatewaySlow: ScenarioPreset = {
 export const scenarios: Record<string, ScenarioPreset> = {
   [retryStorm.id]: retryStorm,
   [cacheRestart.id]: cacheRestart,
-  [gatewaySlow.id]: gatewaySlow,
+  [loadBalancerSlow.id]: loadBalancerSlow,
 };

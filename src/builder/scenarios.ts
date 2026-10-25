@@ -1,6 +1,7 @@
-import type { TierConfig } from '../engine/config';
+import type { Fault, TierConfig } from '../engine/config';
 import { lognormalMoments } from '../engine/theory';
 import { LIMITS } from '../data/limits';
+import { failureAxis, failureTitle } from '../data/failure';
 import type { Axis, ScenarioPreset, TopologyPreset } from '../data/types';
 import { trafficShares } from '../analysis/helpers';
 
@@ -111,8 +112,6 @@ function formatTime(ms: number): string {
 /** The typical (median) time of a tier's work. */
 const medianMs = (t: TierConfig) => (t.service.kind === 'lognormal' ? t.service.medianMs : meanMs(t));
 
-const lengths = (seconds: number[]): Axis => ({ param: 'outageMs', label: 'failure length', values: seconds.map((s) => s * 1000) });
-
 /** The kinds of failure a built system offers, as the start of their ids. */
 export const BUILT_SCENARIO_KINDS = ['custom-db-slow', 'custom-cache-restart', 'custom-front-slow', 'custom-queue-backlog'] as const;
 export type BuiltScenarioKind = (typeof BUILT_SCENARIO_KINDS)[number];
@@ -162,25 +161,27 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
   const x = builtTrafficAxis(topology, rps);
   const base = { topology: topology.id, rps, durationMs: DURATION_MS };
   const out: ScenarioPreset[] = [];
+  const dbFault = (id: string): Fault => ({ tier: id, kind: 'slow', factor: 8, startMs: START_MS, endMs: START_MS + 5_000 });
+  const cacheFault = (id: string): Fault => ({ tier: id, kind: 'dead', startMs: START_MS, endMs: START_MS + 5_000, flushAtEnd: true });
 
   busiest(topology.tiers.filter((t) => kinds[t.id] === 'database'), true).forEach((db) => {
     out.push({
       ...base,
       id: builtScenarioId('custom-db-slow', db.id),
-      title: `${label(db.id)} slows down`,
+      title: failureTitle(topology, [dbFault(db.id)]),
       blurb: `${label(db.id)} is 8× slower for 5 s; everything that retries piles on.`,
-      faults: [{ tier: db.id, kind: 'slow', factor: 8, startMs: START_MS, endMs: START_MS + 5_000 }],
-      map: { x, y: lengths([12, 8, 5, 3, 2, 1]) },
+      faults: [dbFault(db.id)],
+      map: { x, y: failureAxis(topology, [dbFault(db.id)]) },
     });
   });
   busiest(topology.tiers.filter((t) => t.cache)).forEach((cache) => {
     out.push({
       ...base,
       id: builtScenarioId('custom-cache-restart', cache.id),
-      title: `${label(cache.id)} restarts empty`,
+      title: failureTitle(topology, [cacheFault(cache.id)]),
       blurb: `${label(cache.id)} goes down for 5 s and comes back empty; every lookup falls through.`,
-      faults: [{ tier: cache.id, kind: 'dead', startMs: START_MS, endMs: START_MS + 5_000, flushAtEnd: true }],
-      map: { x, y: lengths([20, 10, 5, 3, 1]) },
+      faults: [cacheFault(cache.id)],
+      map: { x, y: failureAxis(topology, [cacheFault(cache.id)]) },
     });
   });
   const front = byId.get(topology.clientCall.target);
@@ -194,13 +195,14 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
     const median = medianMs(front);
     const byTimeout = topology.clientCall.timeoutMs === null ? 1000 : Math.max(2, Math.floor(topology.clientCall.timeoutMs / 2 / median));
     const factor = Math.min(1000, byTimeout, Math.max(2, Math.round((2 * tierCapacityRps(front)) / (rps * (share(front) || 1)))));
+    const frontFault: Fault = { tier: front.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 };
     out.push({
       ...base,
       id: builtScenarioId('custom-front-slow', front.id),
-      title: `${label(front.id)} slows down`,
+      title: failureTitle(topology, [frontFault]),
       blurb: `${label(front.id)}, the first thing users reach, takes ~${formatTime(median * factor)} a request instead of ~${formatTime(median)} (${factor}× slower) for 20 s.`,
-      faults: [{ tier: front.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
-      map: { x, y: lengths([30, 20, 10, 5, 2]) },
+      faults: [frontFault],
+      map: { x, y: failureAxis(topology, [frontFault]) },
     });
   }
   busiest(topology.tiers.filter((t) => t.queue && t.downstream && byId.has(t.downstream.target))).forEach((queue) => {
@@ -210,13 +212,14 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
     // A part with room to spare barely notices a fixed 8×, and the backlog never builds. The queue's
     // traffic is its share of the users' requests (all of them in a chain).
     const factor = Math.min(1000, Math.max(2, Math.round((2 * queue.queue!.consumers * 1000) / (rps * share(queue)) / meanMs(worker))));
+    const queueFault: Fault = { tier: worker.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 };
     out.push({
       ...base,
       id: builtScenarioId('custom-queue-backlog', queue.id),
-      title: `Work behind ${label(queue.id)} slows down`,
+      title: failureTitle(topology, [queueFault]),
       blurb: `${label(worker.id)} takes ~${formatTime(medianMs(worker) * factor)} a request instead of ~${formatTime(medianMs(worker))} (${factor}× slower) for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
-      faults: [{ tier: worker.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
-      map: { x, y: lengths([40, 20, 10, 5, 2]) },
+      faults: [queueFault],
+      map: { x, y: failureAxis(topology, [queueFault]) },
     });
   });
   return out;

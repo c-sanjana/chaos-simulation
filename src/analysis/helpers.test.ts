@@ -16,10 +16,10 @@ const config: RunConfig = {
 
 describe('analysis helpers', () => {
   it('says names the way a newcomer would', () => {
-    const labels = { db: 'DB', api: 'API', gateway: 'Load balancer', cache: 'Cache', client: 'Client' };
+    const labels = { db: 'DB', api: 'API', lb: 'Load balancer', cache: 'Cache', client: 'Client' };
     expect(spokenName('db', labels)).toBe('the database');
     expect(spokenName('api', labels)).toBe('the API');
-    expect(spokenName('gateway', labels)).toBe('the load balancer');
+    expect(spokenName('lb', labels)).toBe('the load balancer');
     expect(spokenName('cache', labels)).toBe('the cache');
     expect(spokenName('client', labels)).toBe('the client');
     expect(spokenName('svc', {})).toBe('the svc');

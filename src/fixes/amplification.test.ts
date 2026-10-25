@@ -23,7 +23,7 @@ describe('retry amplification', () => {
     expect(a.factor).toBe(48);
     expect(a.layers).toEqual([
       { owner: 'client', factor: 6 },
-      { owner: 'gateway', factor: 4 },
+      { owner: 'lb', factor: 4 },
       { owner: 'api', factor: 2 },
     ]);
     expect(retryAmplification(config, 'client')).toBeNull(); // nothing calls the users
@@ -33,7 +33,7 @@ describe('retry amplification', () => {
     const config = fanIn({ reportsRetries: 3 });
     const a = retryAmplification(config, 'db')!;
     expect(a.factor).toBe(4);
-    expect(a.layers.map((l) => l.owner)).toEqual(['client', 'gateway', 'reports']);
+    expect(a.layers.map((l) => l.owner)).toEqual(['client', 'lb', 'reports']);
   });
 
   it('formats factors as whole numbers, or one decimal below 10', () => {
@@ -81,7 +81,7 @@ describe('the fix panel\'s "across the stack" line on the default retry storm', 
     expect(c.what).toBe("Users' apps, the Load balancer and the App server each stop retrying once retries reach 10% of their first attempts.");
     expect(c.title).toBe('Retry budget of 10% at every layer: every layer that retries');
     const budgets = [c.config.client.call, ...c.config.tiers.flatMap((t) => (t.downstream ? [t.downstream] : []))].map((p) => (p.retries > 0 ? p.retryBudget : null));
-    expect(budgets).toEqual([0.1, 0.1, 0.1]); // users' apps, gateway → app server, app server → DB
+    expect(budgets).toEqual([0.1, 0.1, 0.1]); // users' apps, lb → app server, app server → DB
     expect(c.config.tiers.find((t) => t.id === 'api')!.cacheAside!.retryBudget).toBeUndefined(); // cache lookups don't retry
   });
 });

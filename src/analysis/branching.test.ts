@@ -121,12 +121,12 @@ describe('call-graph helpers', () => {
     const single: RunConfig = { ...graph, tiers: [{ ...lb, moreDownstream: [] }, ...graph.tiers.slice(1), tier('lonely', fixed)] };
     expect(trafficShares(single)).toMatchObject({ a: 1, b: 0, lonely: 0 });
     // The web chain: every tier sees every request (cache hits ignored).
-    expect(trafficShares(buildRunConfig(webChain, retryStorm))).toEqual({ gateway: 1, api: 1, cache: 1, db: 1 });
+    expect(trafficShares(buildRunConfig(webChain, retryStorm))).toEqual({ lb: 1, api: 1, cache: 1, db: 1 });
   });
 
   it('orders tiers front to back', () => {
     expect(topologicalOrder(graph)).toEqual(['lb', 'a', 'b', 'cache', 'db', 'search']);
-    expect(topologicalOrder(buildRunConfig(webChain, retryStorm))).toEqual(['gateway', 'api', 'cache', 'db']);
+    expect(topologicalOrder(buildRunConfig(webChain, retryStorm))).toEqual(['lb', 'api', 'cache', 'db']);
     // The client's target first even when listed last; tiers on a cycle are left out.
     const cyclic: RunConfig = { ...graph, client: { rps: 1, call: call('x') }, tiers: [tier('p', fixed, { downstream: call('q') }), tier('q', fixed, { downstream: call('p') }), tier('x', fixed)] };
     expect(topologicalOrder(cyclic)).toEqual(['x']);

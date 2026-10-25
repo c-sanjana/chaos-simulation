@@ -18,8 +18,8 @@ describe('addressing calls', () => {
 
   it('lists every call, further calls included, and addresses each one', () => {
     expect(allCalls(config).map((r) => `${r.owner}.${r.field}[${r.index}]→${r.policy.target}`)).toEqual([
-      'client.call[0]→gateway',
-      'gateway.downstream[0]→api',
+      'client.call[0]→lb',
+      'lb.downstream[0]→api',
       'api.cacheAside[0]→cache',
       'api.downstream[0]→db',
       'api.more[0]→search',

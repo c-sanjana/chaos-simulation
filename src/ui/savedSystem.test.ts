@@ -48,13 +48,27 @@ describe('saved system', () => {
     expect(loadSaved(store)).toBeNull();
   });
 
-  it('keeps a drawing over the example, open or not, with the example scenario chosen', () => {
+  it('keeps a drawing over the example, open or not; the example starts on its default failure, the database slowing down', () => {
     const store = memory();
     saveState({ system: PRESET_SYSTEM, scenarioId: 'cache-restart', applied: systemDraft(PRESET_SYSTEM, 'cache-restart'), canvas: graph, canvasOpen: true }, store);
     const back = loadSaved(store)!;
     expect(back.system).toBe(PRESET_SYSTEM);
-    expect(back.applied.scenario.id).toBe('cache-restart');
+    expect(back.applied.scenario.id).toBe('retry-storm');
+    expect(back.applied.scenario.faults[0]).toMatchObject({ tier: 'db', kind: 'slow' });
     expect(back.canvasOpen).toBe(true);
+  });
+
+  it('renames a drawing\'s "Gateway" load balancer, saved before the rename, to "Load balancer"; typed names stay', () => {
+    const store = memory();
+    const withLb = chainGraph(['client', 'loadBalancer', 'server', 'database']);
+    const old = { ...withLb, nodes: withLb.nodes.map((n) => (n.settings.kind === 'loadBalancer' ? { ...n, label: 'Gateway' } : n)) };
+    expect(old.nodes.some((n) => n.label === 'Gateway')).toBe(true);
+    saveState({ system: PRESET_SYSTEM, scenarioId: 'retry-storm', applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: old, canvasOpen: false }, store);
+    const back = loadSaved(store)!;
+    expect(back.canvas!.nodes.filter((n) => n.settings.kind === 'loadBalancer').map((n) => n.label)).toEqual(['Load balancer']);
+    const typed = { ...withLb, nodes: withLb.nodes.map((n) => (n.settings.kind === 'loadBalancer' ? { ...n, label: 'Edge proxy' } : n)) };
+    saveState({ system: PRESET_SYSTEM, scenarioId: 'retry-storm', applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: typed, canvasOpen: false }, store);
+    expect(loadSaved(store)!.canvas!.nodes.some((n) => n.label === 'Edge proxy')).toBe(true);
   });
 
   it('never trusts a damaged or outdated save', () => {

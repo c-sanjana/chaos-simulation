@@ -28,4 +28,4 @@ export function analyzed(config: RunConfig) {
  * retrying layer gives a clean stuck/recovered contrast (0 retries recovers, 3 gets stuck).
  */
 export const retryStormRun = ({ retries = 0, ...overrides }: Omit<ScenarioOverrides, 'retries'> & { retries?: number }) =>
-  analyzed(buildRunConfig(webChain, retryStorm, { ...overrides, retries: { client: 0, gateway: 0, api: retries } }));
+  analyzed(buildRunConfig(webChain, retryStorm, { ...overrides, retries: { client: 0, lb: 0, api: retries } }));

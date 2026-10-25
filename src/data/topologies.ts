@@ -17,10 +17,10 @@ import type { TopologyPreset } from './types';
 export const webChain: TopologyPreset = {
   id: 'web-chain',
   name: 'Web app with cache',
-  clientCall: { target: 'gateway', timeoutMs: 3000, retries: 5, backoffBaseMs: 100, jitter: false },
+  clientCall: { target: 'lb', timeoutMs: 3000, retries: 5, backoffBaseMs: 100, jitter: false },
   tiers: [
     {
-      id: 'gateway',
+      id: 'lb',
       instances: 2,
       workersPerInstance: 256,
       coresPerInstance: 4,
@@ -65,7 +65,7 @@ export const webChain: TopologyPreset = {
   layout: {
     client: { label: 'Client', col: 1, row: 3 },
     // The same component the builder calls a load balancer (user decision: one name everywhere).
-    gateway: { label: 'Load balancer', col: 3, row: 3 },
+    lb: { label: 'Load balancer', col: 3, row: 3 },
     // The tier runs the app's own code; "App server" is plainer for newcomers than "API" (user decision).
     api: { label: 'App server', col: 5, row: 3 },
     cache: { label: 'Cache', col: 5, row: 1 },

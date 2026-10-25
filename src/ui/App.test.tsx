@@ -27,6 +27,14 @@ function buildChain() {
   connect(/^App server, an app server/, 'cache-1');
 }
 
+/** Sets up failure 1 in the open failure editor and runs it: the editor is the one way to choose a failure. */
+function failOn(part: string, what?: string) {
+  const first = screen.getByRole('group', { name: 'Failure 1' });
+  fireEvent.change(within(first).getByLabelText('Part'), { target: { value: part } });
+  if (what) fireEvent.change(within(first).getByLabelText('What happens'), { target: { value: what } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
+}
+
 describe('App', { timeout: 60_000 }, () => {
   it('runs the default scenario and shows what happened', async () => {
     const pool = new FakePool();
@@ -68,7 +76,7 @@ describe('App', { timeout: 60_000 }, () => {
     // A second failure, anywhere in the stack.
     fireEvent.click(screen.getByRole('button', { name: '+ Add another failure' }));
     const second = screen.getByRole('group', { name: 'Failure 2' });
-    expect((within(second).getByLabelText('Part') as HTMLSelectElement).value).toBe('gateway');
+    expect((within(second).getByLabelText('Part') as HTMLSelectElement).value).toBe('lb');
     fireEvent.change(within(second).getByLabelText('Part'), { target: { value: 'cache' } });
     fireEvent.change(within(second).getByLabelText('What happens'), { target: { value: 'restart-empty' } });
     expect(within(second).getByText('Cache goes down and restarts empty for 10 s.')).toBeTruthy();
@@ -89,7 +97,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.queryByRole('group', { name: 'Failure 2' })).toBeNull();
   });
 
-  it('compares a re-run with the previous run, until dismissed or the preset changes', async () => {
+  it('compares a re-run with the previous run, until dismissed or what fails changes', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
@@ -107,26 +115,33 @@ describe('App', { timeout: 60_000 }, () => {
     expect(within(panel).getByText(/^The App server retried more, adding repeats\. It was stuck either way because/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
-    // A different preset isn't comparable.
+    // A different failure (another part, or failing another way) isn't comparable.
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    failOn('cache', 'restart-empty');
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0].tier).toBe('cache'), SLOW);
     await act(async () => {});
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
   });
 
-  it('offers failures in other parts of the stack as presets', async () => {
+  it('chooses the failure in one place, the editor: any part, any way it can fail, named and mapped as such', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    // No preset cards beside it (user decision, 2026-10-25): one way to set up the failure.
+    expect(screen.queryByRole('group', { name: 'Scenario' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Set up the failure to simulate' })).toBeTruthy();
+    failOn('cache', 'restart-empty');
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'cache', kind: 'dead', flushAtEnd: true }), SLOW);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Cache restarts empty/);
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/Cache goes down and restarts empty for 5 s/);
-    fireEvent.click(screen.getByRole('button', { name: /^Load balancer slows down/ }));
-    await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'gateway', kind: 'slow', factor: 50 }), SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    failOn('lb', 'slow');
+    await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'lb', kind: 'slow' }), SLOW);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Load balancer slows down/);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     const part = within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('Part') as HTMLSelectElement;
-    expect(part.value).toBe('gateway');
+    expect(part.value).toBe('lb');
     // One server down is offered where there is more than one server; "restarts empty" only for the cache.
     const kinds = () => [...(within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('What happens') as HTMLSelectElement).options].map((o) => o.value);
     expect(kinds()).toEqual(['slow', 'down', 'one-down']);
@@ -159,7 +174,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
     // A banner: labelled, the preset's name, then the failure, traffic and retries as chips.
-    expect(summary.textContent).toMatch(/^Failure being tested\s*Retry storm/);
+    expect(summary.textContent).toMatch(/^Failure being tested\s*DB slows down/);
     expect(within(summary).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
       '⚡DB slows 8× for 5 s at 30 s',
       '200 req/s',
@@ -245,14 +260,14 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(within(api).getByLabelText('Limit the waiting line'));
     fireEvent.change(within(api).getByLabelText(/^Requests allowed to wait, per copy/), { target: { value: '50' } });
     fireEvent.change(within(api).getByLabelText(/^Retries to DB/), { target: { value: '1' } });
-    const gateway = within(dialog).getByRole('group', { name: 'Load balancer' });
-    fireEvent.change(within(gateway).getByLabelText(/^Retries to App server/), { target: { value: '2' } });
-    fireEvent.change(within(gateway).getByLabelText(/^Timeout to App server/), { target: { value: '1500' } });
-    fireEvent.change(within(gateway).getByLabelText(/^Wait before retrying/), { target: { value: '20' } });
-    fireEvent.change(within(gateway).getByLabelText(/^Typical time per request/), { target: { value: '2' } });
-    fireEvent.change(within(gateway).getByLabelText(/^Slowest 1% take/), { target: { value: '9' } });
-    fireEvent.change(within(gateway).getByLabelText(/^Requests each copy handles at once/), { target: { value: '100' } });
-    fireEvent.change(within(gateway).getByLabelText(/^CPU cores per copy/), { target: { value: '2' } });
+    const lb = within(dialog).getByRole('group', { name: 'Load balancer' });
+    fireEvent.change(within(lb).getByLabelText(/^Retries to App server/), { target: { value: '2' } });
+    fireEvent.change(within(lb).getByLabelText(/^Timeout to App server/), { target: { value: '1500' } });
+    fireEvent.change(within(lb).getByLabelText(/^Wait before retrying/), { target: { value: '20' } });
+    fireEvent.change(within(lb).getByLabelText(/^Typical time per request/), { target: { value: '2' } });
+    fireEvent.change(within(lb).getByLabelText(/^Slowest 1% take/), { target: { value: '9' } });
+    fireEvent.change(within(lb).getByLabelText(/^Requests each copy handles at once/), { target: { value: '100' } });
+    fireEvent.change(within(lb).getByLabelText(/^CPU cores per copy/), { target: { value: '2' } });
     const cache = within(dialog).getByRole('group', { name: 'Cache' });
     fireEvent.change(within(cache).getByLabelText(/^Keys it can hold/), { target: { value: '500' } });
     fireEvent.change(within(cache).getByLabelText(/^Expire after/), { target: { value: '30' } });
@@ -267,15 +282,15 @@ describe('App', { timeout: 60_000 }, () => {
     const tier = (id: string) => c.tiers.find((t) => t.id === id)!;
     expect(tier('api')).toMatchObject({ instances: 8, dropExpired: true, queueLimit: 50 });
     expect(tier('api').downstream).toMatchObject({ jitter: true, retries: 1 });
-    expect(tier('gateway').downstream).toMatchObject({ retries: 2, timeoutMs: 1500, backoffBaseMs: 20 });
-    expect(tier('gateway')).toMatchObject({ workersPerInstance: 100, coresPerInstance: 2, service: { medianMs: 2, p99Ms: 9 } });
+    expect(tier('lb').downstream).toMatchObject({ retries: 2, timeoutMs: 1500, backoffBaseMs: 20 });
+    expect(tier('lb')).toMatchObject({ workersPerInstance: 100, coresPerInstance: 2, service: { medianMs: 2, p99Ms: 9 } });
     expect(tier('cache').cache).toEqual({ capacity: 500, ttlMs: 30_000, keys: 5000, skew: 0.8 });
     expect(c.durationMs).toBe(90_000);
     expect(c.client.call.timeoutMs).toBe(2500);
 
     await screen.findByRole('button', { name: /Edit all settings/ }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset to preset' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset to the example' }));
     expect((within(screen.getByRole('dialog')).getByLabelText(/^User traffic/) as HTMLInputElement).value).toBe('200');
     fireEvent.click(screen.getByRole('button', { name: 'Close All settings' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -307,13 +322,13 @@ describe('App', { timeout: 60_000 }, () => {
     expect(pool.analyzed).toHaveLength(1);
     fireEvent.change(traffic, { target: { value: '200' } });
     // A typical time above the slowest 1%: the slowest-1% field says so, and Re-run points at it.
-    const gateway = within(dialog).getByRole('group', { name: 'Load balancer' });
-    fireEvent.change(within(gateway).getByLabelText(/^Typical time per request/), { target: { value: '9' } });
+    const lb = within(dialog).getByRole('group', { name: 'Load balancer' });
+    fireEvent.change(within(lb).getByLabelText(/^Typical time per request/), { target: { value: '9' } });
     await within(dialog).findByText('Fix "Slowest 1% take" first');
-    expect(within(gateway).getByText('Must take longer than the typical time (9 ms)')).toBeTruthy();
+    expect(within(lb).getByText('Must take longer than the typical time (9 ms)')).toBeTruthy();
     fireEvent.click(rerun);
     expect(pool.analyzed).toHaveLength(1);
-    fireEvent.change(within(gateway).getByLabelText(/^Typical time per request/), { target: { value: '1' } });
+    fireEvent.change(within(lb).getByLabelText(/^Typical time per request/), { target: { value: '1' } });
     // Settings that don't fit together: the reason points at the list.
     fireEvent.change(within(dialog).getByLabelText(/^Duration/), { target: { value: '30' } });
     await within(dialog).findByText('Fix the problem above first');
@@ -335,7 +350,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByText('Waiting for the original run…')).toBeTruthy();
     await screen.findByRole('heading', { name: 'Did the tipping point move?' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.click(screen.getByRole('button', { name: /Retry storm/ }));
+    failOn('cache', 'restart-empty');
     await act(async () => {});
   });
 
@@ -451,11 +466,11 @@ describe('App', { timeout: 60_000 }, () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     const add = screen.getByRole('button', { name: '+ Add another failure' }) as HTMLButtonElement;
-    for (let i = 0; i < 3; i++) fireEvent.click(add); // gateway, app server, cache: every part fails
+    for (let i = 0; i < 3; i++) fireEvent.click(add); // lb, app server, cache: every part fails
     expect(add.disabled).toBe(true);
     expect(screen.getByText('Every part already has a failure.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
-    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/Retry storm \(edited\)/));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/DB slows down \+ 3 more failures \(edited\)/));
   });
 
   it('keeps a way out when a run cannot be simulated', async () => {
@@ -480,7 +495,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close All settings' }));
     fireEvent.click(screen.getByRole('button', { name: /Does a fix help/ }));
     expect(screen.getByRole('alert', { name: 'Simulation error' })).toBeTruthy(); // not "waiting" forever
-    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation error' })).getByRole('button', { name: 'Reset to the preset' }));
+    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation error' })).getByRole('button', { name: 'Reset to the example' }));
     await screen.findByRole('heading', { name: 'Did the tipping point move?' }, SLOW);
   });
 
@@ -517,8 +532,9 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(within(reset).getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByText(/The failure was reset/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    expect(screen.getAllByRole('button', { name: /slows down|restarts empty/ }).map((b) => b.textContent!.split(/(?<=down|empty)/)[0])).toEqual(['Database slows down', 'Cache restarts empty', 'Load balancer slows down']);
-    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    const parts = [...(within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('Part') as HTMLSelectElement).options].map((o) => o.textContent);
+    expect(parts).toEqual(['Load balancer', 'App server', 'Cache', 'Database']);
+    failOn('cache-1', 'restart-empty');
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0].tier).toBe('cache-1'), SLOW);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     await screen.findByText(/Traffic × failure length/, undefined, SLOW);
@@ -552,7 +568,7 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(pool.analyzed.at(-1)!.tiers[1].instances).toBe(7), SLOW);
     // Changing the failure keeps that edit.
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
+    failOn('cache-1', 'restart-empty');
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0].tier).toBe('cache-1'), SLOW);
     expect(pool.analyzed.at(-1)!.tiers[1].instances).toBe(7);
     // Open the builder, change the drawing, cancel: the system stays; the drawing is kept.
@@ -604,7 +620,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: '✎ Build your own system' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use this topology' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 4, startMs: 30_000, endMs: 35_000 }]), SLOW);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Retry storm.*DB slows 4×/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*DB slows down.*DB slows 4×/);
     expect(screen.getByRole('button', { name: /Where's the tipping point/ }).getAttribute('aria-current')).toBe('step');
     expect(screen.queryByText(/The failure was reset/)).toBeNull();
   });
@@ -756,7 +772,7 @@ describe('App: long runs', { timeout: 60_000 }, () => {
     await screen.findByText('40%', undefined, SLOW);
     expect(started).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: 'Stop this run' }));
-    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation stopped' })).getByRole('button', { name: 'Reset to the preset' }));
+    fireEvent.click(within(screen.getByRole('alert', { name: 'Simulation stopped' })).getByRole('button', { name: 'Reset to the example' }));
     await screen.findByRole('heading', { name: 'What happened' }, SLOW); // the preset's run, kept from the start
   });
 });

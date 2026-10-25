@@ -26,7 +26,7 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
     expect(config.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 8, startMs: 30_000, endMs: 35_000 }]);
     expect(config.tiers.find((t) => t.id === 'api')!.downstream).toMatchObject({ target: 'db', timeoutMs: 1000 });
     expect(config.client.call.retries).toBeGreaterThan(0); // users' apps ask again too
-    expect(config.tiers.find((t) => t.id === 'gateway')!.downstream!.retries).toBeGreaterThan(0);
+    expect(config.tiers.find((t) => t.id === 'lb')!.downstream!.retries).toBeGreaterThan(0);
   });
 
   it('each moment shows what its stop says', () => {
@@ -47,10 +47,10 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
     // the app server, users' apps' at the load balancer.
     expect(run.tiers.db.arrivalsRetry[s]).toBeGreaterThan(0);
     expect(run.tiers.api.arrivalsRetry[s]).toBeGreaterThan(0);
-    expect(run.tiers.gateway.arrivalsRetry[s]).toBeGreaterThan(0);
+    expect(run.tiers.lb.arrivalsRetry[s]).toBeGreaterThan(0);
     // Users' first repeats arrive at 33 s, after the app server's and the load balancer's.
-    expect(run.tiers.gateway.arrivalsRetry.findIndex((n) => n > 0)).toBe(33);
-    expect(run.tiers.gateway.arrivalsRetry.findIndex((n) => n > 0)).toBeGreaterThan(run.tiers.api.arrivalsRetry.findIndex((n) => n > 0));
+    expect(run.tiers.lb.arrivalsRetry.findIndex((n) => n > 0)).toBe(33);
+    expect(run.tiers.lb.arrivalsRetry.findIndex((n) => n > 0)).toBeGreaterThan(run.tiers.api.arrivalsRetry.findIndex((n) => n > 0));
   });
 
   it('names what is on screen instead of colours, waits for results, and points at the ? button', () => {

@@ -6,7 +6,7 @@
 import { assessRecovery, controlConfig, type Verdict } from '../analysis/recovery';
 import { runSimulation } from '../engine/run';
 import { buildRunConfig, type ScenarioOverrides } from './buildConfig';
-import { cacheRestart, gatewaySlow, retryStorm, scenarios } from './scenarios';
+import { cacheRestart, loadBalancerSlow, retryStorm, scenarios } from './scenarios';
 import { webChain } from './topologies';
 import type { ScenarioPreset } from './types';
 
@@ -42,8 +42,8 @@ describe('presets at their default settings (retries 5 / 3 / 1)', { timeout: 60_
     expect(verdictOf(cacheRestart)).toBe('stuck');
   });
 
-  it('gateway slow: a 20 s Load balancer slowdown at 200 req/s gets stuck', () => {
-    expect(verdictOf(gatewaySlow)).toBe('stuck');
+  it('load balancer slow: a 20 s Load balancer slowdown at 200 req/s gets stuck', () => {
+    expect(verdictOf(loadBalancerSlow)).toBe('stuck');
   });
 });
 
@@ -79,8 +79,8 @@ describe("each map's staircase, as the comments in scenarios.ts claim", { timeou
     ]);
   });
 
-  it('gateway slow: up to 5 s always recovers; 10 s tips at 220 req/s, 20 s at 180', () => {
-    check(gatewaySlow, [
+  it('load balancer slow: up to 5 s always recovers; 10 s tips at 220 req/s, 20 s at 180', () => {
+    check(loadBalancerSlow, [
       [5, 240, true],
       [10, 200, true],
       [10, 220, false],

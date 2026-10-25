@@ -1,7 +1,7 @@
 import { analyzed } from '../analysis/testRuns';
 import { chainGraph } from '../builder/testGraphs';
 import { buildRunConfig } from '../data/buildConfig';
-import { cacheRestart, gatewaySlow, retryStorm } from '../data/scenarios';
+import { cacheRestart, loadBalancerSlow, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { customSystem } from '../ui/system';
@@ -82,7 +82,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     expect(e.helped).toBe(false);
     expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up and asked again\. Users' apps/);
     // A slow Load balancer is not what the app server waits for: no such comparison.
-    expect(explain(buildRunConfig(webChain, gatewaySlow), 'longer-timeout').text).not.toMatch(/The failure lasted/);
+    expect(explain(buildRunConfig(webChain, loadBalancerSlow), 'longer-timeout').text).not.toMatch(/The failure lasted/);
   });
 
   it('says plainly when a run that recovered anyway did no better with the fix', () => {
@@ -132,7 +132,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
   });
 
   it('says why skipping abandoned work worked, and falls back to the load alone when nothing else changed', () => {
-    const single = buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 0, api: 3 } });
+    const single = buildRunConfig(webChain, retryStorm, { retries: { client: 0, lb: 0, api: 3 } });
     const e = explain(single, 'drop-expired');
     expect(e.helped).toBe(true);
     expect(e.text).toMatch(/^The database skipped [\d,]+ requests nobody was waiting for any more, so after the failure ended/);
@@ -141,7 +141,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
   });
 
   it('with no overloaded part and nobody retrying, says plainly that it never got back to normal', () => {
-    const calm = buildRunConfig(webChain, retryStorm, { rps: 40, retries: { client: 0, gateway: 0, api: 0 } });
+    const calm = buildRunConfig(webChain, retryStorm, { rps: 40, retries: { client: 0, lb: 0, api: 0 } });
     const run = analyzed(calm);
     const stuck = { ...run, analysis: { ...run.analysis, recovery: { ...run.analysis.recovery, verdict: 'stuck' as const, failedRequests: 12 } } };
     expect(explainFix('dropExpired', false, { config: calm, result: run }, { config: calm, result: stuck }, labels).text).toBe("It still hadn't returned to normal by the end of the run, and 12 requests failed.");
@@ -170,7 +170,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
   });
 
   it('every kind gives a sentence for every preset, with numbers and no placeholders', () => {
-    for (const scenario of [retryStorm, cacheRestart, gatewaySlow]) {
+    for (const scenario of [retryStorm, cacheRestart, loadBalancerSlow]) {
       const config = buildRunConfig(webChain, scenario);
       const before = analyzed(config);
       for (const c of candidateFixes(config, before.analysis.signals, labels)) {

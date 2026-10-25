@@ -41,10 +41,10 @@ describe('tippingSentence', () => {
 });
 
 describe('cascadeSentence', () => {
-  const labels = { client: 'Client', gateway: 'Load balancer', api: 'App server' };
-  const calls = (client: number, gateway: number, api: number) => [
-    { caller: 'client', target: 'gateway', retries: client },
-    { caller: 'gateway', target: 'api', retries: gateway },
+  const labels = { client: 'Client', lb: 'Load balancer', api: 'App server' };
+  const calls = (client: number, lb: number, api: number) => [
+    { caller: 'client', target: 'lb', retries: client },
+    { caller: 'lb', target: 'api', retries: lb },
     { caller: 'api', target: 'db', retries: api },
   ];
   it('uses the story’s every/several rule, and names a single retrying caller', () => {

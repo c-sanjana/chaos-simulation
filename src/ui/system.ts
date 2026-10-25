@@ -1,7 +1,8 @@
 import { compileGraph, CUSTOM_TOPOLOGY_ID } from '../builder/compile';
-import { graphFromPreset, syncGraph } from '../builder/fromPreset';
+import { graphFromPreset } from '../builder/fromPreset';
 import type { BuilderGraph } from '../builder/graph';
 import { builtScenarios, builtTrafficAxis, findScenario } from '../builder/scenarios';
+import { failureAxis, failureTitle } from '../data/failure';
 import { scenarios as presetScenarios } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
@@ -53,23 +54,6 @@ export function graphForCanvas(system: System, rps: number): BuilderGraph {
 }
 
 /**
- * A built system's scenario `scenarioId` on the system as it is now: with the settings changed
- * since it was built (the drawer, the failure editor's traffic and retries, all in `current`), so
- * choosing another failure never throws those edits away. Its scenarios are sized afresh for them.
- * Scenario ids name their part, so the failure picked is the one the picker showed. When the
- * changed shares drop that part from the scenarios offered (only the busiest few of a kind are),
- * the scenario as offered runs on the changed system, with the map's traffic range for it.
- */
-export function editedDraft(system: Extract<System, { kind: 'custom' }>, scenarioId: string, current: Draft): Draft {
-  const now = customSystem(syncGraph(system.graph, current.topology, current.scenario.rps)) as Extract<System, { kind: 'custom' }>;
-  const offered = findScenario(system.scenarios, scenarioId);
-  if (findScenario(now.scenarios, scenarioId) || !offered) return systemDraft(now, scenarioId);
-  const rps = current.scenario.rps;
-  const scenario = { ...structuredClone(offered), rps, map: { x: builtTrafficAxis(now.topology, rps), y: structuredClone(offered.map.y) } };
-  return { scenario, topology: structuredClone(now.topology) };
-}
-
-/**
  * For a built system, the map's traffic levels around the draft's own traffic (its topology's
  * capacity may have changed too), so the users' traffic stays on the map after a re-run.
  * A preset's map is fixed, so a preset draft is returned as it is.
@@ -79,6 +63,19 @@ export function withTrafficAxis(d: Draft): Draft {
   const x = builtTrafficAxis(d.topology, d.scenario.rps);
   if (x.values.join() === d.scenario.map.x.values.join()) return d;
   return { ...d, scenario: { ...d.scenario, map: { ...d.scenario.map, x } } };
+}
+
+/**
+ * The scenario's name and its map's failure lengths, from the failure as set in the failure editor
+ * (src/data/failure.ts), so they always describe what is simulated: the editor is the one way to
+ * choose a failure. For a scenario as offered nothing changes (its name and lengths follow the same
+ * rules). Returns the draft itself when nothing changes, so an unchanged draft stays unchanged.
+ */
+export function withFailureDetails(d: Draft): Draft {
+  const title = failureTitle(d.topology, d.scenario.faults);
+  const y = failureAxis(d.topology, d.scenario.faults);
+  if (title === d.scenario.title && JSON.stringify(y) === JSON.stringify(d.scenario.map.y)) return d;
+  return { ...d, scenario: { ...d.scenario, title, map: { ...d.scenario.map, y } } };
 }
 
 /** What a new built system starts with: the current failure when it still applies there, else why not. */

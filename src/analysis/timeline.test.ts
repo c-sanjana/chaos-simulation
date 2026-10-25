@@ -1,5 +1,5 @@
 import { buildRunConfig } from '../data/buildConfig';
-import { cacheRestart, gatewaySlow } from '../data/scenarios';
+import { cacheRestart, loadBalancerSlow } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, tier } from '../engine/testConfigs';
@@ -98,14 +98,14 @@ describe('buildTimeline', { timeout: 60_000 }, () => {
   });
 
   it('a slow Load balancer: the client gives up on it; the database tips only once the load balancer passes its pile on', () => {
-    const { analysis } = analyzed(buildRunConfig(webChain, gatewaySlow));
+    const { analysis } = analyzed(buildRunConfig(webChain, loadBalancerSlow));
     const t = analysis.timeline;
     expect(t.map((e) => e.tMs)).toEqual([...t.map((e) => e.tMs)].sort((a, b) => a - b));
     expect(t.filter((e) => e.kind === 'fault').map((e) => e.text)).toEqual(['Load balancer slows 50× (injected failure)', 'Failure ends; Load balancer back to normal speed']);
     expect(t.find((e) => /exceeds/.test(e.text))!.text).toMatch(/^Load balancer p99 \d\.\d s exceeds the Client's 3 s timeout$/);
     const push = t.find((e) => /^Retries push DB load past its capacity/.test(e.text))!;
     const tip = t.find((e) => e.kind === 'tip')!;
-    expect(push.tMs).toBeGreaterThan(gatewaySlow.faults[0].endMs);
+    expect(push.tMs).toBeGreaterThan(loadBalancerSlow.faults[0].endMs);
     expect(tip.tMs).toBe(push.tMs); // not before the load went over
     expect(tip.text).toMatch(/keep DB load at \d\.\d× its capacity/);
   });

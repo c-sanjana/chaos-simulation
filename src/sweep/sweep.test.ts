@@ -27,7 +27,7 @@ describe('buildSweep', () => {
     for (const { x, y, config } of spec.cells) {
       expect(config.client.rps).toBe(x);
       expect(config.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 8, startMs: 30_000, endMs: 30_000 + y }]);
-      expect([config.client.call.retries, tier(config, 'gateway').downstream!.retries, tier(config, 'api').downstream!.retries]).toEqual([5, 3, 1]);
+      expect([config.client.call.retries, tier(config, 'lb').downstream!.retries, tier(config, 'api').downstream!.retries]).toEqual([5, 3, 1]);
       expect(config.durationMs).toBe(retryStorm.durationMs);
     }
   });
@@ -39,16 +39,16 @@ describe('buildSweep', () => {
       expect(config.seed).toBe(9);
       expect(config.client.rps).toBe(x);
       expect(config.client.call.retries).toBe(0);
-      expect(tier(config, 'gateway').downstream!.retries).toBe(3);
+      expect(tier(config, 'lb').downstream!.retries).toBe(3);
     }
   });
 
   it("maps a retries axis to its caller's retries (the app server's when it names none), keeping base overrides for other callers", () => {
-    const gatewayRetries: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'retries', label: 'Load balancer retries', values: [4, 0], caller: 'gateway' } } };
-    const cells = buildSweep(webChain, gatewayRetries, { retries: { client: 0, gateway: 9 } }).cells;
+    const gatewayRetries: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'retries', label: 'Load balancer retries', values: [4, 0], caller: 'lb' } } };
+    const cells = buildSweep(webChain, gatewayRetries, { retries: { client: 0, lb: 9 } }).cells;
     expect(cells).toHaveLength(2 * xs.length);
     for (const { y, config } of cells) {
-      expect(tier(config, 'gateway').downstream!.retries).toBe(y);
+      expect(tier(config, 'lb').downstream!.retries).toBe(y);
       expect(config.client.call.retries).toBe(0);
       expect(tier(config, 'api').downstream!.retries).toBe(1);
       expect(config.faults).toEqual(retryStorm.faults);
@@ -56,7 +56,7 @@ describe('buildSweep', () => {
     const apiRetries: ScenarioPreset = { ...retryStorm, map: { x: retryStorm.map.x, y: { param: 'retries', label: 'DB retries', values: [2] } } };
     for (const { config } of buildSweep(webChain, apiRetries).cells) {
       expect(tier(config, 'api').downstream!.retries).toBe(2);
-      expect(tier(config, 'gateway').downstream!.retries).toBe(3);
+      expect(tier(config, 'lb').downstream!.retries).toBe(3);
     }
   });
 

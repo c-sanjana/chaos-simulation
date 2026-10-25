@@ -232,14 +232,14 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
   });
 
   it('says what "the failure is over" means for whichever part failed last', () => {
-    const labels = { db: 'DB', cache: 'Cache', gateway: 'Load balancer' };
+    const labels = { db: 'DB', cache: 'Cache', lb: 'Load balancer' };
     expect(failureOverText([{ tier: 'db', kind: 'slow', factor: 8, startMs: 0, endMs: 5000 }], labels)).toBe('the database is back to normal speed');
     expect(failureOverText([{ tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 0, endMs: 5000 }], labels)).toBe('the cache is back up, but empty');
     expect(
       failureOverText(
         [
           { tier: 'db', kind: 'slow', factor: 8, startMs: 0, endMs: 5000 },
-          { tier: 'gateway', kind: 'dead', startMs: 0, endMs: 9000 },
+          { tier: 'lb', kind: 'dead', startMs: 0, endMs: 9000 },
         ],
         labels,
       ),

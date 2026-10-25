@@ -5,8 +5,8 @@ import { defaultCall, defaultSettings, type ComponentKind } from '../builder/gra
 import { chainGraph } from '../builder/testGraphs';
 import { scenarios } from '../data/scenarios';
 import { webChain } from '../data/topologies';
-import { updateCallAt, updateFault, updateScenario, updateTier } from './draft';
-import { carryOver, customSystem, editedDraft, exampleGraph, graphForCanvas, PRESET_SYSTEM, resolveScenarioId, scenarioCatalog, systemDraft, withTrafficAxis } from './system';
+import { updateFault, updateScenario } from './draft';
+import { carryOver, customSystem, exampleGraph, graphForCanvas, PRESET_SYSTEM, resolveScenarioId, scenarioCatalog, systemDraft, withFailureDetails, withTrafficAxis } from './system';
 
 type Custom = Extract<ReturnType<typeof customSystem>, { kind: 'custom' }>;
 
@@ -57,19 +57,19 @@ describe('syncGraph', () => {
 
   it('reads a preset as drawn: the first tier is a load balancer, leaves are databases', () => {
     const g = graphFromPreset(webChain, 200);
-    expect(Object.fromEntries(g.nodes.map((n) => [n.id, n.settings.kind]))).toEqual({ client: 'client', gateway: 'loadBalancer', api: 'server', cache: 'cache', db: 'database' });
+    expect(Object.fromEntries(g.nodes.map((n) => [n.id, n.settings.kind]))).toEqual({ client: 'client', lb: 'loadBalancer', api: 'server', cache: 'cache', db: 'database' });
   });
 });
 
 describe('carrying a failure over to a new built system', () => {
-  const example = customSystem(exampleGraph()) as Custom; // the example's part ids: gateway, api, cache, db
+  const example = customSystem(exampleGraph()) as Custom; // the example's part ids: lb, api, cache, db
 
   it('keeps the failure (and its title once changed) when its parts are still there; traffic comes from the canvas', () => {
     const applied = updateScenario(updateFault(systemDraft(PRESET_SYSTEM, 'retry-storm'), { factor: 4 }), { durationMs: 150_000 });
     const kept = carryOver(applied, 'retry-storm', example);
     expect(kept.reset).toBeUndefined();
     expect(kept.scenarioId).toBe('custom-db-slow:db');
-    expect(kept.draft.scenario).toMatchObject({ title: 'Retry storm', faults: applied.scenario.faults, durationMs: 150_000, rps: 200, topology: 'custom' });
+    expect(kept.draft.scenario).toMatchObject({ title: 'DB slows down', faults: applied.scenario.faults, durationMs: 150_000, rps: 200, topology: 'custom' });
     expect(kept.draft.scenario.map.y).toEqual(applied.scenario.map.y);
     expect(kept.draft.scenario.map.x).toEqual(example.scenarios[0].map.x);
     expect(kept.draft.topology).toEqual(example.topology);
@@ -98,13 +98,25 @@ describe('carrying a failure over to a new built system', () => {
 describe('a built system as it is now', () => {
   const system = customSystem(chainGraph(['client', 'server', 'database'], 1)) as Custom;
 
-  it('another failure keeps the settings edits and traffic, with scenarios sized for them', () => {
-    const edited = updateScenario(updateTier(systemDraft(system, 'custom-db-slow'), 'n1', (t) => ({ ...t, instances: 9 })), { rps: 300 });
-    const next = editedDraft(system, 'custom-front-slow:n1', edited);
-    expect(next.scenario.id).toBe('custom-front-slow:n1');
-    expect(next.scenario.rps).toBe(300);
-    expect(next.topology.tiers.find((t) => t.id === 'n1')!.instances).toBe(9);
-    expect(next.scenario.map.x.values).toContain(300);
+  it('the name and the map\'s failure lengths follow the failure as set in the editor, the one way to choose it', () => {
+    // As offered, nothing changes: the scenarios follow the same rules.
+    for (const id of system.scenarios.map((x) => x.id)) {
+      const d = systemDraft(system, id);
+      expect(withFailureDetails(d)).toBe(d);
+    }
+    const example = systemDraft(PRESET_SYSTEM, 'retry-storm');
+    expect(withFailureDetails(example)).toBe(example);
+    // The example's database slowdown turned into the cache restarting empty: named and mapped as such.
+    const cache = updateFault(updateFault(example, { tier: 'cache' }), { kind: 'dead', flushAtEnd: true });
+    const next = withFailureDetails(cache);
+    expect(next.scenario.title).toBe('Cache restarts empty');
+    expect(next.scenario.map.y.values).toEqual(scenarios['cache-restart'].map.y.values);
+    // The front door slowing: the longer lengths; a second failure is counted in the name.
+    const lb = withFailureDetails(updateFault(example, { tier: 'lb' }));
+    expect(lb.scenario.title).toBe('Load balancer slows down');
+    expect(lb.scenario.map.y.values).toEqual(scenarios['load-balancer-slow'].map.y.values);
+    const two = withFailureDetails({ ...example, scenario: { ...example.scenario, faults: [...example.scenario.faults, { tier: 'api', kind: 'dead', instance: 0, startMs: 40_000, endMs: 45_000 }] } });
+    expect(two.scenario.title).toBe('DB slows down + 1 more failure');
   });
 
   it('a re-run with new traffic moves the map to it; a preset map stays as it is', () => {
@@ -128,17 +140,6 @@ describe('scenario ids name their part, so changed shares never swap the failure
   const built = customSystem(graph) as Custom;
   const faultsOn = (d: { scenario: { faults: Array<{ tier: string }> } }) => d.scenario.faults.map((f) => f.tier);
 
-  it('the picker after the shares changed in the drawer: "DB1 slows down" runs on DB1', () => {
-    const offered = built.scenarios.find((s) => s.title === 'DB1 slows down')!;
-    expect(offered.id).toBe('custom-db-slow:db1');
-    // The drawer now sends most traffic to S2 (DB2 becomes the busiest), then DB1's failure is picked.
-    const drawer = updateTier(systemDraft(built, offered.id), 'lb', (t) => updateCallAt(updateCallAt(t, 0, { share: 0.3 }), 1, { share: 0.7 }));
-    const picked = editedDraft(built, offered.id, drawer);
-    expect(picked.scenario.title).toBe('DB1 slows down');
-    expect(faultsOn(picked)).toEqual(['db1']);
-    expect(picked.topology.tiers.find((t) => t.id === 'lb')!.downstream!.share).toBe(0.3);
-  });
-
   it('"Use this topology" after the shares changed on the canvas: the failure stays filed under its own part, and Reset keeps it there', () => {
     const applied = systemDraft(built, 'custom-db-slow:db1');
     const next = customSystem(setShare(graph, 'lb--s1', 30)) as Custom;
@@ -157,25 +158,5 @@ describe('scenario ids name their part, so changed shares never swap the failure
     const dead = updateFault(applied, { kind: 'dead' });
     expect(carryOver(dead, 'custom-db-slow', next).scenarioId).toBe('custom-db-slow:db2');
     expect(carryOver(dead, 'nope', next).scenarioId).toBe(next.scenarios[0].id);
-  });
-
-  it('a failure the changed system no longer offers (only the busiest three of a kind are) still runs on its part', () => {
-    // A load balancer over four servers, each with its own database, split 40/30/20/10: DB1–DB3 are offered.
-    const ids = [1, 2, 3, 4];
-    const parts = ids.flatMap((i) => [node(`s${i}`, 'server', 5, i + 1), node(`db${i}`, 'database', 7, i + 1)]);
-    nodes.push(...parts.filter((n) => !nodes.some((m) => m.id === n.id)));
-    const four = {
-      nodes: [node('client', 'client', 1, 3), node('lb', 'loadBalancer', 3, 3), ...parts],
-      edges: [edge('client', 'lb'), ...ids.flatMap((i) => [{ ...edge('lb', `s${i}`), call: { ...defaultCall('loadBalancer', 'server'), share: (5 - i) / 10 } }, edge(`s${i}`, `db${i}`)])],
-    };
-    const system = customSystem(four) as Custom;
-    expect(system.scenarios.filter((x) => x.id.startsWith('custom-db-slow')).map((x) => x.id)).toEqual(['custom-db-slow:db1', 'custom-db-slow:db2', 'custom-db-slow:db3']);
-    // The drawer turns the split round (10/20/30/40): DB1 would no longer be offered. Picking it still runs it.
-    const turned = updateTier(systemDraft(system, 'custom-db-slow:db1'), 'lb', (t) => ids.reduce((x, i) => updateCallAt(x, i - 1, { share: i / 10 }), t));
-    const picked = editedDraft(system, 'custom-db-slow:db1', updateScenario(turned, { rps: 140 }));
-    expect(picked.scenario.title).toBe('DB1 slows down');
-    expect(faultsOn(picked)).toEqual(['db1']);
-    expect(picked.scenario.rps).toBe(140);
-    expect(picked.topology.tiers.find((t) => t.id === 'lb')!.downstream!.share).toBe(0.1);
   });
 });

@@ -166,7 +166,7 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Load
   it('suggests every fix, retrying at one layer included', () => {
     expect(candidates.map((c) => c.id)).toEqual(FIX_CATALOG.filter((d) => d.kind !== 'moreConsumers').map((d) => d.id)); // no queue here
     // Retries arrived mostly at the load balancer (users' repeats), but the DB is where the pile is.
-    expect(analysis.signals.retryShare!.tier).toBe('gateway');
+    expect(analysis.signals.retryShare!.tier).toBe('lb');
     expect(analysis.signals.queueWaitOverTimeout!.tier).toBe('db');
   });
 

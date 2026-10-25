@@ -71,7 +71,7 @@ describe('failures and retries', () => {
 
   it('adds a slowdown of a part that is not failing yet, at the same time, and never removes the first', () => {
     const two = addFault(d);
-    expect(two.scenario.faults[1]).toEqual({ tier: 'gateway', kind: 'slow', factor: 4, startMs: 30_000, endMs: 35_000 });
+    expect(two.scenario.faults[1]).toEqual({ tier: 'lb', kind: 'slow', factor: 4, startMs: 30_000, endMs: 35_000 });
     expect(addFault(addFault(addFault(addFault(two)))).scenario.faults.at(-1)!.tier).toBe('db'); // every part failing: reuse the first
     expect(removeFault(two, 0)).toBe(two);
     expect(removeFault(two, 1).scenario.faults).toHaveLength(1);
@@ -90,8 +90,8 @@ describe('failures and retries', () => {
 
   it('lists and edits every layer\'s retries, front to back', () => {
     expect(retryCalls(d.topology)).toEqual([
-      { caller: 'client', target: 'gateway', retries: 5 },
-      { caller: 'gateway', target: 'api', retries: 3 },
+      { caller: 'client', target: 'lb', retries: 5 },
+      { caller: 'lb', target: 'api', retries: 3 },
       { caller: 'api', target: 'db', retries: 1 },
     ]);
     const edited = updateRetries(updateRetries(d, 'client', 0), 'api', 4);

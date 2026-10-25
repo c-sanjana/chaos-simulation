@@ -22,7 +22,7 @@ describe('scenarios and capacity of a branched system', () => {
       ['custom-db-slow:db2', 'db2 slows down', 'db2'],
       ['custom-cache-restart:cache', 'cache restarts empty', 'cache'],
       ['custom-front-slow:lb', 'lb slows down', 'lb'],
-      ['custom-queue-backlog:queue', 'Work behind queue slows down', 'db2'],
+      ['custom-queue-backlog:queue', 'db2 slows down', 'db2'],
     ]);
     // The queue gets a third of the 120 req/s: its consumers must fall to about half of 40 req/s.
     const backlog = list.at(-1)!;

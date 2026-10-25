@@ -33,14 +33,14 @@ describe('topologyView', { timeout: 60_000 }, () => {
   it('draws every tier and every call, healthy before the failure', () => {
     const { config, run } = retryStormRun({ retries: 3 });
     const { nodes, edges } = topologyView(webChain, config, run, 10_000);
-    expect(nodes.map((n) => n.id)).toEqual(['client', 'gateway', 'api', 'cache', 'db']);
+    expect(nodes.map((n) => n.id)).toEqual(['client', 'lb', 'api', 'cache', 'db']);
     expect(nodes.every((n) => n.health === 'ok')).toBe(true);
     expect(nodes.find((n) => n.id === 'api')!.instanceBusy).toHaveLength(4);
     expect(nodes.find((n) => n.id === 'cache')!.lines[0]).toMatch(/^hit rate \d+%$/);
     expect(nodes.find((n) => n.id === 'db')!.lines[0]).toMatch(/^\d+ rps in$/);
     expect(edges.map((e) => [e.id, e.orientation, e.col, e.row])).toEqual([
-      ['client-gateway', 'horizontal', 2, 3],
-      ['gateway-api', 'horizontal', 4, 3],
+      ['client-lb', 'horizontal', 2, 3],
+      ['lb-api', 'horizontal', 4, 3],
       ['api-cache', 'vertical', 5, 2],
       ['api-db', 'horizontal', 6, 3],
     ]);
@@ -72,7 +72,7 @@ describe('topologyView', { timeout: 60_000 }, () => {
     expect(db.change).toBe('queue limit 93');
     expect(during.nodes.find((n) => n.id === 'api')!.change).toBeUndefined();
     expect(during.edges.find((e) => e.id === 'api-db')!.change).toBe('retry budget 10%');
-    expect(during.edges.find((e) => e.id === 'gateway-api')!.change).toBeUndefined();
+    expect(during.edges.find((e) => e.id === 'lb-api')!.change).toBeUndefined();
     expect(activeFault({ ...config, faults: [{ kind: 'dead', tier: 'db', startMs: 0, endMs: 1000 }] }, 'db', 500)).toBe('⚡ down');
     expect(activeFault({ ...config, faults: undefined }, 'db', 500)).toBeUndefined();
   });
@@ -177,7 +177,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     expect(lat.scopeLabel).toBe('DB');
     expect(lat.spec.series.map((x) => x.label)).toEqual(['Slowest 1% (p99)', 'Typical (median)', 'App server gives up after 1 s']);
     expect(chartView('latency', config, run, labels, 'client').spec.series.at(-1)!.label).toBe("Users' apps give up on one try after 3 s");
-    expect(chartView('latency', config, run, labels, 'gateway').spec.series.at(-1)!.label).toBe('Client gives up after 3 s');
+    expect(chartView('latency', config, run, labels, 'lb').spec.series.at(-1)!.label).toBe('Client gives up after 3 s');
     expect(chartView('errors', config, run, labels, 'api').scopeLabel).toBe('App server');
     expect(chartView('load', config, run, labels, 'api').spec.series.some((x) => /capacity/.test(x.label))).toBe(false);
   });
@@ -251,7 +251,7 @@ describe('verdicts, maps and helpers', { timeout: 60_000 }, () => {
       retriesPhrase(
         [
           { caller: 'client', retries: 5 },
-          { caller: 'gateway', retries: 0 },
+          { caller: 'lb', retries: 0 },
           { caller: 'api', retries: 1 },
         ],
         labels,

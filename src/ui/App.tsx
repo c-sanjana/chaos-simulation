@@ -11,7 +11,6 @@ import { Drawer } from './components/Drawer';
 import { Glossary } from './components/Glossary';
 import { PlayerPlaceholder } from './components/PlayerPlaceholder';
 import { RunComparison } from './components/RunComparison';
-import { ScenarioPicker } from './components/ScenarioPicker';
 import { StepPanel } from './components/StepPanel';
 import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
@@ -24,7 +23,7 @@ import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
 import { focusField, useInvalidFields } from './components/useInvalidFields';
 import { loadSaved, saveState } from './savedSystem';
-import { carryOver, customSystem, editedDraft, PRESET_SYSTEM, scenarioCatalog, systemDraft, withTrafficAxis, type System } from './system';
+import { carryOver, customSystem, PRESET_SYSTEM, systemDraft, withFailureDetails, withTrafficAxis, type System } from './system';
 import { ThemeToggle } from './themeMode';
 import { TippingStep } from './TippingStep';
 import { tourStops } from './tourStops';
@@ -99,14 +98,15 @@ export function App({ pool: injected }: AppProps) {
   }, [step, applied]); // eslint-disable-line react-hooks/exhaustive-deps
   const story = useMemo(() => (main.status === 'done' ? buildStory(main.value.run, config, main.value.analysis, labels) : undefined), [main, config, labels]);
 
-  // "Compared with your last run": after a re-run of the same preset with changed settings, the
-  // previous finished run is kept for comparison (switching presets starts afresh).
+  // "Compared with your last run": after a re-run with changed settings, the previous finished run
+  // is kept for comparison (a failure in another part, or another kind of failure, starts afresh).
   const lastRun = useRef<RunSnapshot | null>(null);
   const [previousRun, setPreviousRun] = useState<RunSnapshot | null>(null);
   useEffect(() => {
     if (main.status !== 'done') return;
     const last = lastRun.current;
-    if (last && last.result !== main.value) setPreviousRun(last.draft.scenario.id === applied.scenario.id ? last : null);
+    // Comparable when the same thing fails the same way (its name says what and how); other edits are what the comparison is for.
+    if (last && last.result !== main.value) setPreviousRun(last.draft.scenario.id === applied.scenario.id && last.draft.scenario.title.split(' + ')[0] === applied.scenario.title.split(' + ')[0] ? last : null);
     lastRun.current = { draft: applied, config, result: main.value };
   }, [main]); // eslint-disable-line react-hooks/exhaustive-deps
   const comparison = useMemo(
@@ -177,14 +177,6 @@ export function App({ pool: injected }: AppProps) {
   const edited = useMemo(() => JSON.stringify(applied) !== JSON.stringify(systemDraft(system, scenarioId)), [applied, system, scenarioId]);
   const problems = draftProblems(draft);
 
-  const pickScenario = (id: string) => {
-    if (id === scenarioId && !dirty) return; // already showing this preset; don't wipe the viewer's settings
-    // A built system keeps its settings edits (drawer, traffic) when the failure changes.
-    const fresh = system.kind === 'custom' ? editedDraft(system, id, draft) : systemDraft(system, id);
-    setScenarioId(id);
-    setApplied(fresh);
-    setDraft(fresh);
-  };
   /** Bumped to replay the same run from the start ("Replay from the start" with nothing changed). */
   const [restartKey, setRestartKey] = useState(0);
   const run = () => {
@@ -194,8 +186,9 @@ export function App({ pool: injected }: AppProps) {
       setStep(0);
     }
     setReplayOpenAtMs(null);
-    // On a built system the map's traffic range follows the traffic, so it stays on the map.
-    const next = withTrafficAxis(structuredClone(draft));
+    // On a built system the map's traffic range follows the traffic, so it stays on the map; the
+    // name and the map's failure lengths follow the failure as set in the editor.
+    const next = withTrafficAxis(withFailureDetails(structuredClone(draft)));
     setApplied(next);
     setDraft(next);
     setEditingFailure(false);
@@ -389,9 +382,8 @@ export function App({ pool: injected }: AppProps) {
       {editingFailure && (
         <section className="csl-card csl-card--compact" aria-label="Change the failure">
           <h2 className="csl-section-title" style={{ margin: 0 }}>
-            Choose a failure to simulate
+            Set up the failure to simulate
           </h2>
-          <ScenarioPicker scenarios={scenarioCatalog(system).map(({ id, title, blurb }) => ({ id, title, blurb }))} selected={scenarioId} onSelect={pickScenario} />
           <FailureEditor draft={draft} onChange={setDraft} onRun={run} dirty={dirty} />
         </section>
       )}
@@ -462,7 +454,7 @@ export function App({ pool: injected }: AppProps) {
       <Drawer
         open={settings.open}
         title={settings.only === null ? 'All settings' : settings.only === 'client' ? 'Traffic settings' : `${labels[settings.only] ?? settings.only} settings`}
-        subtitle={`${built ? 'Your system' : 'Preset'}: ${applied.scenario.title}. Changes apply to every step when you re-run.`}
+        subtitle={`${built ? 'Your system' : 'Example system'}: ${applied.scenario.title}. Changes apply to every step when you re-run.`}
         onClose={closeSettings}
         footer={
           <>
@@ -472,7 +464,7 @@ export function App({ pool: injected }: AppProps) {
               </button>
             ) : (
               <button type="button" className="csl-btn" onClick={() => setDraft(systemDraft(system, scenarioId))}>
-                {built ? 'Reset to how you built it' : 'Reset to preset'}
+                {built ? 'Reset to how you built it' : 'Reset to the example'}
               </button>
             )}
             {rerunBlocked && (
@@ -553,7 +545,7 @@ function SimulationError({ message, stopped = false, onEdit, onReset, onRetry, b
           ⚙ Edit settings
         </button>
         <button type="button" className="csl-btn" onClick={onReset}>
-          {built ? 'Reset to how you built it' : 'Reset to the preset'}
+          {built ? 'Reset to how you built it' : 'Reset to the example'}
         </button>
         {stopped && onRetry && (
           <button type="button" className="csl-btn" onClick={onRetry}>

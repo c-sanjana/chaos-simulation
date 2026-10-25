@@ -139,7 +139,7 @@ describe('assessRecovery judges only what happened inside the run', { timeout: 6
    * length and failure. Users' apps don't retry, so their longest request (3 s) fits these short runs.
    */
   const storm = (durationMs: number, fault: Partial<Fault>): RunConfig => {
-    const config = buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 0, api: 3 } });
+    const config = buildRunConfig(webChain, retryStorm, { retries: { client: 0, lb: 0, api: 3 } });
     return { ...config, durationMs, faults: [{ ...config.faults![0], ...fault }] };
   };
 

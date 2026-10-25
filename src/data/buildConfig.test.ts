@@ -15,7 +15,7 @@ describe('buildRunConfig', () => {
   it('keeps every call\'s retries from the topology by default (5 / 3 / 1, none on the cache)', () => {
     const c = buildRunConfig(webChain, retryStorm);
     expect(c.client.call.retries).toBe(5);
-    expect(c.tiers.map((t) => [t.id, t.downstream?.retries ?? null])).toEqual([['gateway', 3], ['api', 1], ['cache', null], ['db', null]]);
+    expect(c.tiers.map((t) => [t.id, t.downstream?.retries ?? null])).toEqual([['lb', 3], ['api', 1], ['cache', null], ['db', null]]);
     expect(c.tiers.find((t) => t.id === 'api')!.cacheAside!.retries).toBe(0);
   });
 
@@ -23,7 +23,7 @@ describe('buildRunConfig', () => {
     const c = buildRunConfig(webChain, retryStorm, { retries: { client: 0, api: 4 } });
     expect(c.client.call.retries).toBe(0);
     expect(c.tiers.find((t) => t.id === 'api')!.downstream!.retries).toBe(4);
-    expect(c.tiers.find((t) => t.id === 'gateway')!.downstream!.retries).toBe(3);
+    expect(c.tiers.find((t) => t.id === 'lb')!.downstream!.retries).toBe(3);
     expect(c.tiers.find((t) => t.id === 'api')!.cacheAside!.retries).toBe(0); // cache-aside calls are not overridden
     // A caller that makes no call (or does not exist) changes nothing.
     expect(buildRunConfig(webChain, retryStorm, { retries: { db: 7, nobody: 2 } })).toEqual(buildRunConfig(webChain, retryStorm));
@@ -43,7 +43,7 @@ describe('buildRunConfig', () => {
     expect(overridden.fanOut).toBe('parallel');
     expect(() => validateConfig(c)).not.toThrow();
     // Tiers without further calls get no moreDownstream field.
-    expect('moreDownstream' in c.tiers.find((t) => t.id === 'gateway')!).toBe(false);
+    expect('moreDownstream' in c.tiers.find((t) => t.id === 'lb')!).toBe(false);
   });
 
   it('overrides traffic, outage length and seed without mutating the presets', () => {

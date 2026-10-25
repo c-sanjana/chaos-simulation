@@ -38,15 +38,15 @@ describe('configChanges for the retry fixes on the default retry storm (every la
 
   it('labels every call that stops retrying, the client\'s included, for retrying at one layer', () => {
     expect(byId['retry-one-layer']).toEqual([
-      { call: { from: 'client', to: 'gateway' }, text: 'no retries (was 5)' },
-      { call: { from: 'gateway', to: 'api' }, text: 'no retries (was 3)' },
+      { call: { from: 'client', to: 'lb' }, text: 'no retries (was 5)' },
+      { call: { from: 'lb', to: 'api' }, text: 'no retries (was 3)' },
     ]);
   });
 
   it('labels the one call each other retry fix changed', () => {
     expect([byId['retry-budget'], byId['cap-retries'], byId['jitter-backoff']]).toEqual([
       [{ call: { from: 'api', to: 'db' }, text: 'retry budget 10%' }],
-      [{ call: { from: 'gateway', to: 'api' }, text: 'max 1 retry (was 3)' }],
+      [{ call: { from: 'lb', to: 'api' }, text: 'max 1 retry (was 3)' }],
       [{ call: { from: 'api', to: 'db' }, text: 'random retry delays' }],
     ]);
   });

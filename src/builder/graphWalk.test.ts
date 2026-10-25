@@ -21,7 +21,7 @@ describe('graph walks', () => {
   });
 
   it('traffic shares of a built topology: splits multiply, shared parts add up', () => {
-    expect(sharesOf(webChain)).toEqual({ gateway: 1, api: 1, cache: 1, db: 1 });
+    expect(sharesOf(webChain)).toEqual({ lb: 1, api: 1, cache: 1, db: 1 });
     const s = sharesOf(compileGraph(branchedGraph()));
     expect(s.lb).toBe(1);
     for (const id of ['s1', 's2', 's3', 'cache', 'queue', 'db2']) expect(s[id]).toBeCloseTo(1 / 3);

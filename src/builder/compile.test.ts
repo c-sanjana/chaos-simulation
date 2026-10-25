@@ -1,5 +1,5 @@
 import { buildRunConfig } from '../data/buildConfig';
-import { cacheRestart, gatewaySlow, retryStorm } from '../data/scenarios';
+import { cacheRestart, loadBalancerSlow, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import { runSimulation } from '../engine/run';
 import { compileGraph, CUSTOM_TOPOLOGY_ID } from './compile';
@@ -21,7 +21,7 @@ describe('compileGraph', () => {
 
   it('…and simulates exactly like the preset on every scenario', { timeout: 60_000 }, () => {
     const compiled = compileGraph(graphFromPreset(webChain, 200));
-    for (const scenario of [retryStorm, cacheRestart, gatewaySlow]) {
+    for (const scenario of [retryStorm, cacheRestart, loadBalancerSlow]) {
       const preset = runSimulation(buildRunConfig(webChain, scenario));
       const built = runSimulation(buildRunConfig(compiled, scenario));
       expect(built.client).toEqual(preset.client);

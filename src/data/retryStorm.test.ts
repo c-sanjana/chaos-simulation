@@ -12,7 +12,7 @@ import { retryStorm } from './scenarios';
 import { webChain } from './topologies';
 
 /** Only the app server retries the DB, `n` times. */
-const apiOnly = (n: number) => ({ client: 0, gateway: 0, api: n });
+const apiOnly = (n: number) => ({ client: 0, lb: 0, api: n });
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 /** Share of requests sent in the last 20 s that succeeded (the failure ended at 35 s). */
 const tailSuccess = (r: RunResult) => {

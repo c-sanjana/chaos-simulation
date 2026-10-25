@@ -75,7 +75,7 @@ describe('builtScenarios', () => {
       ['custom-db-slow:n5', 'database 5 slows down', 'n5', 'slow'],
       ['custom-cache-restart:c', 'cache restarts empty', 'c', 'dead'],
       ['custom-front-slow:n1', 'loadBalancer 1 slows down', 'n1', 'slow'],
-      ['custom-queue-backlog:n3', 'Work behind queue 3 slows down', 'n4', 'slow'],
+      ['custom-queue-backlog:n3', 'server 4 slows down', 'n4', 'slow'],
     ]);
     for (const s of list) {
       expect(s.rps).toBe(100);
@@ -114,6 +114,6 @@ describe('builtScenarios', () => {
   it('leaves out what does not apply', () => {
     const t = compileGraph(chainGraph(['client', 'queue', 'server']));
     expect(builtScenarios(t, { n1: 'queue', n2: 'server' }, 50).map((s) => s.id)).toEqual(['custom-queue-backlog:n1']);
-    expect(builtScenarios(webChain, kinds(webChain), 200).map((s) => s.id)).toEqual(['custom-db-slow:db', 'custom-cache-restart:cache', 'custom-front-slow:gateway']);
+    expect(builtScenarios(webChain, kinds(webChain), 200).map((s) => s.id)).toEqual(['custom-db-slow:db', 'custom-cache-restart:cache', 'custom-front-slow:lb']);
   });
 });

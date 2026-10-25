@@ -1,5 +1,5 @@
 import { buildRunConfig } from '../data/buildConfig';
-import { cacheRestart, gatewaySlow, retryStorm } from '../data/scenarios';
+import { cacheRestart, loadBalancerSlow, retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { Fault, RunConfig } from '../engine/config';
 import { call, tier } from '../engine/testConfigs';
@@ -20,7 +20,7 @@ const plain = (steps: StoryStep[]) => steps.map(({ tMs, tone, text }) => ({ tMs,
  * only: the app server retries the DB `retries` times (3 by default), nothing else retries.
  */
 const storm = (faults: Fault[], over: { durationMs?: number; retries?: number } = {}): RunConfig => ({
-  ...buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 0, api: over.retries ?? 3 } }),
+  ...buildRunConfig(webChain, retryStorm, { retries: { client: 0, lb: 0, api: over.retries ?? 3 } }),
   ...(over.durationMs === undefined ? {} : { durationMs: over.durationMs }),
   faults,
 });
@@ -237,8 +237,8 @@ describe('buildStory on the presets, with the default retries at every layer (5 
     expectPlain(story);
   });
 
-  it('gateway slows down: users\' apps give up on it, and its pile reaches the database once it is back', () => {
-    const story = storyOf(buildRunConfig(webChain, gatewaySlow));
+  it('load balancer slows down: users\' apps give up on it, and its pile reaches the database once it is back', () => {
+    const story = storyOf(buildRunConfig(webChain, loadBalancerSlow));
     expect(story.map((s) => [s.tMs, s.text])).toEqual([
       [30_000, 'At 30 s the load balancer became 50× slower for 20 seconds.'],
       [37_000, `Users' apps give up on a load balancer answer after 3 s. ${cascade}`],
@@ -253,13 +253,13 @@ describe('buildStory on the presets, with the default retries at every layer (5 
     ]);
     expectPlain(story);
     // The numbers come from the run: the pile reached the app server in the second the load balancer was back.
-    const { run } = analyzed(buildRunConfig(webChain, gatewaySlow));
-    expect(run.tiers.gateway.queueAvg[49]).toBeGreaterThan(1);
-    expect(run.tiers.api.arrivalsFirst[50]).toBeGreaterThan(10 * gatewaySlow.rps);
+    const { run } = analyzed(buildRunConfig(webChain, loadBalancerSlow));
+    expect(run.tiers.lb.queueAvg[49]).toBeGreaterThan(1);
+    expect(run.tiers.api.arrivalsFirst[50]).toBeGreaterThan(10 * loadBalancerSlow.rps);
   });
 
   it('lists only the layers that ask again, with "once" and "twice", and says "Several layers" when not all do', () => {
-    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, gateway: 0, api: 2 } })));
+    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, lb: 0, api: 2 } })));
     expect(story[1]).toBe(
       'The app server gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps once, the app server twice. One slow answer can come back as many requests.',
     );
@@ -273,10 +273,10 @@ describe('buildStory on the presets, with the default retries at every layer (5 
   });
 
   it('when only a layer further up asks again, it says so instead of "those users got an error"', () => {
-    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, gateway: 0, api: 0 } })));
+    const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, lb: 0, api: 0 } })));
     expect(story).toContain("The app server gives up on a database answer after 1 s. Users' apps ask again when they give up, once.");
-    const gateway = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 3, api: 0 } })));
-    expect(gateway).toContain('The app server gives up on a database answer after 1 s. The load balancer asks again when it gives up, up to 3 times.');
+    const lb = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 0, lb: 3, api: 0 } })));
+    expect(lb).toContain('The app server gives up on a database answer after 1 s. The load balancer asks again when it gives up, up to 3 times.');
   });
 
   it('a database outage: one failed answer; a retry budget gets a sentence of its own', () => {
@@ -284,7 +284,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
     const budgeted: RunConfig = {
       ...config,
       client: { ...config.client, call: { ...config.client.call, retryBudget: 0.1 } },
-      tiers: config.tiers.map((t) => (t.id === 'gateway' ? { ...t, downstream: { ...t.downstream!, retryBudget: 0.2 } } : t)),
+      tiers: config.tiers.map((t) => (t.id === 'lb' ? { ...t, downstream: { ...t.downstream!, retryBudget: 0.2 } } : t)),
       faults: [{ tier: 'db', kind: 'dead', startMs: 30_000, endMs: 35_000 }],
     };
     const story = storyOf(budgeted);

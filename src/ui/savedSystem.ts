@@ -97,12 +97,26 @@ function withoutLooseArrows(g: BuilderGraph): BuilderGraph {
 }
 
 /**
+ * A drawing saved before the example's "Gateway" was renamed "Load balancer" (user decision,
+ * 2026-10-25: one name everywhere) says "Gateway" on its load balancer: it is renamed as it loads.
+ * A name the viewer typed is kept.
+ */
+function withTodaysNames(g: BuilderGraph): BuilderGraph {
+  if (!g.nodes.some((n) => n.label === 'Gateway' && n.settings.kind === 'loadBalancer')) return g;
+  const taken = new Set(g.nodes.map((n) => n.label));
+  return { ...g, nodes: g.nodes.map((n) => (n.label === 'Gateway' && n.settings.kind === 'loadBalancer' && !taken.has('Load balancer') ? { ...n, label: 'Load balancer' } : n)) };
+}
+
+/** A saved drawing as today's page draws it. */
+const upgraded = (g: BuilderGraph) => withTodaysNames(withoutLooseArrows(g));
+
+/**
  * A saved built system, compiled again, or null when it can't run: its drawing has problems, or
  * (a safety net, should the two ever disagree) the engine refuses its first scenario.
  */
 function restoreSystem(saved: unknown): Extract<System, { kind: 'custom' }> | null {
   if (!isGraph(saved)) return null;
-  const g = withoutLooseArrows(saved);
+  const g = upgraded(saved);
   if (validateGraph(g).length > 0) return null;
   try {
     const system = customSystem(g) as Extract<System, { kind: 'custom' }>;
@@ -161,11 +175,13 @@ export function loadSaved(storage?: SystemStorage): Restored | null {
   const saved = parse(raw) ?? { system: {} as BuilderGraph };
   const built = saved.system == null ? null : restoreSystem(saved.system);
   const system: System = built ?? PRESET_SYSTEM;
-  // An older save's scenario id still names the same failure (see findScenario).
-  const scenarioId = resolveScenarioId(system, typeof saved.scenarioId === 'string' ? saved.scenarioId : '');
+  // An older save's scenario id still names the same failure (see findScenario). The example system
+  // always starts on its default failure, the database slowing down (user decision, 2026-10-25: a
+  // remembered "load balancer slows down" greeted returning visitors instead).
+  const scenarioId = resolveScenarioId(system, built && typeof saved.scenarioId === 'string' ? saved.scenarioId : '');
   const kept = fits(saved.applied ?? null, system) ? saved.applied! : null;
   const applied = kept === null ? systemDraft(system, scenarioId) : resolveScenarioId(system, kept.scenario.id) === scenarioId ? { ...kept, scenario: { ...kept.scenario, id: scenarioId } } : kept;
-  const canvas = isGraph(saved.canvas) ? withoutLooseArrows(saved.canvas) : null;
+  const canvas = isGraph(saved.canvas) ? upgraded(saved.canvas) : null;
   const notice = leftOut(saved.system != null && built === null, saved.canvas != null && canvas === null);
   return { system, scenarioId, applied, canvas, canvasOpen: canvas !== null && saved.canvasOpen === true, ...(notice ? { notice } : {}) };
 }

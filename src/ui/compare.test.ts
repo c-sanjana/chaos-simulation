@@ -12,7 +12,7 @@ const snapshot = (draft: Draft): RunSnapshot => {
   const config = buildRunConfig(draft.topology, draft.scenario);
   return { draft, config, result: executeJob({ kind: 'analyze', config, labels }) };
 };
-const singleLayer = (api: number) => updateRetries(updateRetries(updateRetries(presetDraft('retry-storm'), 'client', 0), 'gateway', 0), 'api', api);
+const singleLayer = (api: number) => updateRetries(updateRetries(updateRetries(presetDraft('retry-storm'), 'client', 0), 'lb', 0), 'api', api);
 
 describe('compareRuns', { timeout: 60_000 }, () => {
   const base = snapshot(presetDraft('retry-storm')); // 5 / 3 / 1: stuck
@@ -95,12 +95,12 @@ describe('retryTakeaway', () => {
   const rows = (tone: ComparisonRow['tone']): ComparisonRow[] => [{ label: 'Failed requests', before: '1', now: '2', change: '+1', tone }];
   const changes = (next: Draft) => settingsChanges(d, next);
   it('tells retry changes as cause and effect, and stays out of the way otherwise', () => {
-    const gw = updateRetries(d, 'gateway', 1);
+    const gw = updateRetries(d, 'lb', 1);
     expect(retryTakeaway(d, gw, changes(gw), 'recovered', 'recovered', rows('worse'))).toBe('The Load balancer retried less, so more failures reached users directly. It recovered either way.');
     expect(retryTakeaway(d, gw, changes(gw), 'stuck', 'stuck', rows('same'))).toBe("The Load balancer retried less. It was still stuck because users' apps (5×), the Load balancer (1×) and the App server (1×) still multiply the load.");
     const users = updateRetries(d, 'client', 8);
     expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('better'))).toBe('Users retried more, adding repeats, yet fewer requests failed. It recovered either way.');
-    const none = updateRetries(updateRetries(updateRetries(d, 'client', 0), 'gateway', 0), 'api', 0);
+    const none = updateRetries(updateRetries(updateRetries(d, 'client', 0), 'lb', 0), 'api', 0);
     expect(retryTakeaway(d, none, changes(none), 'stuck', 'stuck', rows('worse'))).toBe("Users' apps, the Load balancer and the App server retried less, so more failures reached users directly. It was still stuck.");
     // Up at one layer and down at another, or another setting changed: no clear story.
     const mixed = updateRetries(updateRetries(d, 'client', 1), 'api', 3);
@@ -132,7 +132,7 @@ describe('settingsChanges', () => {
   it('lists traffic, run length, failures, retries, timeouts and tier settings in plain words', () => {
     let next = updateScenario(d, { rps: 150, durationMs: 90_000 });
     next = updateFault(next, { factor: 4, endMs: 40_000 });
-    next = updateRetries(next, 'gateway', 0);
+    next = updateRetries(next, 'lb', 0);
     next = { ...next, topology: { ...next.topology, clientCall: { ...next.topology.clientCall, timeoutMs: 5000 } } };
     next = updateTier(next, 'api', (t) => ({ ...t, instances: 6, queueLimit: 50, dropExpired: true, downstream: { ...t.downstream!, jitter: true } }));
     next = updateTier(next, 'cache', (t) => ({ ...t, cache: { ...t.cache!, ttlMs: 30_000 } }));
