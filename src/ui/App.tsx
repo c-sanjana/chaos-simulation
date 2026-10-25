@@ -3,7 +3,7 @@ import { buildStory } from '../analysis/story';
 import { buildRunConfig } from '../data/buildConfig';
 import { graphFromPreset, syncGraph } from '../builder/fromPreset';
 import type { BuilderGraph } from '../builder/graph';
-import { validateGraph } from '../builder/validate';
+import { findProblems } from '../builder/validate';
 import { CachingPool } from '../worker/cachingPool';
 import { createDefaultPool, type SimPool } from '../worker/pool';
 import { compareRuns, type RunSnapshot } from './compare';
@@ -360,7 +360,7 @@ export function App({ pool: injected }: AppProps) {
           <BuilderScreen
             graph={canvas}
             onChange={setCanvas}
-            problems={validateGraph(canvas)}
+            problems={findProblems(canvas)}
             onUse={() => useCanvas(canvas)}
             actions={
               <>

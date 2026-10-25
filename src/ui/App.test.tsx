@@ -520,7 +520,9 @@ describe('App', { timeout: 60_000 }, () => {
 
     fireEvent.click(screen.getByRole('button', { name: '✎ Build your own system' }));
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(screen.getByRole('button', { name: /^Use this topology · 1 thing to fix/ }).getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Use this topology' }).getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByRole('button', { name: '1 thing to finish' })).toBeTruthy();
+    expect(screen.getByText('No Client yet. Add one from the list above: requests start there.')).toBeTruthy();
     buildChain();
     fireEvent.click(screen.getByRole('button', { name: 'Use this topology' }));
     // New tier ids: the old run must never be shown against the new system.

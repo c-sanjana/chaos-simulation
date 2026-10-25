@@ -31,6 +31,12 @@
   --csl-good: #2f9e6e;
   --csl-good-text: #1a7f52;
   --csl-warn-text: #9a6700;
+  /* The builder's problems: amber for "not finished yet", red for "this is wrong" (builder.css). Outlines are 3:1 or more against the card. */
+  --csl-warn: #bf8700;
+  --csl-warn-bg: #fff8e1;
+  --csl-error: #cf222e;
+  --csl-error-text: #a40e26;
+  --csl-error-bg: #ffebe9;
   --csl-info-dot: #7d8590;
   --csl-focus: #1f6feb;
   --csl-selected-ring: rgba(31, 111, 235, 0.35);
@@ -92,6 +98,11 @@
   --csl-good: #3fb984;
   --csl-good-text: #3fb984;
   --csl-warn-text: #e3b341;
+  --csl-warn: #d29922;
+  --csl-warn-bg: #2a2212;
+  --csl-error: #f85149;
+  --csl-error-text: #ff8b84;
+  --csl-error-bg: #3a1d1f;
   --csl-info-dot: #8b949e;
   --csl-focus: #4c8dff;
   --csl-selected-ring: rgba(76, 141, 255, 0.45);

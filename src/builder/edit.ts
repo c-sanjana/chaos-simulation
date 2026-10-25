@@ -171,8 +171,8 @@ export function removeNode(graph: BuilderGraph, id: string): BuilderGraph {
 /** Why `from` may not call `to`, in plain words, or null when it may. Mirrors `canConnect`. */
 export function connectRefusal(from: ComponentKind, to: ComponentKind): string | null {
   if (canConnect(from, to)) return null;
-  if (to === 'client') return 'Nothing calls the Client: it is where requests start.';
-  if (from === 'database' || from === 'cache') return `${aKind(from, true)} only answers calls; it doesn't call other components.`;
+  if (to === 'client') return 'The Client is where requests start, so nothing sends to it.';
+  if (from === 'database' || from === 'cache') return `${aKind(from, true)} only answers requests; it doesn't send any.`;
   if (from === 'client') return `The Client sends requests to a load balancer, an app server or a queue, not straight to ${aKind(to)}.`;
   // The only pair left that canConnect rules out: a load balancer or queue calling a cache.
   return 'Only an app server looks things up in a cache.';
@@ -191,8 +191,8 @@ export function connect(graph: BuilderGraph, from: string, to: string): EditResu
   const a = graph.nodes.find((n) => n.id === from);
   const b = graph.nodes.find((n) => n.id === to);
   if (!a || !b) return refused(graph, 'That component no longer exists.');
-  if (from === to) return refused(graph, "A component can't call itself.");
-  if (graph.edges.some((e) => e.from === from && e.to === to)) return refused(graph, `${name(a)} already calls ${name(b)}.`);
+  if (from === to) return refused(graph, "A box can't have an arrow to itself.");
+  if (graph.edges.some((e) => e.from === from && e.to === to)) return refused(graph, `There's already an arrow from ${name(a)} to ${name(b)}.`);
   const why = connectRefusal(a.settings.kind, b.settings.kind);
   if (why) return refused(graph, why);
   const edge: BuilderEdge = { id: `${from}--${to}`, from, to, call: defaultCall(a.settings.kind, b.settings.kind) };

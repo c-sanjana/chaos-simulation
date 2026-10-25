@@ -188,7 +188,7 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
 
       <fieldset className="csl-bpanel__group">
         <legend className="csl-bpanel__legend">Calls</legend>
-        {!callsSomething && <p className="csl-bpanel__hint">{aKind(s.kind, true)} only answers calls; it doesn't call other components.</p>}
+        {!callsSomething && <p className="csl-bpanel__hint">{aKind(s.kind, true)} only answers requests; it doesn't send any.</p>}
         {calls.length > 1 && s.kind === 'loadBalancer' && (
           <p className="csl-bpanel__hint">Each request goes to one of these, by the share of traffic on its arrow (even unless you change it). Select an arrow to change its share.</p>
         )}
@@ -365,7 +365,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
           <p>Select a box or an arrow's label to change its settings.</p>
           <ul>
             <li>Drag a component from the list above onto the canvas, or press its Add button.</li>
-            <li>Drag a box to move it. Drag from the round handle on its right edge to another box to make it call that box.</li>
+            <li>Drag a box to move it. To draw an arrow, drag from the blue dot on its right edge to another box.</li>
             <li>Requests start at the Client and flow along the arrows.</li>
           </ul>
         </div>

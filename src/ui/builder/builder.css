@@ -4,12 +4,13 @@
  * Colours are tokens only, so the dark theme works. Cell sizes come from geometry.ts through the
  * --csl-cell-* variables set on the canvas.
  *
- * Height budget at 1440 × 900 (app top bar ≈ 68 px, page padding below ≈ 50 px): bar 52 (Cancel
- * and "use the example" live in it) + palette 84 (blurbs at most two lines) + canvas 482 + foot
- * ≤ 100 (the problem list scrolls inside past three lines), plus gaps, stays under ~780 px with
- * problems listed. The settings panel scrolls on its own.
- * Below 900 px wide (phones) everything stacks: palette, canvas (scrolls sideways at full size),
- * status and problems, then the settings panel.
+ * Height budget at 1440 × 900 (app top bar ≈ 68 px, page padding below ≈ 50 px): bar 52 (Cancel,
+ * "use the example" and the problem count live in it) + palette 84 (blurbs at most two lines) +
+ * problems ≤ 115 (title, three one-line messages, the arrow hint; "Show all" lists the rest) +
+ * canvas 482 + status 20, plus gaps: the problems are always on screen, and the canvas too at
+ * 1440 × 900 (its bottom row runs under the fold at 1280 × 800). The settings panel scrolls on its own.
+ * Below 900 px wide (phones) everything stacks: palette, problems, canvas (scrolls sideways at
+ * full size), status, then the settings panel.
  */
 
 .csl-builder {
@@ -443,35 +444,193 @@
 .csl-builder__status--refused {
   color: var(--csl-bad-text);
 }
-.csl-builder__ready {
-  margin: 0;
-  font-size: 13px;
-  color: var(--csl-good-text);
-}
-.csl-builder__problems {
-  flex: 1 1 100%;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: var(--csl-alert-bg);
-  color: var(--csl-bad-text);
-  font-size: 13px;
-  /* The title and the first two problems, whole ("Show all" lists the rest). */
+
+/* The count beside "Use this topology" (a button to the list), or "✓ Ready to simulate".
+   Amber while the drawing is only unfinished, red once something is wrong (user feedback, 2026-10-25). */
+.csl-builder__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   box-sizing: border-box;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
 }
-.csl-builder__problems-more {
+button.csl-builder__badge {
+  cursor: pointer;
+}
+.csl-builder__badge--unfinished {
+  border-color: var(--csl-warn);
+  background: var(--csl-warn-bg);
+  color: var(--csl-warn-text);
+}
+.csl-builder__badge--wrong {
+  border-color: var(--csl-error);
+  background: var(--csl-error-bg);
+  color: var(--csl-error-text);
+}
+button.csl-builder__badge:hover {
+  text-decoration: underline;
+}
+.csl-builder__badge--ready {
+  color: var(--csl-good-text);
+  padding: 0 4px;
+}
+
+/* The list, above the canvas: on screen without scrolling at 1440 × 900 and 1280 × 800. */
+.csl-builder__problems {
+  padding: 6px 12px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--csl-warn);
+  border-left-width: 4px;
+  background: var(--csl-warn-bg);
+  color: var(--csl-ink);
   font-size: 13px;
+  line-height: 1.45;
+  box-sizing: border-box;
+  max-width: 1064px;
+}
+.csl-builder__problems--wrong {
+  border-color: var(--csl-error);
+  background: var(--csl-error-bg);
 }
 .csl-builder__problems:focus-visible {
   outline: 2px solid var(--csl-focus);
   outline-offset: 2px;
 }
+/* Pointed to by "Use this topology" or the count: a short glow, replayed on each press. */
+.csl-builder__problems--flash-0 {
+  animation: csl-problems-flash-a 1.2s ease-out;
+}
+.csl-builder__problems--flash-1 {
+  animation: csl-problems-flash-b 1.2s ease-out;
+}
+@keyframes csl-problems-flash-a {
+  0%,
+  40% {
+    box-shadow: 0 0 0 4px var(--csl-selected-ring);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@keyframes csl-problems-flash-b {
+  0%,
+  40% {
+    box-shadow: 0 0 0 4px var(--csl-selected-ring);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
 .csl-builder__problems-title {
   margin: 0 0 2px;
   font-weight: 600;
+  color: var(--csl-warn-text);
+}
+.csl-builder__problems--wrong .csl-builder__problems-title {
+  color: var(--csl-error-text);
 }
 .csl-builder__problem-list {
   margin: 0;
-  padding-left: 20px;
+  padding-left: 18px;
+}
+/* Each bullet in its own colour: amber for a step still to take, red for something wrong. */
+.csl-builder__problem::marker {
+  color: var(--csl-warn);
+}
+.csl-builder__problem--wrong::marker {
+  color: var(--csl-error);
+}
+.csl-builder__problem-show.csl-btn {
+  min-height: 0;
+  margin-left: 4px;
+  font-size: 13px;
+  text-decoration: underline;
+}
+.csl-builder__problems-more.csl-btn {
+  min-height: 24px;
+  font-size: 13px;
+  padding-left: 0;
+}
+.csl-builder__problems-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--csl-muted);
+}
+
+/* ---------- Problem marks on the canvas: an outline and a ⚠ ---------- */
+.csl-bnode--unfinished .csl-bnode__box {
+  border-color: var(--csl-warn);
+  border-style: dashed;
+}
+.csl-bnode--wrong .csl-bnode__box {
+  border-color: var(--csl-error);
+  border-width: 2px;
+}
+/* Selected stays blue (the ring), so the box being edited is clear; the ⚠ stays. */
+.csl-bnode .csl-bnode__box[aria-pressed='true'] {
+  border-color: var(--csl-primary);
+  border-style: solid;
+}
+.csl-bcanvas__warn {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: var(--csl-card);
+  font-family: var(--csl-font-sans);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: help;
+}
+.csl-bcanvas__warn--unfinished {
+  color: var(--csl-warn-text);
+  border-color: var(--csl-warn);
+}
+.csl-bcanvas__warn--wrong {
+  color: var(--csl-error-text);
+  border-color: var(--csl-error);
+}
+.csl-bcanvas__edge-label .csl-bcanvas__warn {
+  top: -10px;
+  right: -12px;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  cursor: inherit;
+}
+.csl-bcanvas__edge-label--unfinished {
+  border-color: var(--csl-warn);
+}
+.csl-bcanvas__edge-label--wrong {
+  border-color: var(--csl-error);
+  color: var(--csl-error-text);
+}
+.csl-bcanvas__line--unfinished {
+  stroke: var(--csl-warn);
+}
+.csl-bcanvas__line--wrong {
+  stroke: var(--csl-error);
+  stroke-width: 2.5;
+}
+.csl-bcanvas__head--unfinished {
+  fill: var(--csl-warn);
+}
+.csl-bcanvas__head--wrong {
+  fill: var(--csl-error);
 }
 
 /* ---------- Settings panel ---------- */

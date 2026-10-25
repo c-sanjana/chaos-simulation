@@ -2,6 +2,7 @@ import { createEvent, fireEvent, render, screen, within } from '@testing-library
 import { useState } from 'react';
 import { GRID_COLS, GRID_ROWS, addNode, emptyGraph, starterGraph } from '../../builder/edit';
 import type { BuilderGraph } from '../../builder/graph';
+import { findProblems } from '../../builder/validate';
 import { exampleGraph } from '../system';
 import { BuilderScreen } from './BuilderScreen';
 import { canCallAnything } from './BuilderCanvas';
@@ -9,10 +10,11 @@ import { canCallAnything } from './BuilderCanvas';
 /** The latest graph the screen reported, so tests can check the data, not just the DOM. */
 let latest: BuilderGraph;
 
-function Harness({ initial = emptyGraph(), problems = [], onUse = () => {} }: { initial?: BuilderGraph; problems?: string[]; onUse?: () => void }) {
+/** `problems` as given, or (`validate`) the validator's for the graph as it is now, as in the app. */
+function Harness({ initial = emptyGraph(), problems = [], validate = false, onUse = () => {} }: { initial?: BuilderGraph; problems?: string[]; validate?: boolean; onUse?: () => void }) {
   const [graph, setGraph] = useState(initial);
   latest = graph;
-  return <BuilderScreen graph={graph} onChange={setGraph} problems={problems} onUse={onUse} />;
+  return <BuilderScreen graph={graph} onChange={setGraph} problems={validate ? findProblems(graph) : problems} onUse={onUse} />;
 }
 
 const node = (id: string) => screen.getByTestId(`node-${id}`);
@@ -24,6 +26,13 @@ const placed = (id: string) => {
   return [n.col, n.row];
 };
 const panel = () => screen.getByRole('complementary', { name: 'Settings' });
+/** An element's accessible description, from aria-describedby (each referenced element's aria-label, else its text). */
+const description = (el: HTMLElement) =>
+  (el.getAttribute('aria-describedby') ?? '')
+    .split(' ')
+    .map((id) => document.getElementById(id))
+    .map((d) => d?.getAttribute('aria-label') ?? d?.textContent ?? '')
+    .join(' ');
 const dataTransfer = () => ({ setData: vi.fn(), effectAllowed: 'all' });
 
 describe('BuilderScreen: empty canvas and toolbar', () => {
@@ -78,16 +87,66 @@ describe('BuilderScreen: problems and "Use this topology"', () => {
   it('lists problems and blocks using the topology while there are any', () => {
     const onUse = vi.fn();
     render(<Harness initial={starterGraph()} problems={['The Client calls nothing.', 'App server 2 is unreachable.']} onUse={onUse} />);
-    // Still focusable and clickable, with the count on it; a click takes you to the list.
-    const use = screen.getByRole('button', { name: 'Use this topology · 2 things to fix' });
+    // Still focusable and clickable; a click takes you to the list, which lights up.
+    const use = screen.getByRole('button', { name: 'Use this topology' });
     expect(use.getAttribute('aria-disabled')).toBe('true');
-    expect(screen.getByText(/2 things to fix before simulating/)).toBeTruthy();
-    expect(screen.getByText('The Client calls nothing.')).toBeTruthy();
-    const list = document.getElementById(use.getAttribute('aria-describedby')!)!;
+    const list = screen.getByRole('group', { name: '2 problems to fix before simulating' });
+    expect(use.getAttribute('aria-describedby')).toBe(list.id);
+    expect(within(list).getByText('The Client calls nothing.')).toBeTruthy();
     expect(list.textContent).toMatch(/App server 2 is unreachable/);
+    // The list sits above the canvas, so it is on screen without scrolling.
+    expect(list.compareDocumentPosition(screen.getByRole('group', { name: /^Canvas/ })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(use);
     expect(onUse).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(list);
+    expect(list.className).toMatch(/--flash-1/);
+    // The count beside the button (plain messages count as wrong: red) goes there too, and lights it up again.
+    const count = screen.getByRole('button', { name: '2 problems to fix' });
+    expect(count.className).toMatch(/--wrong/);
+    expect(count.getAttribute('aria-controls')).toBe(list.id);
+    use.focus();
+    fireEvent.click(count);
+    expect(document.activeElement).toBe(list);
+    expect(list.className).toMatch(/--flash-0/);
+  });
+
+  it('is amber while the drawing is only unfinished, and marks the boxes and arrows on the canvas', () => {
+    const g = starterGraph();
+    // The load balancer sends nowhere: it has nothing behind it, and nothing reaches the parts after it.
+    render(<Harness initial={{ ...g, edges: g.edges.filter((e) => e.from !== 'loadBalancer-1') }} validate />);
+    const list = screen.getByRole('group', { name: 'Not ready yet: 4 things to finish' });
+    expect(list.className).toMatch(/--unfinished/);
+    expect(screen.getByRole('button', { name: '4 things to finish' }).className).toMatch(/--unfinished/);
+    // How to draw an arrow, by mouse and keyboard, once under the list.
+    expect(within(list).getByText(/By keyboard: select a box, pick a part under “Calls…”, then press Connect\./)).toBeTruthy();
+    // The marked box: an amber outline and a ⚠ named by its message, which also describes the box.
+    expect(node('loadBalancer-1').className).toMatch(/csl-bnode--unfinished/);
+    const warn = within(node('loadBalancer-1')).getByRole('img');
+    expect(warn.getAttribute('aria-label')).toBe('Problem: Load balancer has nothing to send requests to. Draw an arrow from it to an app server.');
+    expect(description(box('loadBalancer-1'))).toBe(warn.getAttribute('aria-label'));
+    expect(within(node('client-1')).queryByRole('img')).toBeNull();
+    // "Show" selects the box (its settings open) and puts the keyboard on it.
+    fireEvent.click(within(list).getByRole('button', { name: 'Show App server' }));
+    expect(document.activeElement).toBe(box('server-1'));
+    expect(box('server-1').getAttribute('aria-pressed')).toBe('true');
+    expect(within(panel()).getByRole('heading', { name: 'App server' })).toBeTruthy();
+  });
+
+  it('marks a wrong arrow in red, described by its message, and announces the count as it changes', () => {
+    const g = starterGraph();
+    const bad = { ...g, edges: g.edges.map((e) => (e.id === 'server-1--database-1' ? { ...e, call: { ...e.call, retries: -1 } } : e)) };
+    render(<Harness initial={bad} validate />);
+    const label = screen.getByRole('button', { name: /: App server calls Database/ });
+    expect(label.className).toMatch(/--wrong/);
+    expect(description(label)).toBe('Problem: The arrow from App server to Database needs a whole number of retries, from 0 to 10. Select it and change "Retries".');
+    expect(screen.getByTestId('problem-count').textContent).toBe('1 problem to fix.');
+    expect(screen.getByTestId('problem-count').getAttribute('role')).toBe('status');
+    fireEvent.click(screen.getByRole('button', { name: 'Show the arrow from App server to Database' }));
+    expect(document.activeElement).toBe(label);
+    // Removing the arrow fixes that, but leaves the cache with nothing behind it and the database unreached: amber now.
+    fireEvent.click(within(panel()).getByRole('button', { name: /Remove this call/ }));
+    expect(screen.getByTestId('problem-count').textContent).toBe('2 things to finish.');
+    expect(screen.getByRole('button', { name: '2 things to finish' })).toBeTruthy();
   });
 
   it('says the canvas scrolls sideways when the window is too narrow for all of it', () => {
@@ -100,26 +159,29 @@ describe('BuilderScreen: problems and "Use this topology"', () => {
     }
   });
 
-  it('lists the first two problems whole, and the rest on "Show all"', () => {
-    render(<Harness problems={['First.', 'Second.', 'Third.']} />);
-    const listed = () => within(screen.getByLabelText(/things to fix before simulating/)).getAllByRole('listitem').map((li) => li.textContent);
-    expect(listed()).toEqual(['First.', 'Second.']);
-    fireEvent.click(screen.getByRole('button', { name: 'Show all 3' }));
+  it('lists the first three problems whole, and the rest on "Show all"', () => {
+    render(<Harness problems={['First.', 'Second.', 'Third.', 'Fourth.']} />);
+    const listed = () => within(screen.getByRole('group', { name: /problems to fix before simulating/ })).getAllByRole('listitem').map((li) => li.textContent);
     expect(listed()).toEqual(['First.', 'Second.', 'Third.']);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 4' }));
+    expect(listed()).toEqual(['First.', 'Second.', 'Third.', 'Fourth.']);
     fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));
-    expect(listed()).toHaveLength(2);
+    expect(listed()).toHaveLength(3);
   });
 
   it('words a single problem', () => {
     render(<Harness problems={['Add a Client.']} />);
-    expect(screen.getByText(/One thing to fix/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Use this topology · 1 thing to fix' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: '1 problem to fix before simulating' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '1 problem to fix' })).toBeTruthy();
   });
 
   it('offers the topology when there are no problems', () => {
     const onUse = vi.fn();
     render(<Harness initial={starterGraph()} onUse={onUse} />);
-    expect(screen.getByText('Ready to simulate.')).toBeTruthy();
+    expect(screen.getByText('Ready to simulate', { selector: '.csl-builder__badge' })).toBeTruthy();
+    expect(screen.getByTestId('problem-count').textContent).toBe('Ready to simulate.');
+    expect(screen.queryByRole('group', { name: /to fix|to finish/ })).toBeNull();
+    expect(document.querySelector('.csl-bnode__warn')).toBeNull();
     const use = screen.getByRole('button', { name: 'Use this topology' }) as HTMLButtonElement;
     expect(use.getAttribute('aria-disabled')).toBeNull();
     expect(use.getAttribute('aria-describedby')).toBeNull();
@@ -278,7 +340,7 @@ describe('BuilderScreen: drag and drop', () => {
     render(<Harness initial={starterGraph()} />);
     fireEvent.dragStart(screen.getByTestId('handle-server-1'));
     fireEvent.drop(node('client-1'));
-    expect(status().textContent).toBe('Not possible: Nothing calls the Client: it is where requests start.');
+    expect(status().textContent).toBe('Not possible: The Client is where requests start, so nothing sends to it.');
     expect(latest.edges).toHaveLength(4);
   });
 
@@ -553,7 +615,7 @@ describe('BuilderScreen: settings panel for a box', () => {
     expect(within(panel()).queryByRole('spinbutton', { name: /Expire after/ })).toBeNull();
     fireEvent.click(expires);
     expect(settings('cache-1').ttlMs).toBe(60_000);
-    expect(within(panel()).getByText(/only answers calls/)).toBeTruthy();
+    expect(within(panel()).getByText(/only answers requests/)).toBeTruthy();
   });
 
   it('edits a queue', () => {
@@ -614,9 +676,12 @@ describe('BuilderScreen: half-typed numbers', () => {
     fireEvent.click(box('server-1'));
     const copies = within(panel()).getByRole('spinbutton', { name: 'Copies (instances)' });
     fireEvent.change(copies, { target: { value: '0' } });
-    await screen.findByText('App server: "Copies (instances)": Enter a whole number from 1 to 100. Fix the field marked in red.');
-    expect(screen.queryByText('Ready to simulate.')).toBeNull();
-    const use = screen.getByRole('button', { name: 'Use this topology · 1 thing to fix' });
+    await screen.findByText('"Copies (instances)" on App server isn\'t valid yet. Enter a whole number from 1 to 100.');
+    expect(screen.getByTestId('problem-count').textContent).toBe('1 problem to fix.');
+    // The box whose settings hold the field is marked red too.
+    expect(node('server-1').className).toMatch(/csl-bnode--wrong/);
+    const use = screen.getByRole('button', { name: 'Use this topology' });
+    expect(use.getAttribute('aria-disabled')).toBe('true');
     // Pressing it must not first blur the field (which would quietly bring back the last valid value).
     const down = createEvent.mouseDown(use);
     fireEvent(use, down);
@@ -626,6 +691,7 @@ describe('BuilderScreen: half-typed numbers', () => {
     expect(document.activeElement).toBe(copies);
     fireEvent.change(copies, { target: { value: '3' } });
     await screen.findByText('Ready to simulate.');
+    expect(screen.getByRole('button', { name: 'Use this topology' }).getAttribute('aria-disabled')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Use this topology' }));
     expect(onUse).toHaveBeenCalledTimes(1);
   });

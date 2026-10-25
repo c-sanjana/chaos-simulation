@@ -6,7 +6,7 @@ describe('editing branches', () => {
     const g = branchedGraph();
     const more = connect(g, 's2', 'queue');
     expect(more.reason).toBeUndefined();
-    expect(connect(more.graph, 's2', 'queue').reason).toBe('s2 already calls queue.');
+    expect(connect(more.graph, 's2', 'queue').reason).toBe("There's already an arrow from s2 to queue.");
   });
 
   it('shares in percent: the other arrows keep their proportions and make up the rest', () => {
