@@ -312,23 +312,31 @@ export function App({ pool: injected }: AppProps) {
     <AnnouncerProvider>
     <AnnounceRun status={main.status} />
     <div className="csl-page">
+      {/* Row 1: the title and one toolbar of page tools, always on one line. Row 2: the failure
+          being tested, full width (hidden while the builder is open: its failures belong to the
+          system being edited). */}
       <header className="csl-topbar">
-        <h1 className="csl-topbar__title" title="See where a system stops recovering on its own, and whether a fix moves that point.">
-          Chaos Simulation Lab
-        </h1>
-        <div data-tour="scenario" className="csl-topbar__summary">
-          {/* Hidden while the builder is open: its failures belong to the system being edited. */}
-          {canvas === null && <ScenarioSummary draft={applied} editing={editingFailure} edited={edited} onToggle={() => setEditingFailure((e) => !e)} />}
+        <div className="csl-topbar__row">
+          <h1 className="csl-topbar__title" title="See where a system stops recovering on its own, and whether a fix moves that point.">
+            Chaos Simulation Lab
+          </h1>
+          <div className="csl-topbar__actions" role="group" aria-label="Page tools">
+            {canvas === null && (
+              <>
+                {/* On phones only the ✎ shows; the words stay its accessible name. */}
+                <button type="button" id="csl-build-button" className="csl-btn csl-btn--small csl-topbar__build" onClick={openBuilder}>
+                  ✎<span className="csl-topbar__build-text"> {system.kind === 'custom' ? 'Edit your system' : 'Build your own system'}</span>
+                </button>
+                <span className="csl-topbar__sep" aria-hidden="true" />
+              </>
+            )}
+            <Glossary />
+            <ThemeToggle />
+            <TourButton onClick={startTour} />
+          </div>
         </div>
-        <div className="csl-topbar__actions">
-          {canvas === null && (
-            <button type="button" id="csl-build-button" className="csl-btn csl-btn--small" onClick={openBuilder}>
-              {system.kind === 'custom' ? '✎ Edit your system' : '✎ Build your own system'}
-            </button>
-          )}
-          <Glossary />
-          <ThemeToggle />
-          <TourButton onClick={startTour} />
+        <div data-tour="scenario" className="csl-topbar__summary">
+          {canvas === null && <ScenarioSummary draft={applied} editing={editingFailure} edited={edited} onToggle={() => setEditingFailure((e) => !e)} />}
         </div>
       </header>
       <main className="csl-main">

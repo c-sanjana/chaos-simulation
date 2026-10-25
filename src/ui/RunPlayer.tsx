@@ -11,9 +11,9 @@ import { chartSummary, ChartTable } from './components/ChartText';
 import { MetricTabs } from './components/MetricTabs';
 import { PlaybackBar } from './components/PlaybackBar';
 import { CHART_HEIGHT, TimeSeriesChart } from './components/TimeSeriesChart';
-import { EventTrack } from './components/EventTrack';
+import { RunDetails } from './components/RunDetails';
 import { StepActiveContext } from './components/StepPanel';
-import { StoryCard, type StoryStepView } from './components/StoryCard';
+import type { StoryStepView } from './components/StoryCard';
 import { badgeRoomPx, boxRowCount, TopologyDiagram } from './components/TopologyDiagram';
 import { usePlayback } from './components/usePlayback';
 import { usePrefersReducedMotion } from './useMediaQuery';
@@ -51,7 +51,7 @@ export interface RunPlayerProps {
    * just after it ends, with a callout ("back to normal speed: does the system recover?").
    */
   guided?: boolean;
-  /** The run told in plain words, revealed as the replay reaches each step (shown above the timeline). */
+  /** The run told in plain words, revealed as the replay reaches each step; built from the run shown when not given. */
   story?: StoryStepView[];
   /** What the fix changed (compare mode), labelled on the "after" diagram. */
   changes?: ChangeLabel[];
@@ -64,12 +64,9 @@ export interface RunPlayerProps {
   demoAtMs?: number | null;
   /** id for the title heading, which can then take focus (e.g. after a re-run). */
   headingId?: string;
-  /** Show the story (and end panel) above the chart instead of with the timeline, e.g. on narrow screens where the side column is far below. */
+  /** Show the details (and end panel) above the chart, e.g. on narrow screens where the side column is far below. */
   storyAbove?: boolean;
-  /**
-   * Tell the run in plain words in a compact story (newest step only), built here from the run
-   * shown (step 2 and 3 replays). Ignored when `story` is given.
-   */
+  /** No longer used: every replay has the one details panel, story included. Kept so callers needn't change at once. */
   compactStory?: boolean;
   /**
    * Open the replay paused at this moment instead of playing from the start, e.g. the end of the
@@ -128,7 +125,6 @@ export function RunPlayer({
   demoAtMs = null,
   headingId,
   storyAbove = false,
-  compactStory = false,
   openAtMs = null,
   restartKey = 0,
 }: RunPlayerProps) {
@@ -247,36 +243,26 @@ export function RunPlayer({
     : playback.tMs >= verdictAtMs
       ? verdictView(recovery)
       : { text: 'Replaying… the verdict comes when the replay gets there', tone: 'neutral' as const };
-  // Step 2 and 3 replays tell the run shown (before or after the fix) in a compact story.
+  // The run shown (before or after the fix) told in plain words: given for step 1, built here otherwise.
   const builtStory = useMemo(
-    () => (compactStory && !story ? buildStory(shown.result.run, shown.config, shown.result.analysis, labels) : null),
-    [compactStory, story, shown.result, shown.config, labels],
+    () => (story ? null : buildStory(shown.result.run, shown.config, shown.result.analysis, labels)),
+    [story, shown.result, shown.config, labels],
   );
-  useAnnouncements(story ?? builtStory ?? undefined, playback.tMs, chip.tone === 'neutral' ? null : after ? compareWords(result, after.result) : chip.text, guide === 'paused' ? `Paused: the failure is over: ${failureOverText(faults, labels)}. Watch whether the system recovers.` : null);
+  const steps = story ?? builtStory ?? [];
+  useAnnouncements(steps, playback.tMs, chip.tone === 'neutral' ? null : after ? compareWords(result, after.result) : chip.text, guide === 'paused' ? `Paused: the failure is over: ${failureOverText(faults, labels)}. Watch whether the system recovers.` : null);
   const failureWindowsMs = (config.faults ?? []).map((f) => [f.startMs, f.endMs] as [number, number]);
-  const timelineWindow = (
-    <section className="csl-timeline-window" data-tour="timeline" aria-label="Details: what was measured">
-      {/* One name on every step (REVIEW2 3.8). */}
-      <h3 className="csl-timeline-title">
-        Details: what was measured
-        {after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}
-      </h3>
-      <div className="csl-timeline-window__body">
-        <EventTrack entries={timelineView(shown.result.analysis)} nowMs={playback.tMs} failureWindows={failureWindowsMs} />
-      </div>
-    </section>
-  );
-  const storyPart = (
-    <>
-      {ended && endPanel}
-      {story && <StoryCard steps={story} nowMs={playback.tMs} />}
-      {builtStory && <StoryCard steps={builtStory} nowMs={playback.tMs} compact />}
-    </>
-  );
+  // One panel tells what happened: the story's steps, each with what was measured (user decision,
+  // 2026-10-25: the separate "What's happening" card repeated the details). One name on every step (REVIEW2 3.8).
   const timeline = (
     <>
-      {!storyAbove && storyPart}
-      {timelineWindow}
+      {ended && endPanel}
+      <RunDetails
+        steps={steps}
+        entries={timelineView(shown.result.analysis)}
+        nowMs={playback.tMs}
+        failureWindows={failureWindowsMs}
+        titleSuffix={after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}
+      />
     </>
   );
 
@@ -337,7 +323,7 @@ export function RunPlayer({
       />
       </div>
 
-      {storyAbove && (story || builtStory) && <div className="csl-player__story">{storyPart}</div>}
+      {storyAbove && <div className="csl-player__story">{timeline}</div>}
 
       <div className="csl-player__body">
         <div className="csl-player__charts" data-tour="charts">
@@ -382,16 +368,16 @@ export function RunPlayer({
                 <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={plotHeight} describedBy={summaryId} />
               )}
             </div>
-            {sideTimeline && (
+            {sideTimeline && !storyAbove && (
               <div className="csl-player__timeline csl-player__timeline--side">
                 <div className="csl-player__sidestack">{timeline}</div>
               </div>
             )}
           </div>
         </div>
-        {!sideTimeline && timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
+        {!sideTimeline && !storyAbove && timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
       </div>
-      {timelineTarget && createPortal(timeline, timelineTarget)}
+      {timelineTarget && !storyAbove && createPortal(timeline, timelineTarget)}
     </section>
   );
 }

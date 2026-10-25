@@ -192,7 +192,6 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             compact
             chartHeight={178}
             sideTimeline
-            compactStory
           />
         )}
         {applied && (fixed.status === 'running' || beforeRun.status === 'running') && (

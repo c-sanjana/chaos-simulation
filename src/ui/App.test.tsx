@@ -37,7 +37,8 @@ describe('App', { timeout: 60_000 }, () => {
     // The verdict isn't given away up front: the replay reveals it when it gets there.
     expect(screen.queryByText('Stuck: did not recover after the failure ended')).toBeNull();
     expect(screen.getByText('A short failure, replayed')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Details: what was measured' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: "What's happening" })).toBeNull(); // one panel, not two
     expect(pool.analyzed).toHaveLength(1);
     expect(pool.analyzed[0].client.rps).toBe(200);
   });
@@ -146,8 +147,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
     await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    // Side by side: map on the left; the replay on the right, with its compact story and details beside the chart.
-    expect(screen.getByRole('region', { name: 'What is happening, in plain words' }).closest('.csl-player__timeline--side')).not.toBeNull();
+    // Side by side: map on the left; the replay on the right, with its details (story included) beside the chart.
     const timeline = screen.getByRole('region', { name: 'Details: what was measured' });
     expect(timeline.closest('.csl-player__timeline--side')).not.toBeNull();
     expect(screen.getByRole('region', { name: 'Tipping point' }).contains(timeline)).toBe(false);
@@ -158,7 +158,13 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
-    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · asks again: users' apps 5× · Load balancer 3× · App server 1×/);
+    // A banner: labelled, the preset's name, then the failure, traffic and retries as chips.
+    expect(summary.textContent).toMatch(/^Failure being tested\s*Retry storm/);
+    expect(within(summary).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      '⚡DB slows 8× for 5 s at 30 s',
+      '200 req/s',
+      "asks again: users' apps 5× · Load balancer 3× · App server 1×",
+    ]);
     const toggle = within(summary).getByRole('button', { name: 'Change failure' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
@@ -170,6 +176,31 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('region', { name: 'Change the failure' })).toBeNull();
+  });
+
+  it('puts the title and one toolbar of page tools on the first row, and the failure being tested under them', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    const header = screen.getByRole('banner');
+    const title = within(header).getByRole('heading', { level: 1, name: 'Chaos Simulation Lab' });
+    const tools = within(header).getByRole('group', { name: 'Page tools' });
+    // Row 1: the title and the toolbar side by side; every page tool is in that one toolbar, in order.
+    expect(tools.parentElement).toBe(title.parentElement);
+    const names = () => [...tools.querySelectorAll('button, summary')].map((el) => el.getAttribute('aria-label') ?? el.textContent);
+    expect(names()).toEqual(['✎ Build your own system', 'Glossary', 'Switch to dark mode', 'Show the guided tour']);
+    expect(within(tools).getByRole('button', { name: '✎ Build your own system' })).toBeTruthy(); // the ✎ and words are its name
+    // Row 2: the banner, full width under row 1, labelled as the experiment, with its button attached.
+    const banner = within(header).getByRole('region', { name: 'Scenario' });
+    expect(title.parentElement!.contains(banner)).toBe(false);
+    expect(title.parentElement!.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(banner).getByText('Failure being tested')).toBeTruthy();
+    expect(within(banner).getByRole('button', { name: 'Change failure' })).toBeTruthy();
+    // The builder's variant: no banner and no build button; the other tools stay where they were.
+    fireEvent.click(within(tools).getByRole('button', { name: '✎ Build your own system' }));
+    expect(within(header).queryByRole('region', { name: 'Scenario' })).toBeNull();
+    expect(names()).toEqual(['Glossary', 'Switch to dark mode', 'Show the guided tour']);
+    expect(tools.querySelector('.csl-topbar__sep')).toBeNull();
   });
 
   it('reports failed requests for stuck cells and recovery everywhere when nothing tips', async () => {
@@ -480,7 +511,7 @@ describe('App', { timeout: 60_000 }, () => {
     // New tier ids: the old run must never be shown against the new system.
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['loadBalancer-1', 'server-1', 'cache-1', 'database-1']), SLOW);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Database slows down/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Database slows down/);
     // The DB the retry storm slowed down isn't in this system: the failure was reset, and it says why.
     const reset = screen.getByText(/^The failure was reset to "Database slows down": the example's DB, where it happened, is not in your system\./);
     fireEvent.click(within(reset).getByRole('button', { name: 'Dismiss' }));
@@ -499,7 +530,7 @@ describe('App', { timeout: 60_000 }, () => {
     const notice = screen.getByText(/Switched to the example system/);
     fireEvent.click(within(notice).getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['loadBalancer-1', 'server-1', 'cache-1', 'database-1']), SLOW);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Cache restarts empty/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Cache restarts empty/);
     expect(screen.queryByText(/Switched to the example system/)).toBeNull();
   });
 
@@ -536,7 +567,7 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(again.analyzed).toHaveLength(1), SLOW);
     expect(again.analyzed[0].tiers.map((t) => t.id)).toEqual(['loadBalancer-1', 'server-1', 'cache-1', 'database-1']);
     expect(again.analyzed[0].tiers[1].instances).toBe(7);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Cache restarts empty/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Cache restarts empty/);
     fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
     expect(screen.getByRole('button', { name: /^Queue, a queue/ })).toBeTruthy();
     // It says this is the kept drawing; a second Cancel without changes keeps it still (code review 3).
@@ -573,7 +604,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: '✎ Build your own system' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use this topology' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 4, startMs: 30_000, endMs: 35_000 }]), SLOW);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Retry storm.*DB slows 4×/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Retry storm.*DB slows 4×/);
     expect(screen.getByRole('button', { name: /Where's the tipping point/ }).getAttribute('aria-current')).toBe('step');
     expect(screen.queryByText(/The failure was reset/)).toBeNull();
   });

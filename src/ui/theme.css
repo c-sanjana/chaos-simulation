@@ -1401,26 +1401,120 @@ button.csl-map__cell {
 .csl-split__timeline:empty {
   display: none;
 }
+/* The failure being tested: the banner under the title. The injected-failure purple (⚡, as on the
+   diagram) marks it: a left border, the label and the failure's own chip. */
 .csl-summary {
+  --csl-summary-accent: var(--csl-fault, #8250df);
+  --csl-summary-accent-text: #6639ba;
+  --csl-summary-tint: color-mix(in srgb, var(--csl-summary-accent) 6%, var(--csl-card));
+  --csl-summary-chip: color-mix(in srgb, var(--csl-summary-accent) 13%, var(--csl-card));
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+  min-width: 0;
+  background: var(--csl-summary-tint);
+  border: 1px solid color-mix(in srgb, var(--csl-summary-accent) 30%, var(--csl-border));
+  border-left: 4px solid var(--csl-summary-accent);
+  border-radius: 10px;
+  padding: 3px 4px 3px 12px;
+  font-size: 13px;
+}
+:root[data-theme='dark'] .csl-summary {
+  --csl-summary-accent-text: #c3a6ff;
+  --csl-summary-tint: color-mix(in srgb, var(--csl-summary-accent) 11%, var(--csl-card));
+  --csl-summary-chip: color-mix(in srgb, var(--csl-summary-accent) 26%, var(--csl-card));
+}
+.csl-summary__head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.csl-summary__label {
+  font-size: 10.5px;
+  line-height: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--csl-summary-accent-text);
+}
+.csl-summary__name {
+  font-size: 16px;
+  line-height: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--csl-ink);
+  white-space: nowrap;
+}
+.csl-summary__facts {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  background: var(--csl-card);
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.csl-summary__fact {
+  padding: 2px 9px;
   border: 1px solid var(--csl-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-}
-.csl-summary__text {
+  border-radius: 999px;
+  background: var(--csl-card);
   color: var(--csl-muted);
+  line-height: 18px;
+  white-space: nowrap;
 }
-.csl-summary__text b {
+.csl-summary__fact b {
   color: var(--csl-ink);
   font-weight: 600;
 }
-.csl-summary .csl-btn {
+.csl-summary__fact--fault {
+  border-color: transparent;
+  background: var(--csl-summary-chip);
+  color: var(--csl-ink-2);
+}
+.csl-summary__bolt {
+  margin-right: 4px;
+  color: var(--csl-summary-accent-text);
+}
+.csl-summary__change.csl-btn {
+  flex: none;
+  min-height: 30px;
   margin-left: auto;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, var(--csl-summary-accent) 55%, var(--csl-border));
+  background: var(--csl-card);
+  color: var(--csl-summary-accent-text);
+  font-weight: 600;
+}
+.csl-summary__change.csl-btn:hover,
+.csl-summary__change.csl-btn[aria-expanded='true'] {
+  border-color: var(--csl-summary-accent);
+  background: var(--csl-summary-chip);
+}
+/* Narrower screens: the name and the button on one line, the chips full width under them. */
+@media (max-width: 900px) {
+  .csl-summary {
+    flex-wrap: wrap;
+    padding: 6px 6px 8px 10px;
+  }
+  .csl-summary__head {
+    flex: 1 1 0;
+  }
+  .csl-summary__name {
+    white-space: normal;
+  }
+  .csl-summary__facts {
+    order: 3;
+    flex-basis: 100%;
+  }
+}
+@media (max-width: 600px) {
+  .csl-summary__fact {
+    white-space: normal;
+  }
 }
 .csl-map--small {
   --csl-map-cell: 15px;
@@ -1472,22 +1566,36 @@ button.csl-map__cell {
   gap: 8px;
 }
 
-/* ---------- Compact top bar ---------- */
+/* ---------- Compact top bar ----------
+   Row 1: the title, and the page tools as one toolbar on the right, always on one line.
+   Row 2: the failure being tested, full width. It sits a little closer to the page edge and to the
+   step tabs than other blocks, so the two rows take about the room the old single row did. */
 .csl-topbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
+  margin: -8px 0 -10px;
+  min-width: 0;
+}
+.csl-topbar__row {
+  display: flex;
   align-items: center;
-  gap: 8px 16px;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 .csl-topbar__title {
+  min-width: 0;
   margin: 0;
   font-size: 19px;
   font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.csl-topbar .csl-summary {
-  flex: 1 1 520px;
+.csl-topbar__summary:empty {
+  display: none;
 }
 .csl-steps--compact .csl-step {
   flex: 1 1 220px;
@@ -2091,12 +2199,95 @@ button.csl-map__cell {
   min-height: 196px;
 }
 
-/* Top-bar actions (theme toggle, tour), pinned to the right. */
+/* The page tools (build, glossary, theme, tour) as one quiet toolbar: same height, no borders of
+   their own, a hairline between the build button and the rest. */
 .csl-topbar__actions {
-  margin-left: auto;
+  flex: none;
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 2px;
+  padding: 1px;
+  border: 1px solid var(--csl-border);
+  border-radius: 9px;
+  background: var(--csl-card);
+}
+.csl-topbar__actions .csl-glossary {
+  display: flex;
+}
+.csl-topbar__actions :is(.csl-btn, .csl-icon-button, .csl-tour-button) {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--csl-ink);
+  white-space: nowrap;
+}
+.csl-topbar__actions .csl-btn {
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.csl-topbar__actions :is(.csl-icon-button, .csl-tour-button) {
+  width: 30px;
+  padding: 0;
+}
+.csl-topbar__actions :is(.csl-btn, .csl-icon-button, .csl-tour-button):hover,
+.csl-topbar__actions .csl-glossary[open] > summary {
+  border-color: transparent;
+  background: var(--csl-subtle-bg);
+  color: var(--csl-primary);
+}
+.csl-topbar__actions summary:focus-visible {
+  outline: 2px solid var(--csl-focus);
+  outline-offset: 2px;
+}
+.csl-topbar__sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--csl-border);
+}
+.csl-glossary__icon {
+  display: none;
+}
+/* Phones: the build and glossary buttons become icons (their words stay their names), so the
+   toolbar stays on the title's line. */
+@media (max-width: 600px) {
+  .csl-topbar__title {
+    font-size: 17px;
+  }
+  .csl-topbar__actions :is(.csl-btn, .csl-icon-button, .csl-tour-button) {
+    height: 32px;
+    min-height: 32px;
+  }
+  .csl-topbar__actions :is(.csl-topbar__build, .csl-icon-button, .csl-tour-button),
+  .csl-topbar__actions .csl-glossary > summary {
+    width: 32px;
+    padding: 0;
+  }
+  .csl-topbar__actions .csl-topbar__build {
+    font-size: 15px;
+  }
+  .csl-glossary__icon {
+    display: block;
+  }
+  .csl-topbar__build-text,
+  .csl-glossary__text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 .csl-icon-button {
   flex: none;
@@ -2330,7 +2521,9 @@ button.csl-map__cell {
   color: var(--csl-ink-2);
 }
 .csl-summary__edited {
+  font-size: 14px;
   font-weight: 400;
+  letter-spacing: 0;
   color: var(--csl-muted);
 }
 .csl-crash {
@@ -2737,6 +2930,52 @@ button.csl-map__cell {
   font-size: 12px;
   color: var(--csl-muted);
   margin-right: 4px;
+}
+
+/* The one details panel: the selected step spelled out under the icons, as a card. */
+.csl-details__focus {
+  padding: 8px 10px 4px;
+  border-radius: 8px;
+  background: var(--csl-subtle-bg);
+}
+.csl-details__focus .csl-flow__step {
+  padding-bottom: 4px;
+}
+.csl-details__list .csl-flow__headline {
+  font-weight: 600;
+}
+/* What was measured in that stretch of the run: quieter than the explanation above it. */
+.csl-details__measured {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--csl-divider);
+}
+.csl-details__measured-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--csl-muted);
+}
+.csl-details__measured ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.csl-details__entry {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--csl-ink-2);
+}
+.csl-details__entry--bad,
+.csl-details__entry--tip {
+  color: var(--csl-ink);
 }
 
 /* Comparison: change chips, outcome, one dumbbell per measure. */

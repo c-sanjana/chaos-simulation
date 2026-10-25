@@ -25,8 +25,11 @@ shows the tipping point and a fix that holds up, introducing each part of the pa
 (stops about results say "Getting results…" until they are on screen). Finishing it leaves the
 replay paused at its end with the verdict. Skip it, or replay it any time with the **?** button at
 the top right; started with other settings, the demo sets them aside and puts them back
-afterwards. **Words** beside it explains the jargon (req/s, timeout, retry, p99, workers, queue,
-random run #), and ☾ switches to dark mode (the page stays light unless you choose dark).
+afterwards. **Glossary** beside it explains the jargon (req/s, timeout, retry, p99, workers, queue,
+random run #), and ☾ switches to dark mode (the page stays light unless you choose dark). These
+sit together in one toolbar at the top right, with **✎ Build your own system**. Under the title, a
+banner labelled **Failure being tested** names the experiment (the preset in bold, then the
+failure, the traffic and how often each layer asks again) with **Change failure** at its end.
 
 1. **What happened.** The system never recovers, even though the failure is over. The side panel
    builds up as the replay reaches each moment, as pictures more than text: one row per step with

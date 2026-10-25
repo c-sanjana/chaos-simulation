@@ -48,14 +48,14 @@ export const tourStops: TourStop[] = [
     body: 'The “Retries (repeats)” band piles up and pushes the database past what it can handle: the dashed capacity line.',
   },
   {
-    target: 'story',
+    target: 'timeline',
     screen: 0,
     atMs: 37_000,
     title: 'The failure is over…',
     body: 'At 35 s the database is back to full speed. But the pile of repeats is still there, keeping it overloaded.',
   },
   {
-    target: 'story',
+    target: 'timeline',
     screen: 0,
     atMs: 120_000,
     title: '…but it never recovers',
@@ -92,6 +92,6 @@ export const tourStops: TourStop[] = [
     target: 'help',
     screen: 2,
     title: 'Your turn',
-    body: 'Try Change failure, or build your own system. Use the ? button to see this demo again.',
+    body: 'Try Change failure, or build your own system. Glossary explains terms. Use the ? button to replay.',
   },
 ];

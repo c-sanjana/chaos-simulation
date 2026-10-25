@@ -80,7 +80,6 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             compact
             chartHeight={200}
             sideTimeline
-            compactStory
           />
         )}
         {replay.status === 'running' && <PlayerPlaceholder text={`Simulating ${cellTitle}…`} progress={replay.progress} minHeight={REPLAY_PLAYER_HEIGHT} />}
