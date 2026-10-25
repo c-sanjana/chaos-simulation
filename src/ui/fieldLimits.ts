@@ -18,6 +18,12 @@ export const FIELD_LIMITS = {
   minTtlS: 0.1,
   maxTtlS: 86_400,
   maxSkew: 3,
+  /**
+   * A load balancer's share of traffic per arrow, in percent: some traffic to every arrow (an
+   * arrow that gets none is a mistake), shown to one decimal below 1% (see sharePercentField).
+   */
+  minSharePct: 0.1,
+  maxSharePct: 99.9,
 } as const;
 
 /** The message under "Slowest 1% take" when it isn't above the typical time. */

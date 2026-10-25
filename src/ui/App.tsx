@@ -71,12 +71,13 @@ export function App({ pool: injected }: AppProps) {
   const [canvas, setCanvas] = useState<BuilderGraph | null>(restored?.canvasOpen ? restored.canvas : null);
   /** A drawing set aside by Cancel or "Use the example system instead"; the builder reopens it. */
   const [keptCanvas, setKeptCanvas] = useState<BuilderGraph | null>(restored && !restored.canvasOpen ? restored.canvas : null);
-  /** The drawing as the builder opened it, so Cancel keeps only a drawing that was changed. */
-  const openedWith = useRef<BuilderGraph | null>(null);
+  /** The drawing on the canvas now, for the notice's action (it runs after later edits). */
+  const canvasNow = useRef(canvas);
+  canvasNow.current = canvas;
   const [scenarioId, setScenarioId] = useState(restored?.scenarioId ?? DEFAULT_SCENARIO);
   const [applied, setApplied] = useState<Draft>(() => restored?.applied ?? systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO));
   /** A line under the top bar about what just changed (e.g. a reset failure), with an Undo when it can be undone. */
-  const [notice, setNotice] = useState<{ text: string; undo?: () => void } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; action?: { label: string; run: () => void } } | null>(restored?.notice ? { text: restored.notice } : null);
   const [draft, setDraft] = useState<Draft>(applied);
   const [step, setStep] = useState(0);
   /** On steps 2 and 3 the scenario card collapses to one line to leave room for side-by-side views. */
@@ -220,20 +221,41 @@ export function App({ pool: injected }: AppProps) {
     setPreviousRun(null);
     setNotice(null);
   };
-  // The canvas opens on a drawing set aside earlier, else on the system being simulated, with any
-  // settings changed since it was drawn.
+  /** The system being simulated as a drawing, with any settings changed since it was drawn. */
+  const runningGraph = () => (system.kind === 'custom' ? syncGraph(system.graph, applied.topology, applied.scenario.rps) : graphFromPreset(applied.topology, applied.scenario.rps));
+  // The canvas opens on a drawing set aside earlier (saying so, with a way to the running system
+  // instead), else on the system being simulated.
   const openBuilder = () => {
-    const graph = keptCanvas ?? (system.kind === 'custom' ? syncGraph(system.graph, applied.topology, applied.scenario.rps) : graphFromPreset(applied.topology, applied.scenario.rps));
-    openedWith.current = graph;
-    setCanvas(graph);
+    setCanvas(keptCanvas ?? runningGraph());
     setKeptCanvas(null);
-    setNotice(null);
+    setNotice(
+      keptCanvas
+        ? {
+            text: `This is the drawing you kept from last time, not the ${system.kind === 'custom' ? 'system you are running' : 'example system you are running'}.`,
+            action: {
+              label: 'Open the system you are running instead',
+              run: () => {
+                // The kept drawing stays kept for next time.
+                setKeptCanvas(canvasNow.current);
+                setCanvas(runningGraph());
+                setNotice(null);
+              },
+            },
+          }
+        : null,
+    );
     focusAfter(FOCUS.builderHeading);
   };
-  /** Cancel: back to the system as it was; a changed drawing is kept for next time. */
+  /**
+   * Cancel: back to the system as it was. A drawing that differs from the running system is kept
+   * for next time, however often the builder is opened and cancelled (code review 3: comparing with
+   * the drawing it opened on lost a kept drawing on the second Cancel). The running system itself,
+   * unchanged, replaces nothing (a drawing kept while it was open stays kept).
+   */
   const cancelBuilder = () => {
-    if (JSON.stringify(canvas) !== JSON.stringify(openedWith.current)) setKeptCanvas(canvas);
+    if (JSON.stringify(canvas) !== JSON.stringify(runningGraph())) setKeptCanvas(canvas);
     setCanvas(null);
+    setNotice(null);
     focusAfter(FOCUS.buildButton);
   };
   /** "Use this topology": the new system keeps the current failure and step where it can (system.ts carryOver). */
@@ -261,14 +283,17 @@ export function App({ pool: injected }: AppProps) {
     focusAfter(FOCUS.buildButton);
     setNotice({
       text: 'Switched to the example system. Your drawing is kept: ✎ Build your own system opens it again.',
-      undo: () => {
-        setSystem(back.system);
-        setScenarioId(back.scenarioId);
-        setApplied(back.applied);
-        setDraft(back.draft);
-        setStep(back.step);
-        setKeptCanvas(null);
-        setNotice(null);
+      action: {
+        label: 'Undo',
+        run: () => {
+          setSystem(back.system);
+          setScenarioId(back.scenarioId);
+          setApplied(back.applied);
+          setDraft(back.draft);
+          setStep(back.step);
+          setKeptCanvas(null);
+          setNotice(null);
+        },
       },
     });
   };
@@ -318,9 +343,9 @@ export function App({ pool: injected }: AppProps) {
       {notice && (
         <p className="csl-notice" role="status">
           {notice.text}
-          {notice.undo && (
-            <button type="button" className="csl-btn csl-btn--link" onClick={notice.undo}>
-              Undo
+          {notice.action && (
+            <button type="button" className="csl-btn csl-btn--link" onClick={notice.action.run}>
+              {notice.action.label}
             </button>
           )}
           <button type="button" className="csl-btn csl-btn--link" onClick={() => setNotice(null)}>

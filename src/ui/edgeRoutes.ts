@@ -15,13 +15,19 @@
  *   - its text sits on the side of the line away from the bend (above it when the line comes up
  *     from below), so the vertical part never crosses it.
  *   - on one row but further apart (a part reached by a longer path elsewhere): a straight line
- *     past the empty cells, text in the cell left of the callee, like a straight arrow.
+ *     past the empty cells, text in the cell left of the callee, like a straight arrow (or, when
+ *     another arrow's text is there, in the first free arrow cell along the line).
+ *   - a bent line runs along the row of whichever end has no box in its way: the callee's row
+ *     (trunk at the source) or the caller's (trunk at the target).
  * - A straight arrow beside a trunk keeps room clear on that side (`clearStart`/`clearEnd`), so
  *   its text never runs under the trunk.
  *
- * ASSUMPTION: the layout (builder/compile.ts) puts a fan-out's callees on their own rows and keeps
- * the cells a routed line passes through empty; in the rare layouts where a text cell is taken
- * twice, the second arrow's text tries the other end before sharing the cell.
+ * ASSUMPTION: the layout (builder/compile.ts) puts a fan-out's callees on their own rows and makes
+ * sure every call can run along a row with no box in its way: on one row, the row between the two
+ * is empty; otherwise the caller's or the callee's row is (it moves a callee to a free row when
+ * neither is). A layout that breaks this (none that compile.ts makes) gets the preferred route,
+ * box or not. Where a text cell is taken twice, the second arrow's text tries the other end
+ * before sharing the cell.
  */
 
 export interface GridPlace {
@@ -59,6 +65,12 @@ export function placeCalls(layout: Record<string, GridPlace>, calls: CallEnds[])
   const ins = (id: string) => placed.filter((c) => c.to === id).length;
   const taken = new Set<string>();
   const cell = (col: number, row: number) => `${col}:${row}`;
+  const boxes = new Set(Object.values(layout).map((p) => cell(p.col, p.row)));
+  /** No box on `row` strictly between columns `c1` and `c2`: a line can run along it. */
+  const clear = (row: number, c1: number, c2: number) => {
+    for (let c = c1 + 1; c < c2; c++) if (boxes.has(cell(c, row))) return false;
+    return true;
+  };
 
   const first = calls.map((c): Placement | null | 'route' => {
     const a = layout[c.from];
@@ -70,7 +82,8 @@ export function placeCalls(layout: Record<string, GridPlace>, calls: CallEnds[])
     }
     if (a.col === b.col && Math.abs(a.row - b.row) === 2) return { orientation: 'vertical', col: a.col, row: Math.min(a.row, b.row) + 1 };
     // ASSUMPTION: a cache shared by a second server is not drawn from that server (the layout puts
-    // each cache above its first user only); its lookups still show on the cache's box.
+    // each cache above its first user only); the cache's box then shows the lookups it gets from
+    // all of them (viewModels.ts), and the arrow drawn shows its first user's.
     if (c.cache || b.col <= a.col) return null;
     return 'route';
   });
@@ -81,16 +94,23 @@ export function placeCalls(layout: Record<string, GridPlace>, calls: CallEnds[])
     const a = layout[c.from];
     const b = layout[c.to];
     if (a.row === b.row) {
-      // One row, cells apart: text left of the callee, like a straight arrow.
-      taken.add(cell(b.col - 1, b.row));
-      return { orientation: 'routed', col: b.col - 1, row: b.row, route: { trunk: 'none', text: 'straight' } };
+      // One row, cells apart: text left of the callee, like a straight arrow; else in the first
+      // free arrow cell along the line (any of them sits on it).
+      const cols = [b.col - 1];
+      for (let col = a.col + 1; col < b.col - 1; col += 2) cols.push(col);
+      const col = cols.find((x) => !taken.has(cell(x, b.row))) ?? cols[0];
+      taken.add(cell(col, b.row));
+      return { orientation: 'routed', col, row: b.row, route: { trunk: 'none', text: 'straight' } };
     }
     const down = b.row > a.row;
-    const nearTarget = { col: b.col - 1, row: b.row, route: { trunk: 'source' as const, text: down ? ('below' as const) : ('above' as const) } };
-    const nearSource = { col: a.col + 1, row: a.row, route: { trunk: 'target' as const, text: down ? ('above' as const) : ('below' as const) } };
+    const nearTarget = { col: b.col - 1, row: b.row, route: { trunk: 'source' as const, text: down ? ('below' as const) : ('above' as const) }, runs: b.row };
+    const nearSource = { col: a.col + 1, row: a.row, route: { trunk: 'target' as const, text: down ? ('above' as const) : ('below' as const) }, runs: a.row };
     // Into a shared part from a part with this one call: the text goes by the caller; otherwise by the callee.
     const preferred = ins(c.to) > 1 && outs(c.from) === 1 ? [nearSource, nearTarget] : [nearTarget, nearSource];
-    const choice = preferred.find((x) => !taken.has(cell(x.col, x.row))) ?? preferred[0];
+    // Only routes whose line runs along a row without a box in the way (the layout leaves at least one).
+    const open = preferred.filter((x) => clear(x.runs, a.col, b.col));
+    const options = open.length > 0 ? open : preferred;
+    const { runs: _, ...choice } = options.find((x) => !taken.has(cell(x.col, x.row))) ?? options[0];
     taken.add(cell(choice.col, choice.row));
     return { orientation: 'routed', ...choice };
   });

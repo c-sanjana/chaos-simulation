@@ -5,6 +5,7 @@ import { addFault, presetDraft, updateFault, updateRetries, updateScenario, upda
 import { chainGraph } from '../builder/testGraphs';
 import { customSystem } from './system';
 import { labelsOf } from './viewModels';
+import { findScenario } from '../builder/scenarios';
 
 const labels = labelsOf(presetDraft('retry-storm').topology);
 const snapshot = (draft: Draft): RunSnapshot => {
@@ -77,7 +78,7 @@ describe('compareRuns behind a queue', { timeout: 60_000 }, () => {
     const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
     if (system.kind !== 'custom') throw new Error('expected a built system');
     const queueLabels = labelsOf(system.topology);
-    const scenario = system.scenarios.find((x) => x.id === 'custom-db-slow')!;
+    const scenario = findScenario(system.scenarios, 'custom-db-slow')!;
     const run = (seconds: number): RunSnapshot => {
       const draft = { topology: system.topology, scenario: { ...scenario, rps: 100, faults: [{ tier: 'n4', kind: 'dead' as const, startMs: 30_000, endMs: 30_000 + seconds * 1000 }] } };
       const config = buildRunConfig(draft.topology, draft.scenario);

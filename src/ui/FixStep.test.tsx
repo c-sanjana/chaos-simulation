@@ -11,6 +11,7 @@ import { droppedMessages, failureWord, FixStep, fixTab, meanProgress, moveSummar
 import { customSystem } from './system';
 import { FakePool } from './testing/fakePool';
 import { labelsOf } from './viewModels';
+import { findScenario } from '../builder/scenarios';
 
 vi.mock('uplot', () => import('./testing/fakeUplot'));
 
@@ -243,7 +244,7 @@ describe('dropped messages behind a queue', { timeout: 60_000 }, () => {
     const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
     if (system.kind !== 'custom') throw new Error('expected a built system');
     const queueLabels = labelsOf(system.topology);
-    const scenario = system.scenarios.find((s) => s.id === 'custom-db-slow')!;
+    const scenario = findScenario(system.scenarios, 'custom-db-slow')!;
     // The database goes down: messages that still fail after their retries are dropped.
     const run = (seconds: number) =>
       executeJob({ kind: 'analyze', config: buildRunConfig(system.topology, { ...scenario, faults: [{ tier: 'n4', kind: 'dead', startMs: 30_000, endMs: 30_000 + seconds * 1000 }] }, { rps: 100 }), labels: queueLabels });

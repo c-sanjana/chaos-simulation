@@ -38,8 +38,8 @@ describe('BuilderScreen: empty canvas and toolbar', () => {
     expect(latest).toEqual(exampleGraph());
     expect(screen.queryByText('Your canvas is empty')).toBeNull();
     expect(screen.getByRole('button', { name: /^Client, a client: 200 req\/s/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Client calls Load balancer: gives up after 3 s, then tries again up to 5 times' }).textContent).toBe('3 s · 5 retries');
-    expect(screen.getByRole('button', { name: 'App server calls DB: gives up after 1 s, then tries again up to 1 time' }).textContent).toBe('1 s · 1 retry');
+    expect(screen.getByRole('button', { name: '3 s · 5 retries: Client calls Load balancer; it gives up after 3 s, then tries again up to 5 times' }).textContent).toBe('3 s · 5 retries');
+    expect(screen.getByRole('button', { name: '1 s · 1 retry: App server calls DB; it gives up after 1 s, then tries again up to 1 time' }).textContent).toBe('1 s · 1 retry');
     expect(status().textContent).toBe('Loaded the example: Client → Load balancer → App server → DB, with a Cache.');
   });
 
@@ -90,6 +90,16 @@ describe('BuilderScreen: problems and "Use this topology"', () => {
     expect(document.activeElement).toBe(list);
   });
 
+  it('lists the first two problems whole, and the rest on "Show all"', () => {
+    render(<Harness problems={['First.', 'Second.', 'Third.']} />);
+    const listed = () => within(screen.getByLabelText(/things to fix before simulating/)).getAllByRole('listitem').map((li) => li.textContent);
+    expect(listed()).toEqual(['First.', 'Second.']);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 3' }));
+    expect(listed()).toEqual(['First.', 'Second.', 'Third.']);
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));
+    expect(listed()).toHaveLength(2);
+  });
+
   it('words a single problem', () => {
     render(<Harness problems={['Add a Client.']} />);
     expect(screen.getByText(/One thing to fix/)).toBeTruthy();
@@ -128,7 +138,7 @@ describe('BuilderScreen: palette', () => {
     expect(latest.nodes[1].label).toBe('App server 2');
     fireEvent.click(box('server-1'));
     fireEvent.click(screen.getByRole('button', { name: 'Add database' }));
-    expect(placed('database-1')).toEqual([5, 3]); // no room right of the selected box: the next roomy cell
+    expect(placed('database-1')).toEqual([3, 5]); // no room right of the selected box: below that, so arrows fan out
   });
 
   it('allows one Client, and explains why when asked for another', () => {
@@ -312,7 +322,7 @@ describe('BuilderScreen: selecting and keyboard', () => {
     fireEvent.click(cell(9, 5));
     expect(box('cache-1').getAttribute('aria-pressed')).toBe('false');
     expect(within(panel()).getByText(/Select a box or an arrow/)).toBeTruthy();
-    const label = screen.getByRole('button', { name: /^Client calls Load balancer/ });
+    const label = screen.getByRole('button', { name: /: Client calls Load balancer/ });
     fireEvent.click(label);
     expect(label.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('line-client-1--loadBalancer-1').querySelector('.csl-bcanvas__line--selected')).toBeTruthy();
@@ -367,7 +377,7 @@ describe('BuilderScreen: selecting and keyboard', () => {
     expect(latest.edges.map((e) => e.id)).not.toContain('server-1--cache-1');
     expect(status().textContent).toBe('Removed Cache and its calls.Undo');
     expect(document.activeElement).toBe(container.querySelector('.csl-bcanvas'));
-    const label = screen.getByRole('button', { name: /^App server calls Database/ });
+    const label = screen.getByRole('button', { name: /: App server calls Database/ });
     fireEvent.click(label);
     fireEvent.keyDown(label, { key: 'Backspace' });
     expect(latest.edges.map((e) => e.id)).not.toContain('server-1--database-1');
@@ -385,20 +395,70 @@ describe('BuilderScreen: selecting and keyboard', () => {
     fireEvent.click(box('server-1'));
     fireEvent.click(within(panel()).getByRole('button', { name: 'Remove App server' }));
     expect(latest.edges).toHaveLength(1);
+    expect(document.activeElement?.classList.contains('csl-bcanvas')).toBe(true); // never dropped to the page
     fireEvent.click(within(status()).getByRole('button', { name: 'Undo' }));
     expect(latest).toEqual(starterGraph());
+    expect(document.activeElement).toBe(status());
   });
 
-  it('focusing a box or an arrow selects it, so Delete removes what the keyboard is on', () => {
+  it('an edit in the settings panel after a removal ends its Undo, so Undo never reverts that edit (code review 3)', () => {
+    render(<Harness initial={starterGraph()} />);
+    fireEvent.click(box('database-1'));
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Remove Database' }));
+    expect(within(status()).getByRole('button', { name: 'Undo' })).toBeTruthy();
+    fireEvent.click(box('server-1'));
+    fireEvent.change(within(panel()).getByRole('textbox', { name: /Name/ }), { target: { value: 'Checkout' } });
+    expect(within(status()).queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(status().textContent).toBe('');
+    expect(latest.nodes.find((n) => n.id === 'server-1')!.label).toBe('Checkout');
+    // Without a removal to undo, panel edits leave the status line alone.
+    fireEvent.change(within(panel()).getByRole('textbox', { name: /Name/ }), { target: { value: 'Checkout 2' } });
+    expect(latest.nodes.find((n) => n.id === 'server-1')!.label).toBe('Checkout 2');
+  });
+
+  it('focusing selects nothing, so Tab reaches every box and the panel shows what was chosen (code review 3: keyboard blocker)', () => {
     render(<Harness initial={starterGraph()} />);
     fireEvent.click(box('cache-1'));
     fireEvent.focus(box('database-1'));
-    expect(box('database-1').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.focus(box('client-1'));
+    expect(box('cache-1').getAttribute('aria-pressed')).toBe('true');
+    expect(box('client-1').getAttribute('aria-pressed')).toBe('false');
+    expect(within(panel()).getByRole('heading', { name: 'Cache' })).toBeTruthy();
+  });
+
+  it('Enter or Space on a box opens its settings and moves focus to them; from there Calls… connects it', () => {
+    render(<Harness initial={starterGraph()} />);
+    box('client-1').focus();
+    fireEvent.keyDown(box('client-1'), { key: 'Enter' });
+    const heading = within(panel()).getByRole('heading', { name: 'Client' });
+    expect(document.activeElement).toBe(heading);
+    fireEvent.keyDown(box('server-1'), { key: ' ' });
+    expect(document.activeElement).toBe(within(panel()).getByRole('heading', { name: 'App server' }));
+  });
+
+  it('Enter on an arrow label opens its settings, with focus on them', () => {
+    render(<Harness initial={starterGraph()} />);
+    const label = screen.getByRole('button', { name: /: Client calls Load balancer/ });
+    fireEvent.click(label, { detail: 0 }); // a keyboard click
+    const heading = within(panel()).getByRole('heading', { name: 'Client → Load balancer' });
+    expect(document.activeElement).toBe(heading);
+    expect(within(panel()).getByRole('spinbutton', { name: 'Retries' })).toBeTruthy();
+    // A mouse click selects it and leaves focus where it is.
+    fireEvent.click(screen.getByRole('button', { name: /: App server calls Database/ }), { detail: 1 });
+    expect(within(panel()).getByRole('heading', { name: 'App server → Database' })).not.toBe(document.activeElement);
+  });
+
+  it('Delete removes the box or arrow the keyboard is on, whatever is selected, and focus stays on the canvas', () => {
+    render(<Harness initial={starterGraph()} />);
+    fireEvent.click(box('cache-1'));
     fireEvent.keyDown(box('database-1'), { key: 'Delete' });
     expect(latest.nodes.map((n) => n.id)).toEqual(['client-1', 'loadBalancer-1', 'server-1', 'cache-1']);
-    const label = screen.getByRole('button', { name: /^Client calls Load balancer/ });
-    fireEvent.focus(label);
-    expect(within(panel()).getByRole('heading', { name: 'Client → Load balancer' })).toBeTruthy();
+    expect(document.activeElement?.classList.contains('csl-bcanvas')).toBe(true);
+    fireEvent.keyDown(screen.getByRole('button', { name: /: Client calls Load balancer/ }), { key: 'Backspace' });
+    expect(latest.edges.map((e) => e.id)).toEqual(['loadBalancer-1--server-1', 'server-1--cache-1']);
+    expect(latest.nodes.map((n) => n.id)).toContain('cache-1');
+    fireEvent.keyDown(screen.getByRole('button', { name: /: App server calls Cache/ }), { key: 'x' }); // other keys do nothing
+    expect(latest.edges).toHaveLength(2);
   });
 });
 
@@ -515,7 +575,7 @@ describe('BuilderScreen: settings panel for a box', () => {
     expect(document.activeElement).toBe(heading); // focus follows to the new call's settings
     // Selecting the call again later leaves focus alone.
     fireEvent.click(box('server-1'));
-    const label = screen.getByRole('button', { name: /^Load balancer calls Database/ });
+    const label = screen.getByRole('button', { name: /: Load balancer calls Database/ });
     label.focus();
     expect(document.activeElement).toBe(label);
   });
@@ -544,7 +604,7 @@ describe('BuilderScreen: half-typed numbers', () => {
     fireEvent.click(box('server-1'));
     const copies = within(panel()).getByRole('spinbutton', { name: 'Copies (instances)' });
     fireEvent.change(copies, { target: { value: '0' } });
-    await screen.findByText('"Copies (instances)" isn\'t a number that can be used yet: fix the field marked in red.');
+    await screen.findByText('App server: "Copies (instances)": Enter a whole number from 1 to 100. Fix the field marked in red.');
     expect(screen.queryByText('Ready to simulate.')).toBeNull();
     const use = screen.getByRole('button', { name: 'Use this topology · 1 thing to fix' });
     // Pressing it must not first blur the field (which would quietly bring back the last valid value).
@@ -567,19 +627,19 @@ describe('BuilderScreen: settings panel for a call', () => {
 
   it('edits timeout, retries, backoff and jitter in plain words', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^App server calls Database/);
+    selectCall(/: App server calls Database/);
     expect(within(panel()).getByText('App server gives up after 1 s, then tries again up to 1 time.')).toBeTruthy();
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: /Timeout/ }), { target: { value: '500' } });
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: 'Retries' }), { target: { value: '3' } });
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: /Wait before retrying/ }), { target: { value: '20' } });
     fireEvent.click(within(panel()).getByRole('checkbox', { name: /jitter/ }));
     expect(call('server-1--database-1')).toEqual({ timeoutMs: 500, retries: 3, backoffBaseMs: 20, jitter: false });
-    expect(screen.getByRole('button', { name: /^App server calls Database/ }).textContent).toBe('500 ms · 3 retries');
+    expect(screen.getByRole('button', { name: /: App server calls Database/ }).textContent).toBe('500 ms · 3 retries');
   });
 
   it('shows the wait between retries only when the call retries', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^App server calls Database/);
+    selectCall(/: App server calls Database/);
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: 'Retries' }), { target: { value: '0' } });
     expect(within(panel()).queryByRole('spinbutton', { name: /Wait before retrying/ })).toBeNull();
     expect(within(panel()).queryByRole('checkbox', { name: /jitter/ })).toBeNull();
@@ -589,13 +649,13 @@ describe('BuilderScreen: settings panel for a call', () => {
 
   it('turns the timeout off and back on at the usual value for the pair', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^Client calls Load balancer/);
+    selectCall(/: Client calls Load balancer/);
     const timeout = within(panel()).getByRole('checkbox', { name: 'Give up after a timeout' });
     fireEvent.change(within(panel()).getByRole('spinbutton', { name: /Timeout/ }), { target: { value: '9000' } });
     fireEvent.click(timeout);
     expect(call('client-1--loadBalancer-1').timeoutMs).toBeNull();
     expect(within(panel()).queryByRole('spinbutton', { name: /Timeout/ })).toBeNull();
-    expect(screen.getByRole('button', { name: /^Client calls Load balancer/ }).textContent).toBe('no timeout · 2 retries');
+    expect(screen.getByRole('button', { name: /: Client calls Load balancer/ }).textContent).toBe('no timeout · 2 retries');
     fireEvent.click(timeout);
     expect(call('client-1--loadBalancer-1').timeoutMs).toBe(3000);
   });
@@ -604,14 +664,14 @@ describe('BuilderScreen: settings panel for a call', () => {
     const g = starterGraph();
     const odd = { ...g, edges: g.edges.map((e) => (e.id === 'server-1--cache-1' ? { ...e, call: { ...e.call, timeoutMs: null } } : e)) };
     render(<Harness initial={odd} />);
-    selectCall(/^App server calls Cache/);
+    selectCall(/: App server calls Cache/);
     fireEvent.click(within(panel()).getByRole('checkbox', { name: 'Give up after a timeout' }));
     expect(call('server-1--cache-1').timeoutMs).toBe(100);
   });
 
   it('removes the call from the panel', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^App server calls Cache/);
+    selectCall(/: App server calls Cache/);
     fireEvent.click(within(panel()).getByRole('button', { name: 'Remove this call' }));
     expect(latest.edges.map((e) => e.id)).not.toContain('server-1--cache-1');
     expect(status().textContent).toBe('Removed the call. App server no longer calls Cache.Undo');
@@ -619,7 +679,7 @@ describe('BuilderScreen: settings panel for a call', () => {
 
   it('shows nothing selected when the selected item disappears', () => {
     render(<Harness initial={starterGraph()} />);
-    selectCall(/^App server calls Cache/);
+    selectCall(/: App server calls Cache/);
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(within(panel()).getByText(/Select a box or an arrow/)).toBeTruthy();
   });

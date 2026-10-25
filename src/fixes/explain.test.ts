@@ -9,6 +9,7 @@ import { candidateFixes } from './candidates';
 import { FIX_CATALOG, type FixKind } from './catalog';
 import { explainFix } from './explain';
 import { fixHelped } from './rank';
+import { findScenario } from '../builder/scenarios';
 
 const labels = Object.fromEntries(Object.entries(webChain.layout).map(([id, l]) => [id, l.label]));
 
@@ -111,7 +112,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
     if (system.kind !== 'custom') throw new Error('expected a built system');
     const queueLabels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
-    const scenario = system.scenarios.find((s) => s.id === 'custom-db-slow')!;
+    const scenario = findScenario(system.scenarios, 'custom-db-slow')!;
     const config = buildRunConfig(system.topology, scenario, { rps: 100 });
     const before = analyzed(config);
     const fix = candidateFixes(config, before.analysis.signals, queueLabels).find((c) => c.id === 'more-consumers')!;
@@ -156,7 +157,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
     if (system.kind !== 'custom') throw new Error('expected a built system');
     const queueLabels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
-    const backlog = system.scenarios.find((s) => s.id === 'custom-queue-backlog')!;
+    const backlog = findScenario(system.scenarios, 'custom-queue-backlog')!;
     const config = buildRunConfig(system.topology, backlog, { rps: 150 });
     const before = analyzed(config);
     const fix = candidateFixes(config, before.analysis.signals, queueLabels).find((c) => c.id === 'more-consumers')!;

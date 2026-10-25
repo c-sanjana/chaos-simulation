@@ -4,12 +4,11 @@
  */
 import { leafCapacityRps, admittedIn } from '../analysis/helpers';
 import type { Verdict } from '../analysis/recovery';
-import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
-import { shareFractions } from '../builder/edit';
+import { callsOf, shareFractions, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { AnalyzeResult } from '../worker/jobs';
 import { callKey, countsText, describeFault, retriesByCaller, retryCalls, type Draft } from './draft';
-import { formatCount } from './format';
+import { formatCount, formatSharePercent, roundedPercents } from './format';
 import { bottleneckTier, shortVerdict, waitingTier } from './viewModels';
 
 /** A finished run with the settings that produced it. */
@@ -224,7 +223,7 @@ const CALL_FIELDS: Array<[string, (c: CallPolicy, t: TierConfig) => string | und
   ['timeout', (c) => (c.timeoutMs == null ? undefined : `${c.timeoutMs} ms`)],
   ['retry wait', (c) => `${c.backoffBaseMs} ms`],
   ['random retry delays', (c) => (c.jitter ? 'on' : 'off')],
-  ['share of traffic', (c, t) => (t.fanOut === 'split' && callsOf(t).length > 1 ? `${Math.round(100 * shareFractions(callsOf(t).map((x) => x.share))[callsOf(t).indexOf(c)])}%` : undefined)],
+  ['share of traffic', (c, t) => (t.fanOut === 'split' && callsOf(t).length > 1 ? formatSharePercent(shareFractions(callsOf(t).map((x) => x.share))[callsOf(t).indexOf(c)], roundedPercents(shareFractions(callsOf(t).map((x) => x.share)))[callsOf(t).indexOf(c)]) : undefined)],
 ];
 
 /** What differs between two drafts, in plain words: traffic, failures, retries, then other settings. */

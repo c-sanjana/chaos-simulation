@@ -1,4 +1,4 @@
-import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
+import { callsOf, shareWeight, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
 import type { RunResult, TierSeries } from '../engine/result';
 import { serviceTimeMoments } from '../engine/distributions';
 
@@ -95,8 +95,8 @@ export function callFraction(config: RunConfig, edge: CallEdge): number {
   const tier = tierById(config, edge.from);
   const calls = tier ? callsOf(tier) : [];
   if (tier?.fanOut !== 'split' || calls.length < 2) return 1;
-  const total = calls.reduce((n, c) => n + (c.share ?? 1), 0);
-  return (edge.policy.share ?? 1) / total;
+  const total = calls.reduce((n, c) => n + shareWeight(c.share), 0);
+  return shareWeight(edge.policy.share) / total;
 }
 
 /**

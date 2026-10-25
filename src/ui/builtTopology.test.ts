@@ -4,11 +4,12 @@ import { runSimulation } from '../engine/run';
 import { gridStyle } from './components/TopologyDiagram';
 import { customSystem } from './system';
 import { topologyView } from './viewModels';
+import { findScenario } from '../builder/scenarios';
 
 describe('a built topology on the diagram', { timeout: 60_000 }, () => {
   const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
   if (system.kind !== 'custom') throw new Error('expected a built system');
-  const scenario = system.scenarios.find((s) => s.id === 'custom-db-slow')!;
+  const scenario = findScenario(system.scenarios, 'custom-db-slow')!;
   const config = buildRunConfig(system.topology, scenario);
   const run = runSimulation(config);
 

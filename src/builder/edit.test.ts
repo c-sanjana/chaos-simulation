@@ -67,7 +67,8 @@ describe('grid helpers', () => {
     expect(addCell(emptyGraph())).toEqual({ col: 1, row: 3 });
     const g = starterGraph(); // Client 1,3 · LB 3,3 · App server 5,3 · Cache 5,1 · DB 7,3
     expect(addCell(g, 'database-1')).toEqual({ col: 9, row: 3 });
-    expect(addCell(g, 'loadBalancer-1')).toEqual({ col: 9, row: 3 }); // 5,3 is taken: first roomy cell on the middle row
+    expect(addCell(g, 'loadBalancer-1')).toEqual({ col: 5, row: 5 }); // 5,3 is taken: below it, so the arrows fan out
+    expect(addCell(add(g, 'server', 5, 5), 'loadBalancer-1')).toEqual({ col: 9, row: 3 }); // 5,1 (the cache) and 5,5 taken: the middle row
     expect(addCell(g)).toEqual({ col: 9, row: 3 });
     expect(addCell(g, 'missing')).toEqual({ col: 9, row: 3 });
     // Middle row full: the top row (away from the cache), then the bottom row.

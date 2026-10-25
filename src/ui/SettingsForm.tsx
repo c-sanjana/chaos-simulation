@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
-import { shareFractions, sharesWith } from '../builder/edit';
-import { callsOf, type CallPolicy, type TierConfig } from '../engine/config';
+import { useState, type ReactNode } from 'react';
+import { shareEdit } from '../builder/edit';
+import { callsOf, shareFractions, type CallPolicy, type TierConfig } from '../engine/config';
 import { CheckboxField, NumberField } from './components/Fields';
 import { LIMITS, updateCallAt, updateScenario, updateTier, type Draft } from './draft';
 import { FIELD_LIMITS as L, p99Message } from './fieldLimits';
+import { roundedPercents, sharePercentField } from './format';
 
 type Lognormal = { kind: 'lognormal'; medianMs: number; p99Ms: number };
 
@@ -21,8 +22,8 @@ function CallFields({ call, target, onChange }: { call: CallPolicy; target: stri
       {/* The wait between tries only matters when it tries again. */}
       {call.retries > 0 && (
         <>
-          <NumberField label="Wait before retrying (doubles each time)" unit="ms" value={call.backoffBaseMs} min={0} max={L.maxBackoffMs} onChange={(v) => onChange({ backoffBaseMs: v })} />
-          <CheckboxField label="Randomise the wait (jitter)" checked={call.jitter} onChange={(on) => onChange({ jitter: on })} />
+          <NumberField label={`Wait before retrying ${target} (doubles each time)`} unit="ms" value={call.backoffBaseMs} min={0} max={L.maxBackoffMs} onChange={(v) => onChange({ backoffBaseMs: v })} />
+          <CheckboxField label={`Randomise the wait before retrying ${target} (jitter)`} checked={call.jitter} onChange={(on) => onChange({ jitter: on })} />
         </>
       )}
     </>
@@ -39,9 +40,14 @@ function TierCalls({ tier: t, label, onCall, onTier }: { tier: TierConfig; label
   if (calls.length === 0) return null;
   const split = t.fanOut === 'split' && calls.length > 1;
   const fractions = shareFractions(calls.map((c) => c.share));
+  const percents = roundedPercents(fractions);
+  /** The calls whose share was typed in this round, by target (see shareEdit): they keep it while the others make up the rest. */
+  const [pinned, setPinned] = useState<string[]>([]);
   const setShare = (index: number, percent: number) => {
-    const next = sharesWith(calls.map((c) => c.share), index, percent);
-    onTier((x) => callsOf(x).reduce((acc, _, i) => updateCallAt(acc, i, { share: next[i] }), x));
+    const targets = calls.map((c) => c.target);
+    const next = shareEdit(calls.map((c) => c.share), index, percent, pinned.map((id) => targets.indexOf(id)));
+    setPinned(next.pinned.map((i) => targets[i]));
+    onTier((x) => callsOf(x).reduce((acc, _, i) => updateCallAt(acc, i, { share: next.shares[i] }), x));
   };
   return (
     <>
@@ -64,10 +70,9 @@ function TierCalls({ tier: t, label, onCall, onTier }: { tier: TierConfig; label
             <NumberField
               label={`Share of traffic to ${label(c.target)}`}
               unit="%"
-              value={Math.round(fractions[i] * 100)}
-              min={1}
-              max={99}
-              integer
+              value={sharePercentField(fractions[i], percents[i])}
+              min={L.minSharePct}
+              max={L.maxSharePct}
               onChange={(v) => setShare(i, v)}
             />
           )}

@@ -6,7 +6,7 @@
 import type { Verdict } from '../analysis/recovery';
 import type { Axis } from '../data/types';
 import type { TippingPoint } from '../sweep/sweep';
-import { countsText, retriesByCaller, type RetryCall } from './draft';
+import { countsText, retriesByCaller, withCounts, type RetryCall } from './draft';
 import { axisPhrase } from './viewModels';
 
 export interface TippingSentenceInput {
@@ -62,7 +62,7 @@ export function cascadeSentence(calls: RetryCall[], labels: Record<string, strin
   const retrying = retriesByCaller(calls.filter((c) => c.retries > 0));
   if (retrying.length === 0) return '';
   const name = (id: string) => labels[id] ?? id;
-  const list = retrying.map((g) => `${name(g.caller)} ${countsText(g.counts)}`).join(', ');
+  const list = retrying.map((g) => withCounts(name(g.caller), g.counts)).join(', ');
   if (retrying.length === 1) {
     const g = retrying[0];
     return `${name(g.caller)} asks again when it gives up (${countsText(g.counts)}), so one failed answer can come back as more requests.`;

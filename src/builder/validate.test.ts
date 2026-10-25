@@ -82,13 +82,17 @@ describe('validateGraph: each message names the parts, says why, and how to fix 
   });
 
   it('a load balancer over nothing', () => {
-    expect(validateGraph(chainGraph(['client', 'loadBalancer']))).toEqual([`loadBalancer 1 spreads requests, but over nothing, so every request would fail there. Connect it to the app servers behind it: ${HOW}.`]);
+    expect(validateGraph(chainGraph(['client', 'loadBalancer']))).toEqual([`loadBalancer 1 spreads requests, but over nothing, so every request would fail there. Connect it to an app server behind it: ${HOW}.`]);
   });
 
   it("a load balancer's arrow with a 0% share", () => {
     const g = branchedGraph();
     const zero = { ...g, edges: g.edges.map((e) => (e.id === 'lb--s2' ? { ...e, call: { ...e.call, share: 0 } } : e)) };
     expect(validateGraph(zero)).toEqual(['lb sends no traffic to s2 (its share is 0%), so s2 would sit idle. Select the arrow from lb to s2 and give it a share of traffic above 0%, or press Remove this call.']);
+    const negative = { ...g, edges: g.edges.map((e) => (e.id === 'lb--s2' ? { ...e, call: { ...e.call, share: -0.2 } } : e)) };
+    expect(validateGraph(negative)).toEqual([
+      "lb's share of traffic to s2 isn't a number above 0, so the split can't be simulated. Select the arrow from lb to s2 and give it a share of traffic above 0%, or press Remove this call.",
+    ]);
     const nan = { ...g, edges: g.edges.map((e) => (e.id === 'lb--s2' ? { ...e, call: { ...e.call, share: NaN } } : e)) };
     expect(validateGraph(nan)).toHaveLength(1);
   });
@@ -149,7 +153,11 @@ describe('validateGraph: each message names the parts, says why, and how to fix 
 
   it('a part the Client never reaches', () => {
     expect(validateGraph(withNode(chainGraph(['client', 'server', 'database']), 'spare', 'server'))).toEqual([
-      "spare isn't reached from the Client, so no request would ever get to it. Connect a part that is reached to spare (drag from that part's round handle to spare), or select spare and press Remove spare.",
+      "spare isn't reached from the Client, so no request would ever get to it. Connect a part that is reached to spare (drag from that part's round handle to spare, or select that part and use Calls… and Connect), or select spare and press Remove spare.",
+    ]);
+    // While the Client calls nothing, that is the one problem to fix (not one "isn't reached" per part).
+    expect(validateGraph(withNode(chainGraph(['client']), 'spare', 'server'))).toEqual([
+      `client 0 calls nothing, so no request would reach your system. Connect it to the part users call first (usually a load balancer): ${HOW}.`,
     ]);
   });
 
@@ -157,10 +165,11 @@ describe('validateGraph: each message names the parts, says why, and how to fix 
     const g = chainGraph(['client', 'server', 'server', 'database']);
     const named = (a: string, b: string) => ({ ...g, nodes: g.nodes.map((n) => (n.id === 'n1' ? { ...n, label: a } : n.id === 'n2' ? { ...n, label: b } : n)) });
     expect(validateGraph(named('  ', 'API'))).toEqual(['An app server has no name, and the story and charts name each part. Select it and type a name in Name.']);
-    expect(validateGraph(named('API', 'api '))).toEqual([
-      'Two parts are called "API", so the story and charts couldn\'t tell them apart. Select one and change its Name.',
-      'Two parts are called "api", so the story and charts couldn\'t tell them apart. Select one and change its Name.',
-    ]);
+    // One problem per clash, naming each spelling.
+    expect(validateGraph(named('API', 'api '))).toEqual(['Two parts are called "API" and "api", so the story and charts couldn\'t tell them apart. Select one and change its Name.']);
+    expect(validateGraph(named('API', 'API'))).toEqual(['Two parts are called "API", so the story and charts couldn\'t tell them apart. Select one and change its Name.']);
+    const three = { ...named('API', 'API'), nodes: named('API', 'API').nodes.map((n) => (n.id === 'n3' ? { ...n, label: 'Api' } : n)) };
+    expect(validateGraph(three)).toEqual(['3 parts are called "API" and "Api", so the story and charts couldn\'t tell them apart. Select one and change its Name.']);
   });
 
   it('settings that cannot be simulated', () => {
@@ -184,5 +193,33 @@ describe('validateGraph: each message names the parts, says why, and how to fix 
       'cache: "Different keys requested" must be a whole number above 0 to be simulated. Select cache and change it in its settings.',
     ]);
     expect(validateGraph(set(g, 'n1', { fanOut: 'split' }))).toEqual(['server 1: it is not set whether it calls its parts one after another or all at once. Select server 1 and choose under "Calls its parts".']);
+    // A load balancer or database has no such choice (it is never compiled), so it is not a problem.
+    expect(validateGraph(set(g, 'n3', { fanOut: 'split' }))).toEqual([]);
+  });
+
+  it("everything else the engine would refuse (code review 3, finding 5), so a graph without problems always runs", () => {
+    const g = chainGraph(['client', 'server', 'database'], 1);
+    const fix = (who: string) => `Select ${who} and change it in its settings.`;
+    const call = (patch: object) => ({ ...g, edges: g.edges.map((e) => (e.id === 'e1' ? { ...e, call: { ...e.call, ...patch } } : e)) });
+    const arrow = 'Select the arrow from server 1 to database 2 and change it in its settings.';
+    expect(validateGraph(call({ timeoutMs: 0 }))).toEqual([`The call from server 1 to database 2: "Timeout" must be above 0 ms (or switched off) to be simulated. ${arrow}`]);
+    expect(validateGraph(call({ timeoutMs: null }))).toEqual([]);
+    expect(validateGraph(call({ retries: -1 }))).toEqual([`The call from server 1 to database 2: "Retries" must be a whole number from 0 to 10 to be simulated. ${arrow}`]);
+    expect(validateGraph(call({ retries: 1.5 }))).toHaveLength(1);
+    expect(validateGraph(call({ retries: 11 }))).toHaveLength(1);
+    expect(validateGraph(call({ backoffBaseMs: -5 }))).toEqual([`The call from server 1 to database 2: "Wait before retrying" must be 0 ms or more to be simulated. ${arrow}`]);
+    expect(validateGraph(set(g, 'n0', { rps: Infinity }))).toHaveLength(1);
+    expect(validateGraph(set(g, 'n1', { service: { medianMs: 4, p99Ms: Infinity } }))).toHaveLength(1);
+    expect(validateGraph(set(g, 'c', { ttlMs: 0 }))).toEqual([`cache: "Expire after" must be above 0 s (or switched off) to be simulated. ${fix('cache')}`]);
+    expect(validateGraph(set(g, 'c', { ttlMs: null }))).toEqual([]);
+    expect(validateGraph(set(g, 'c', { skew: -1 }))).toEqual([`cache: "Popularity skew" must be 0 or more to be simulated. ${fix('cache')}`]);
+    expect(validateGraph(set(g, 'n1', { queueLimit: -5 }))).toEqual([
+      `server 1: "Requests allowed to wait, per copy" must be a whole number, 0 or more (or the limit switched off), to be simulated. ${fix('server 1')}`,
+    ]);
+    expect(validateGraph(set(g, 'n1', { queueLimit: 0 }))).toEqual([]);
+    const twin = { ...g, nodes: [...g.nodes, { ...g.nodes[2], label: 'other', col: 9, row: 3 }] };
+    expect(validateGraph(twin)).toContain(
+      'Two parts have the same internal id ("n2"), so their calls can\'t be told apart. This only happens when a saved drawing is damaged: press Clear and draw the system again, or Start from the example.',
+    );
   });
 });

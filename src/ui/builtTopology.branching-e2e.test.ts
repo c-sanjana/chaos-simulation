@@ -10,11 +10,12 @@ import { buildRunConfig } from '../data/buildConfig';
 import { runSimulation } from '../engine/run';
 import { customSystem } from './system';
 import { callWeights, topologyView } from './viewModels';
+import { findScenario } from '../builder/scenarios';
 
 describe('a branched built system, simulated and drawn', { timeout: 60_000 }, () => {
   const system = customSystem(branchedGraph());
   if (system.kind !== 'custom') throw new Error('expected a built system');
-  const scenario = system.scenarios.find((s) => s.id === 'custom-db-slow')!;
+  const scenario = findScenario(system.scenarios, 'custom-db-slow')!;
   const config = buildRunConfig(system.topology, scenario);
   const run = runSimulation(config);
   const at = (tMs: number) => topologyView(system.topology, config, run, tMs);

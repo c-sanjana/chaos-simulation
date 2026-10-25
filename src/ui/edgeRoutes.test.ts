@@ -60,6 +60,18 @@ describe('placeCalls', () => {
     expect(crowded[2]).toEqual({ orientation: 'routed', col: 2, row: 1, route: { trunk: 'target', text: 'above' } });
   });
 
+  it("on one row with another arrow's text left of the callee: the text goes in the next free cell along the line", () => {
+    const layout = { a: at(1, 3), x: at(3, 1), y: at(5, 1), b: at(5, 3) };
+    expect(placeCalls(layout, [call('x', 'y'), call('x', 'b'), call('a', 'b')])[2]).toEqual({ orientation: 'routed', col: 2, row: 3, route: { trunk: 'none', text: 'straight' } });
+  });
+
+  it("a bent line runs along the row that has no box in the way, the caller's when the callee's has one", () => {
+    // n sits on b's row between a and b: the line runs along a's row and bends just before b.
+    expect(placeCalls({ a: at(1, 1), n: at(3, 3), b: at(5, 3) }, [call('a', 'b')])).toEqual([{ orientation: 'routed', col: 2, row: 1, route: { trunk: 'target', text: 'above' } }]);
+    // Boxes in the way on both rows (compile.ts never lays it out like this): the usual route.
+    expect(placeCalls({ a: at(1, 1), m: at(3, 1), n: at(3, 3), b: at(5, 3) }, [call('a', 'b')])).toEqual([{ orientation: 'routed', col: 4, row: 3, route: { trunk: 'source', text: 'below' } }]);
+  });
+
   it('skips calls whose ends are not placed, backwards calls and a cache not straight above its server', () => {
     const layout = { a: at(3, 3), b: at(1, 1), c: at(5, 1) };
     expect(placeCalls(layout, [call('a', 'ghost'), call('a', 'b'), call('a', 'c', true)])).toEqual([null, null, null]);

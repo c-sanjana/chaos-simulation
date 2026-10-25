@@ -139,7 +139,11 @@ export function topologyView(
     // A queue: messages waiting, and how busy its consumers are (its workers only store messages).
     const consumersBusy = tc.queue ? t.busyConsumersAvg[b] / tc.queue.consumers : 0;
     if (tc.queue) lines = [`${Math.round(t.backlogAvg[b]).toLocaleString('en-US')} waiting`, `consumers ${pct(consumersBusy)}`];
-    else if (tc.cache) lines = [`hit rate ${pct(t.hits[b] / Math.max(1, t.ok[b]))}`, `p99 ${Number.isNaN(t.latencyP99Ms[b]) ? '—' : formatMs(t.latencyP99Ms[b])}`];
+    // A cache several servers look things up in: the diagram draws only its first user's arrow
+    // (edgeRoutes.ts), so the box says how many lookups it gets from all of them.
+    else if (tc.cache && config.tiers.filter((x) => x.cacheAside?.target === tc.id).length > 1) {
+      lines = [`${Math.round(perSecond(run, arrivals(t, b)))} lookups/s in`, `hit rate ${pct(t.hits[b] / Math.max(1, t.ok[b]))}`];
+    } else if (tc.cache) lines = [`hit rate ${pct(t.hits[b] / Math.max(1, t.ok[b]))}`, `p99 ${Number.isNaN(t.latencyP99Ms[b]) ? '—' : formatMs(t.latencyP99Ms[b])}`];
     else if (leaf) lines = [`${Math.round(perSecond(run, arrivals(t, b)))} rps in`, `CPU ${pct(cpu)}`];
     else lines = [`workers ${pct(busy)}`, `CPU ${pct(cpu)}`];
     // Overloaded: all workers (or a leaf's cores) busy, or answers slower than the caller waits.

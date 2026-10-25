@@ -72,10 +72,10 @@ describe('builtScenarios', () => {
     const t = compileGraph(chainGraph(['client', 'loadBalancer', 'server', 'queue', 'server', 'database'], 2));
     const list = builtScenarios(t, { n1: 'loadBalancer', n2: 'server', c: 'cache', n3: 'queue', n4: 'server', n5: 'database' }, 100);
     expect(list.map((s) => [s.id, s.title, s.faults[0].tier, s.faults[0].kind])).toEqual([
-      ['custom-db-slow', 'database 5 slows down', 'n5', 'slow'],
-      ['custom-cache-restart', 'cache restarts empty', 'c', 'dead'],
-      ['custom-front-slow', 'loadBalancer 1 slows down', 'n1', 'slow'],
-      ['custom-queue-backlog', 'Work behind queue 3 slows down', 'n4', 'slow'],
+      ['custom-db-slow:n5', 'database 5 slows down', 'n5', 'slow'],
+      ['custom-cache-restart:c', 'cache restarts empty', 'c', 'dead'],
+      ['custom-front-slow:n1', 'loadBalancer 1 slows down', 'n1', 'slow'],
+      ['custom-queue-backlog:n3', 'Work behind queue 3 slows down', 'n4', 'slow'],
     ]);
     for (const s of list) {
       expect(s.rps).toBe(100);
@@ -99,10 +99,10 @@ describe('builtScenarios', () => {
     const t = compileGraph(chainGraph(['client', 'loadBalancer', 'server', 'database']));
     const kinds = { n1: 'loadBalancer', n2: 'server', n3: 'database' };
     // A load balancer has room for ~13,000 req/s; at 1 req/s "half the traffic" would mean 1,000x slower.
-    expect(builtScenarios(t, kinds, 1).find((s) => s.id === 'custom-front-slow')!.faults[0].factor).toBe(1000);
+    expect(builtScenarios(t, kinds, 1).find((s) => s.id === 'custom-front-slow:n1')!.faults[0].factor).toBe(1000);
     const strict = compileGraph(chainGraph(['client', 'loadBalancer', 'server', 'database']));
     strict.clientCall.timeoutMs = 100; // 0.5 ms typical: at most 100 x slower (50 ms, half the timeout)
-    expect(builtScenarios(strict, kinds, 1).find((s) => s.id === 'custom-front-slow')!.faults[0].factor).toBe(100);
+    expect(builtScenarios(strict, kinds, 1).find((s) => s.id === 'custom-front-slow:n1')!.faults[0].factor).toBe(100);
   });
 
   it('describes the slowdown behind a queue by its effect', () => {
@@ -113,7 +113,7 @@ describe('builtScenarios', () => {
 
   it('leaves out what does not apply', () => {
     const t = compileGraph(chainGraph(['client', 'queue', 'server']));
-    expect(builtScenarios(t, { n1: 'queue', n2: 'server' }, 50).map((s) => s.id)).toEqual(['custom-queue-backlog']);
-    expect(builtScenarios(webChain, kinds(webChain), 200).map((s) => s.id)).toEqual(['custom-db-slow', 'custom-cache-restart', 'custom-front-slow']);
+    expect(builtScenarios(t, { n1: 'queue', n2: 'server' }, 50).map((s) => s.id)).toEqual(['custom-queue-backlog:n1']);
+    expect(builtScenarios(webChain, kinds(webChain), 200).map((s) => s.id)).toEqual(['custom-db-slow:db', 'custom-cache-restart:cache', 'custom-front-slow:gateway']);
   });
 });

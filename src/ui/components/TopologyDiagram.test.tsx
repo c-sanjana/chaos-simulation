@@ -259,12 +259,24 @@ describe('TopologyDiagram', () => {
     const ttl: TopologyEdgeView = { ...edges[1], change: '🔧 TTL 30 s' };
     render(<TopologyDiagram nodes={[]} edges={[budget, ttl, edges[0]]} selectedId={null} onSelect={() => {}} />);
     const h = screen.getByTestId('edge-a-d');
-    expect(h.lastElementChild!.textContent).toBe('🔧 retry budget 10%');
+    // The words while they fit the arrow, else only "🔧" (container queries pick one); the words are listed under the diagram.
+    expect(Array.from(h.lastElementChild!.children).map((f) => f.textContent)).toEqual(['🔧 retry budget 10%', '🔧']);
     expect(h.lastElementChild!.className).toBe('csl-change csl-edge__change');
+    expect(within(screen.getByRole('list', { name: 'Changed by the fix' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      '🔧 retry budget 10%',
+      '🔧 TTL 30 s',
+    ]);
     expect(h.getAttribute('aria-label')).toBe('60 requests a second; changed by the fix: retry budget 10%');
     const v = screen.getByTestId('edge-a-c');
     expect(v.querySelector('.csl-edge__vtext .csl-edge__change')!.textContent).toBe('🔧 TTL 30 s');
     expect(screen.getByTestId('edge-c-g').querySelector('.csl-change')).toBeNull();
+  });
+
+  it('lists every change under the diagram, naming the arrow or box it is on', () => {
+    const ttl: TopologyEdgeView = { ...edges[1], change: '🔧 TTL 30 s' };
+    const db: TopologyNodeView = { ...nodes[1], change: 'queue limit 93' };
+    render(<TopologyDiagram nodes={[nodes[0], db, nodes[2]]} edges={[ttl]} selectedId={null} onSelect={() => {}} />);
+    expect(within(screen.getByRole('list', { name: 'Changed by the fix' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['🔧 API → Cache: TTL 30 s', '🔧 API: queue limit 93']);
   });
 
   it('marks failing boxes with a class, a red wash, an error badge and words in the aria-label', () => {

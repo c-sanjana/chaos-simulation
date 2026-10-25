@@ -4,7 +4,8 @@ import { KIND_LABELS } from '../builder/graph';
 import { validateGraph } from '../builder/validate';
 import { validateConfig } from '../engine/validate';
 import { draftProblems, type Draft } from './draft';
-import { customSystem, PRESET_SYSTEM, scenarioCatalog, systemDraft, type System } from './system';
+import { inGrid } from '../builder/edit';
+import { customSystem, PRESET_SYSTEM, resolveScenarioId, systemDraft, type System } from './system';
 
 /**
  * Remembering a built system in this browser (user decision, 2026-10-24: "save it in that session,
@@ -38,20 +39,95 @@ export interface Restored {
   /** The drawing to reopen in the builder, and whether it was open. */
   canvas: BuilderGraph | null;
   canvasOpen: boolean;
+  /** What of the save had to be left out (damaged, or from another version), in plain words; absent when nothing was. */
+  notice?: string;
 }
 
 const KINDS = new Set(Object.keys(KIND_LABELS));
 
-/** Whether a value has the shape of a builder graph (not whether it can run: `validateGraph` says that). */
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+/** A number JSON can hold (never NaN or infinite). */
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const numberOrNull = (v: unknown) => v === null || isNumber(v);
+const hasNumbers = (o: Record<string, unknown>, keys: string[]) => keys.every((k) => isNumber(o[k]));
+
+/** Whether `s` holds every setting its kind needs, each of the right type (ranges are `validateGraph`'s job). */
+function isSettings(s: unknown): boolean {
+  if (!isObject(s) || !KINDS.has(s.kind as string)) return false;
+  if (s.kind === 'client') return isNumber(s.rps);
+  if (!isObject(s.service) || !hasNumbers(s.service, ['medianMs', 'p99Ms'])) return false;
+  if (s.kind === 'queue') return hasNumbers(s, ['maxDepth', 'consumers']);
+  if (!hasNumbers(s, ['instances', 'workersPerInstance', 'coresPerInstance'])) return false;
+  if (s.kind === 'cache') return hasNumbers(s, ['capacity', 'keys', 'skew']) && numberOrNull(s.ttlMs);
+  return numberOrNull(s.queueLimit) && typeof s.dropExpired === 'boolean' && (s.fanOut === undefined || typeof s.fanOut === 'string');
+}
+
+/** Whether `c` holds every call setting, each of the right type. */
+function isCall(c: unknown): boolean {
+  return isObject(c) && numberOrNull(c.timeoutMs) && isNumber(c.retries) && isNumber(c.backoffBaseMs) && typeof c.jitter === 'boolean' && (c.share === undefined || isNumber(c.share));
+}
+
+const unique = (ids: string[]) => new Set(ids).size === ids.length;
+
+/**
+ * Whether a value is a builder graph the page can show: every field the canvas, the descriptions
+ * and the compiler read is there with the right type, every box is on the canvas's grid, and ids
+ * are unique. Not whether it can run: `validateGraph` says that (and names what to fix).
+ * ASSUMPTION: anything else is a damaged or hand-edited save (or one from a future version). It is
+ * left out rather than repaired: guessing a missing setting could simulate something never drawn.
+ */
 export function isGraph(g: unknown): g is BuilderGraph {
-  if (typeof g !== 'object' || g === null) return false;
-  const { nodes, edges } = g as BuilderGraph;
-  return (
-    Array.isArray(nodes) &&
-    Array.isArray(edges) &&
-    nodes.every((n) => typeof n?.id === 'string' && typeof n.label === 'string' && Number.isInteger(n.col) && Number.isInteger(n.row) && KINDS.has(n.settings?.kind)) &&
-    edges.every((e) => typeof e?.id === 'string' && typeof e.from === 'string' && typeof e.to === 'string' && typeof e.call === 'object' && e.call !== null)
-  );
+  if (!isObject(g) || !Array.isArray(g.nodes) || !Array.isArray(g.edges)) return false;
+  const nodes: unknown[] = g.nodes;
+  const edges: unknown[] = g.edges;
+  const nodesOk = nodes.every((n) => isObject(n) && typeof n.id === 'string' && typeof n.label === 'string' && inGrid(n.col as number, n.row as number) && isSettings(n.settings));
+  const edgesOk = edges.every((e) => isObject(e) && typeof e.id === 'string' && typeof e.from === 'string' && typeof e.to === 'string' && isCall(e.call));
+  const graph = g as unknown as BuilderGraph;
+  return nodesOk && edgesOk && unique(graph.nodes.map((n) => n.id)) && unique(graph.edges.map((e) => e.id));
+}
+
+/**
+ * The graph without arrows to or from parts that aren't in it. The canvas never makes these, and
+ * they can't be selected (nothing draws them), so a damaged save's would be problems nobody can
+ * fix short of removing the part they belong to.
+ */
+function withoutLooseArrows(g: BuilderGraph): BuilderGraph {
+  const ids = new Set(g.nodes.map((n) => n.id));
+  return g.edges.every((e) => ids.has(e.from) && ids.has(e.to)) ? g : { ...g, edges: g.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) };
+}
+
+/**
+ * A saved built system, compiled again, or null when it can't run: its drawing has problems, or
+ * (a safety net, should the two ever disagree) the engine refuses its first scenario.
+ */
+function restoreSystem(saved: unknown): Extract<System, { kind: 'custom' }> | null {
+  if (!isGraph(saved)) return null;
+  const g = withoutLooseArrows(saved);
+  if (validateGraph(g).length > 0) return null;
+  try {
+    const system = customSystem(g) as Extract<System, { kind: 'custom' }>;
+    validateConfig(buildRunConfig(system.topology, system.scenarios[0]));
+    return system;
+  } catch {
+    return null;
+  }
+}
+
+/** The notice when part of a save is left out, or undefined when nothing was. */
+function leftOut(system: boolean, canvas: boolean): string | undefined {
+  if (!system && !canvas) return undefined;
+  const what = system && canvas ? 'Your saved system and drawing' : system ? 'Your saved system' : 'Your saved drawing';
+  return `${what} couldn't be restored (the save is damaged or from another version of this page), so ${system ? 'the example system is shown' : 'it was left out'}.`;
+}
+
+/** The save as stored, or null when it isn't one (damaged). */
+function parse(raw: string): Partial<Saved> | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return isObject(value) ? (value as Partial<Saved>) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A saved draft is used only if it belongs to this system and still makes a valid run. */
@@ -67,20 +143,39 @@ function fits(d: Draft | null, system: System): d is Draft {
   }
 }
 
-/** The saved state, or null when there is nothing (usable) saved. */
+/**
+ * The saved state, or null when nothing is saved (or storage can't be read). Whatever of the save
+ * can't be used is left out, and `notice` says so; the next save replaces it.
+ * A drawing is reopened even with problems (the builder lists them); a built system only when it
+ * can run.
+ */
 export function loadSaved(storage?: SystemStorage): Restored | null {
+  let raw: string | null;
   try {
-    const raw = orLocal(storage).getItem(SAVED_SYSTEM_KEY);
-    if (raw === null) return null;
-    const saved = JSON.parse(raw) as Partial<Saved>;
-    const system = isGraph(saved.system) && validateGraph(saved.system).length === 0 ? customSystem(saved.system) : PRESET_SYSTEM;
-    const known = scenarioCatalog(system).some((s) => s.id === saved.scenarioId);
-    const scenarioId = known ? saved.scenarioId! : scenarioCatalog(system)[0].id;
-    const applied = fits(saved.applied ?? null, system) ? saved.applied! : systemDraft(system, scenarioId);
-    const canvas = isGraph(saved.canvas) ? saved.canvas : null;
-    return { system, scenarioId, applied, canvas, canvasOpen: canvas !== null && saved.canvasOpen === true };
+    raw = orLocal(storage).getItem(SAVED_SYSTEM_KEY);
   } catch {
     return null;
+  }
+  if (raw === null) return null;
+  // An unreadable save counts as a system that could not be restored (so the notice says so).
+  const saved = parse(raw) ?? { system: {} as BuilderGraph };
+  const built = saved.system == null ? null : restoreSystem(saved.system);
+  const system: System = built ?? PRESET_SYSTEM;
+  // An older save's scenario id still names the same failure (see findScenario).
+  const scenarioId = resolveScenarioId(system, typeof saved.scenarioId === 'string' ? saved.scenarioId : '');
+  const kept = fits(saved.applied ?? null, system) ? saved.applied! : null;
+  const applied = kept === null ? systemDraft(system, scenarioId) : resolveScenarioId(system, kept.scenario.id) === scenarioId ? { ...kept, scenario: { ...kept.scenario, id: scenarioId } } : kept;
+  const canvas = isGraph(saved.canvas) ? withoutLooseArrows(saved.canvas) : null;
+  const notice = leftOut(saved.system != null && built === null, saved.canvas != null && canvas === null);
+  return { system, scenarioId, applied, canvas, canvasOpen: canvas !== null && saved.canvasOpen === true, ...(notice ? { notice } : {}) };
+}
+
+/** Forgets the saved state ("Start again" after the page broke: the save might be what broke it). */
+export function forgetSaved(storage?: SystemStorage): void {
+  try {
+    orLocal(storage).removeItem(SAVED_SYSTEM_KEY);
+  } catch {
+    // Storage is blocked: nothing was remembered.
   }
 }
 

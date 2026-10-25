@@ -1,6 +1,7 @@
 import { compileGraph } from './compile';
 import { defaultCall, defaultSettings, type BuilderGraph } from './graph';
-import { builtScenarios, estimateCapacityRps, MAX_PER_KIND, tierCapacityRps } from './scenarios';
+import { setShare } from './edit';
+import { builtScenarios, estimateCapacityRps, findScenario, MAX_PER_KIND, tierCapacityRps } from './scenarios';
 import { branchedGraph } from './testGraphs';
 
 const kindsOf = (g: BuilderGraph) => Object.fromEntries(g.nodes.map((n) => [n.id, n.settings.kind]));
@@ -17,11 +18,11 @@ describe('scenarios and capacity of a branched system', () => {
   it('offers each database (busiest first), each cache, the front door and the work behind each queue', () => {
     const list = builtScenarios(t, kindsOf(g), 120);
     expect(list.map((s) => [s.id, s.title, s.faults[0].tier])).toEqual([
-      ['custom-db-slow', 'db1 slows down', 'db1'],
-      ['custom-db-slow-db2', 'db2 slows down', 'db2'],
-      ['custom-cache-restart', 'cache restarts empty', 'cache'],
-      ['custom-front-slow', 'lb slows down', 'lb'],
-      ['custom-queue-backlog', 'Work behind queue slows down', 'db2'],
+      ['custom-db-slow:db1', 'db1 slows down', 'db1'],
+      ['custom-db-slow:db2', 'db2 slows down', 'db2'],
+      ['custom-cache-restart:cache', 'cache restarts empty', 'cache'],
+      ['custom-front-slow:lb', 'lb slows down', 'lb'],
+      ['custom-queue-backlog:queue', 'Work behind queue slows down', 'db2'],
     ]);
     // The queue gets a third of the 120 req/s: its consumers must fall to about half of 40 req/s.
     const backlog = list.at(-1)!;
@@ -30,6 +31,25 @@ describe('scenarios and capacity of a branched system', () => {
     const perSecond = (16 * mean) / backlog.faults[0].factor!;
     expect(perSecond).toBeGreaterThan(15);
     expect(perSecond).toBeLessThan(25);
+  });
+
+  it('gives each scenario an id of its own part, which stays when the shares change which part is busiest', () => {
+    const dbIds = (graph: BuilderGraph) => builtScenarios(compileGraph(graph), kindsOf(graph), 120).filter((s) => s.id.startsWith('custom-db-slow')).map((s) => [s.id, s.faults[0].tier]);
+    expect(dbIds(g)).toEqual([['custom-db-slow:db1', 'db1'], ['custom-db-slow:db2', 'db2']]);
+    // Most traffic now goes to s3, which calls db2: db2 comes first, under its own id.
+    const busy = setShare(g, 'lb--s3', 90);
+    expect(dbIds(busy)).toEqual([['custom-db-slow:db2', 'db2'], ['custom-db-slow:db1', 'db1']]);
+  });
+
+  it("finds a scenario by its id, or by an older save's id: the plain kind for the busiest part, kind-part for another", () => {
+    const list = builtScenarios(t, kindsOf(g), 120);
+    const tierOf = (id: string) => findScenario(list, id)?.faults[0].tier;
+    expect(tierOf('custom-db-slow:db2')).toBe('db2');
+    expect(tierOf('custom-db-slow')).toBe('db1');
+    expect(tierOf('custom-db-slow-db2')).toBe('db2');
+    expect(tierOf('custom-front-slow')).toBe('lb');
+    expect(findScenario(list, 'custom-db-slow-nope')).toBeUndefined();
+    expect(findScenario(list, 'retry-storm')).toBeUndefined();
   });
 
   it(`offers at most ${MAX_PER_KIND} databases, the busiest`, () => {

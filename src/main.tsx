@@ -2,8 +2,7 @@
 import './ui/localeGuard';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './ui/App';
-import { ErrorBoundary } from './ui/ErrorBoundary';
+import { Root } from './ui/Root';
 import { initialTheme } from './ui/themeMode';
 import './ui/theme.css';
 
@@ -12,8 +11,6 @@ document.documentElement.dataset.theme ??= initialTheme();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <Root />
   </StrictMode>,
 );

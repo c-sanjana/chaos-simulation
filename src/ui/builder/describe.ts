@@ -2,9 +2,10 @@
  * Plain-language text for the builder: the key numbers on a box, the label on an arrow, and the
  * fuller sentences screen readers hear. Pure, so it is easy to test and reuse.
  */
-import { shareFractions } from '../../builder/edit';
 import { aKind, KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode, type CallSettings, type NodeSettings } from '../../builder/graph';
 import { flowCalls } from '../../builder/graphWalk';
+import { shareFractions } from '../../engine/config';
+import { formatSharePercent, roundedPercents } from '../format';
 
 /** 1234 → "1,234". */
 export function formatCount(n: number): string {
@@ -61,10 +62,28 @@ export function splitShare(graph: BuilderGraph, edge: BuilderEdge): number | nul
   return shareFractions(calls.map((e) => e.call.share))[i];
 }
 
-/** An arrow's label on the canvas: "50% · 2 s · 1 retry" for a load balancer's split, else as `callLabel`. */
+/** The whole percent shown for this arrow's share (the split's percents add up to 100, see roundedPercents), or null as for splitShare. */
+export function splitPercent(graph: BuilderGraph, edge: BuilderEdge): number | null {
+  if (splitShare(graph, edge) === null) return null;
+  const calls = flowCalls(graph, edge.from);
+  return roundedPercents(shareFractions(calls.map((e) => e.call.share)))[calls.findIndex((e) => e.id === edge.id)];
+}
+
+/** An arrow's label on the canvas: "50% · 2 s · 1 retry" for a load balancer's split ("<1%" for a sliver), else as `callLabel`. */
 export function edgeLabel(graph: BuilderGraph, edge: BuilderEdge): string {
   const share = splitShare(graph, edge);
-  return share === null ? callLabel(edge.call) : `${Math.round(share * 100)}% · ${callLabel(edge.call)}`;
+  return share === null ? callLabel(edge.call) : `${formatSharePercent(share, splitPercent(graph, edge)!)} · ${callLabel(edge.call)}`;
+}
+
+/**
+ * The accessible name of an arrow's label on the canvas: its visible text first (so voice control
+ * can say what is on screen, WCAG 2.5.3), then the call in words, e.g. "34% · 2 s · 1 retry: lb
+ * calls s1 (34% of its traffic); it gives up after 2 s, then tries again up to 1 time".
+ */
+export function edgeLabelName(graph: BuilderGraph, edge: BuilderEdge): string {
+  const share = splitShare(graph, edge);
+  const of = share === null ? '' : ` (${formatSharePercent(share, splitPercent(graph, edge)!)} of its traffic)`;
+  return `${edgeLabel(graph, edge)}: ${edgeTitle(graph, edge)}${of}; it ${callSentence(edge.call)}`;
 }
 
 /** e.g. "gives up after 1 s, then tries again up to 1 time". */

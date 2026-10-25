@@ -1,7 +1,7 @@
 import { compileGraph, CUSTOM_TOPOLOGY_ID } from '../builder/compile';
 import { graphFromPreset, syncGraph } from '../builder/fromPreset';
 import type { BuilderGraph } from '../builder/graph';
-import { builtScenarios, builtTrafficAxis } from '../builder/scenarios';
+import { builtScenarios, builtTrafficAxis, findScenario } from '../builder/scenarios';
 import { scenarios as presetScenarios } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
@@ -25,10 +25,19 @@ export function scenarioCatalog(system: System): ScenarioPreset[] {
   return system.kind === 'preset' ? Object.values(presetScenarios) : system.scenarios;
 }
 
+/**
+ * The id of the system's scenario that `scenarioId` names (an older save's id gives today's, see
+ * `findScenario`), or its first scenario's when it names none of them.
+ */
+export function resolveScenarioId(system: System, scenarioId: string): string {
+  const list = scenarioCatalog(system);
+  return (findScenario(list, scenarioId) ?? list[0]).id;
+}
+
 /** A fresh draft for one of the system's scenarios (its first if the id isn't one of them). */
 export function systemDraft(system: System, scenarioId: string): Draft {
   const list = scenarioCatalog(system);
-  const scenario = list.find((s) => s.id === scenarioId) ?? list[0];
+  const scenario = findScenario(list, scenarioId) ?? list[0];
   const topology = system.kind === 'preset' ? webChain : system.topology;
   return { scenario: structuredClone(scenario), topology: structuredClone(topology) };
 }
@@ -47,9 +56,17 @@ export function graphForCanvas(system: System, rps: number): BuilderGraph {
  * A built system's scenario `scenarioId` on the system as it is now: with the settings changed
  * since it was built (the drawer, the failure editor's traffic and retries, all in `current`), so
  * choosing another failure never throws those edits away. Its scenarios are sized afresh for them.
+ * Scenario ids name their part, so the failure picked is the one the picker showed. When the
+ * changed shares drop that part from the scenarios offered (only the busiest few of a kind are),
+ * the scenario as offered runs on the changed system, with the map's traffic range for it.
  */
 export function editedDraft(system: Extract<System, { kind: 'custom' }>, scenarioId: string, current: Draft): Draft {
-  return systemDraft(customSystem(syncGraph(system.graph, current.topology, current.scenario.rps)), scenarioId);
+  const now = customSystem(syncGraph(system.graph, current.topology, current.scenario.rps)) as Extract<System, { kind: 'custom' }>;
+  const offered = findScenario(system.scenarios, scenarioId);
+  if (findScenario(now.scenarios, scenarioId) || !offered) return systemDraft(now, scenarioId);
+  const rps = current.scenario.rps;
+  const scenario = { ...structuredClone(offered), rps, map: { x: builtTrafficAxis(now.topology, rps), y: structuredClone(offered.map.y) } };
+  return { scenario, topology: structuredClone(now.topology) };
 }
 
 /**
@@ -75,17 +92,21 @@ export interface CarriedOver {
 /**
  * "Use this topology": keeps the current failure (parts, kinds, timings, the run's length and the
  * failure-length axis) when every part it names still exists, matched by id, and can still fail
- * that way; the traffic and every setting come from the canvas. Otherwise the new system's
- * scenario of the same id (or its first) is used, and `reset` says why.
+ * that way; the traffic and every setting come from the canvas. It is filed under the new system's
+ * scenario of the same id (the same failure on the same part), or its first. Otherwise that
+ * scenario is used as offered, and `reset` says why.
  */
 export function carryOver(applied: Draft, scenarioId: string, next: Extract<System, { kind: 'custom' }>): CarriedOver {
   const catalog = next.scenarios;
-  const base = catalog.find((s) => s.id === scenarioId) ?? catalog[0];
+  // Ids name their part, so this is the same part's scenario on the new system.
+  const base = findScenario(catalog, scenarioId) ?? catalog[0];
   const label = (id: string) => applied.topology.layout[id]?.label ?? id;
+  // A failure from the example names the example's part, not one of yours that may share its name.
+  const fromExample = applied.scenario.topology !== CUSTOM_TOPOLOGY_ID;
   let why: string | undefined;
   for (const f of applied.scenario.faults) {
     const tier = next.topology.tiers.find((t) => t.id === f.tier);
-    if (!tier) why ??= `${label(f.tier)}, where it happened, is no longer in your system`;
+    if (!tier) why ??= fromExample ? `the example's ${label(f.tier)}, where it happened, is not in your system` : `${label(f.tier)}, where it happened, is no longer in your system`;
     else if (faultKindOf(f) === 'restart-empty' && !tier.cache) why ??= `${label(f.tier)} is no longer a cache, so it can't restart empty`;
     else if (f.instance !== undefined && (tier.instances < 2 || f.instance >= tier.instances)) why ??= tier.instances < 2 ? `${label(f.tier)} has only one copy now, so losing one would take it down completely` : `${label(f.tier)} has only ${tier.instances} copies now`;
   }
@@ -102,5 +123,6 @@ export function carryOver(applied: Draft, scenarioId: string, next: Extract<Syst
     durationMs: applied.scenario.durationMs,
     map: { x: base.map.x, y: structuredClone(applied.scenario.map.y) },
   };
-  return { draft: { topology: structuredClone(next.topology), scenario }, scenarioId: base.id };
+  // In systemDraft's key order, so the app's comparison (by JSON) sees an unchanged draft as unchanged.
+  return { draft: { scenario, topology: structuredClone(next.topology) }, scenarioId: base.id };
 }

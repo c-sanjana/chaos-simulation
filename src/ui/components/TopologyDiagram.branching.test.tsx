@@ -99,11 +99,12 @@ describe('routed arrows on the diagram', () => {
     expect(squares.querySelectorAll('.csl-instance')).toHaveLength(1);
     expect(within(squares).getByText('×4')).toBeTruthy();
     expect(within(screen.getByRole('button', { name: /^S3/ })).queryByText(/×/)).toBeNull();
-    expect(gridStyle(nodes, edges, true)!.gridTemplateRows).toBe('auto 40px auto 4px auto 4px auto');
-    expect(gridStyle(nodes, edges)!.gridTemplateRows).toBe('auto 56px auto 12px auto 12px auto');
+    // Between rows of boxes, room for a badge under the upper box and one over the lower box (review 3).
+    expect(gridStyle(nodes, edges, true)!.gridTemplateRows).toBe('auto 40px auto 24px auto 24px auto');
+    expect(gridStyle(nodes, edges)!.gridTemplateRows).toBe('auto 56px auto 28px auto 28px auto');
     // Without a cache on top, the empty top rows take no room.
     const low = nodes.filter((n) => n.id !== 'cache');
-    expect(gridStyle(low, [])!.gridTemplateRows).toBe('auto 0px auto 12px auto 12px auto');
+    expect(gridStyle(low, [])!.gridTemplateRows).toBe('auto 0px auto 28px auto 28px auto');
     expect(isDense(low)).toBe(true);
   });
 

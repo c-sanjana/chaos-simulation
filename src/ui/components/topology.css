@@ -214,15 +214,16 @@
 .csl-edge__shaft-row {
   position: relative;
 }
-/* Under the arrow (or under the text of a vertical arrow); may use the cell's side padding, and
-   wraps rather than hiding words. */
+/* Under the arrow (or under the text of a vertical arrow); may use the cell's side padding. On one
+   line: where the words don't fit, only "🔧" shows (Fitted), and the words are listed under the
+   diagram (.csl-topology-changes). */
 .csl-edge__change {
   align-self: center;
   max-width: calc(100% + 12px);
   margin: 0 -6px;
   font-size: 12px;
   line-height: 14px;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
 }
 .csl-edge--vertical .csl-edge__change {
@@ -299,6 +300,16 @@
 }
 .csl-edge--vertical .csl-edge__fail {
   align-self: flex-start;
+}
+
+/* What the fix changed, in words, one item per line under the diagram. */
+.csl-topology-changes {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--csl-change-ink);
 }
 
 /* ---------- Key ---------- */

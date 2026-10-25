@@ -1,10 +1,11 @@
 import { useId, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { connect, connectRefusal, GRID_COLS, GRID_ROWS, nodeAt, type Cell } from '../../builder/edit';
 import { KIND_LABELS, type BuilderGraph, type BuilderNode, type ComponentKind } from '../../builder/graph';
-import { callSentence, displayName, edgeLabel, edgeTitle, nodeLines, nodeSummary, splitShare } from './describe';
-import { BOX_H, BOX_W, CELL_H, CELL_W, cellCenter, edgeLines, type Point } from './geometry';
+import { displayName, edgeLabel, edgeLabelName, nodeLines, nodeSummary } from './describe';
+import { BOX_H, BOX_W, CELL_H, CELL_W, cellCenter, edgeLines, wrapLabel, type Point } from './geometry';
 import { KindIcon } from './KindIcon';
 import { PALETTE_KINDS, startDrag } from './Palette';
+import { useSideScroll } from '../components/TopologyDiagram';
 
 /** What is being dragged: a new component from the palette, a box being moved, or a call being drawn. */
 export type Drag = { type: 'new'; kind: ComponentKind } | { type: 'move'; id: string } | { type: 'connect'; from: string };
@@ -24,10 +25,31 @@ export interface BuilderCanvasProps {
   onConnect: (from: string, to: string) => void;
   /** A drag ended over a box it couldn't be dropped on: why, for the status line. */
   onRefused: (reason: string) => void;
-  /** Delete whatever is selected. */
-  onDelete: () => void;
+  /** Delete a box or arrow (the one the keyboard is on), or whatever is selected. */
+  onDelete: (target?: Selection) => void;
+  /**
+   * A box or arrow was chosen with the keyboard (Enter or Space): select it and move focus to its
+   * settings, so they are the next thing a keyboard user reaches.
+   */
+  onOpen: (selection: NonNullable<Selection>) => void;
   /** Shown in the middle of an empty canvas. */
   emptyHint: ReactNode;
+}
+
+/** A label on two lines; the " · " between them is kept in its text (hidden), so it reads as on one line. */
+function WrappedLabel({ text }: { text: string }) {
+  const [first, second] = wrapLabel(text);
+  return (
+    <>
+      <span>{first}</span>
+      {second !== undefined && (
+        <>
+          <span className="csl-bcanvas__edge-sep"> · </span>
+          <span>{second}</span>
+        </>
+      )}
+    </>
+  );
 }
 
 /** Whether a component of this kind can call anything at all (so it gets a connection handle). */
@@ -44,15 +66,18 @@ const cells: Cell[] = Array.from({ length: GRID_COLS * GRID_ROWS }, (_, i) => ({
  *
  * Mouse: drag a palette item onto a cell to add it; drag a box to move it; drag from a box's
  * round handle (right edge) to another box to make it call that box. Keyboard: Tab to a box or an
- * arrow label (which selects it), arrow keys to move the selected box, Delete or Backspace to
- * remove it, Escape to clear the selection. Connecting by keyboard is done from the settings
- * panel ("Calls…" and Connect).
+ * arrow label, Enter or Space to open its settings (focus moves to them), arrow keys to move the
+ * box, Delete or Backspace to remove the box or arrow the keyboard is on, Escape to clear the
+ * selection. Focusing alone selects nothing: Tab passes over the boxes without changing what the
+ * settings panel shows (code review 3: selecting on focus made every box but the last unreachable).
+ * Connecting by keyboard is done from the settings panel ("Calls…" and Connect).
  *
  * Drags use HTML5 drag and drop. What is being dragged is kept in React state (not read back from
  * dataTransfer), because browsers hide the dragged data until the drop.
  */
-export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, onDragEnd, onAdd, onMove, onConnect, onRefused, onDelete, emptyHint }: BuilderCanvasProps) {
+export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, onDragEnd, onAdd, onMove, onConnect, onRefused, onDelete, onOpen, emptyHint }: BuilderCanvasProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const scroll = useSideScroll<HTMLDivElement>();
   const markerId = `csl-arrow-${useId().replace(/:/g, '')}`;
   /** The box under a dragged call or box, and why it can't be dropped on (if it can't). */
   const [hover, setHover] = useState<{ id: string; reason?: string } | null>(null);
@@ -74,14 +99,18 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
   /** The dragged item was let go (dragend): over a refused box, say why. */
   const endDrag = () => finishDrag(true);
 
+  /** Delete or Backspace on a box or arrow label removes that one; on the canvas itself, the selection. */
+  const deleteKey = (e: KeyboardEvent, target?: NonNullable<Selection>) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return false;
+    e.preventDefault();
+    e.stopPropagation();
+    onDelete(target);
+    ref.current?.focus();
+    return true;
+  };
   const onCanvasKeyDown = (e: KeyboardEvent) => {
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
-      e.preventDefault();
-      onDelete();
-      ref.current?.focus();
-    } else if (e.key === 'Escape' && selection) {
-      onSelect(null);
-    }
+    if (selection && deleteKey(e)) return;
+    if (e.key === 'Escape' && selection) onSelect(null);
   };
 
   const onCanvasDragOver = (e: DragEvent) => {
@@ -132,9 +161,10 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
   };
 
   const onBoxKeyDown = (e: KeyboardEvent, node: BuilderNode) => {
+    if (deleteKey(e, { type: 'node', id: node.id })) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onSelect({ type: 'node', id: node.id });
+      onOpen({ type: 'node', id: node.id });
       return;
     }
     const step = ARROW_KEYS[e.key];
@@ -144,12 +174,19 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
     onMove(node.id, { col: node.col + step[0], row: node.row + step[1] });
   };
 
-  const lines = edgeLines(graph);
+  const lines = edgeLines(graph, (edge) => edgeLabel(graph, edge));
   const from = drag?.type === 'connect' ? graph.nodes.find((n) => n.id === drag.from) : undefined;
   const style = { '--csl-cell-w': `${CELL_W}px`, '--csl-cell-h': `${CELL_H}px`, '--csl-box-w': `${BOX_W}px`, '--csl-box-h': `${BOX_H}px`, '--csl-cols': GRID_COLS, '--csl-rows': GRID_ROWS } as CSSProperties;
 
   return (
-    <div className="csl-bcanvas-scroll">
+    <>
+    {(scroll.more.left || scroll.more.right) && (
+      // Narrower windows (1280 px and below) show only part of the canvas: say so, as the run diagram does.
+      <p className="csl-topology-hint">
+        Scroll sideways to see the whole canvas <span aria-hidden="true">{scroll.more.right ? '→' : '←'}</span>
+      </p>
+    )}
+    <div className="csl-bcanvas-scroll" ref={scroll.ref}>
       <div
         ref={ref}
         className={`csl-bcanvas${drag ? ` csl-bcanvas--dragging csl-bcanvas--${drag.type}` : ''}`}
@@ -187,7 +224,7 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
             const head = `url(#${selected ? `${markerId}-sel` : markerId})`;
             // Cache lookups are drawn like the preset's cache link: double-headed (asked, answered).
             const cache = graph.nodes.find((n) => n.id === edge.to)?.settings.kind === 'cache';
-            const d = `M${line.start.x} ${line.start.y} L${line.end.x} ${line.end.y}`;
+            const d = line.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y}`).join(' ');
             return (
               <g key={edge.id} data-testid={`line-${edge.id}`}>
                 <path d={d} className="csl-bcanvas__hit" onClick={() => onSelect({ type: 'edge', id: edge.id })} />
@@ -209,15 +246,16 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
           <button
             key={edge.id}
             type="button"
-            className={`csl-bcanvas__edge-label csl-bcanvas__edge-label--${line.labelSide}`}
+            className={`csl-bcanvas__edge-label csl-bcanvas__edge-label--${line.labelSide}${line.labelWrap ? ' csl-bcanvas__edge-label--wrap' : ''}`}
             style={{ left: line.mid.x, top: line.mid.y }}
             aria-pressed={isSelected('edge', edge.id)}
-            aria-label={`${edgeTitle(graph, edge)}${splitShare(graph, edge) === null ? '' : `, ${Math.round(splitShare(graph, edge)! * 100)}% of its traffic`}: ${callSentence(edge.call)}`}
+            aria-label={edgeLabelName(graph, edge)}
             title="Edit this call"
-            onFocus={() => onSelect({ type: 'edge', id: edge.id })}
-            onClick={() => onSelect({ type: 'edge', id: edge.id })}
+            onKeyDown={(e) => deleteKey(e, { type: 'edge', id: edge.id })}
+            // A click from the keyboard (Enter or Space: no pointer, so detail 0) also moves focus to the settings.
+            onClick={(e) => (e.detail === 0 ? onOpen({ type: 'edge', id: edge.id }) : onSelect({ type: 'edge', id: edge.id }))}
           >
-            {edgeLabel(graph, edge)}
+            {line.labelWrap ? <WrappedLabel text={edgeLabel(graph, edge)} /> : edgeLabel(graph, edge)}
           </button>
         ))}
 
@@ -253,8 +291,6 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
                 }}
                 onDragEnd={endDrag}
                 onClick={() => onSelect({ type: 'node', id: node.id })}
-                // Focus selects, so Delete always acts on the box the keyboard is on.
-                onFocus={() => onSelect({ type: 'node', id: node.id })}
                 onKeyDown={(e) => onBoxKeyDown(e, node)}
               >
                 <span className="csl-bnode__head">
@@ -296,5 +332,6 @@ export function BuilderCanvas({ graph, selection, drag, onSelect, onDragStart, o
         {graph.nodes.length === 0 && <div className="csl-bcanvas__empty">{emptyHint}</div>}
       </div>
     </div>
+    </>
   );
 }

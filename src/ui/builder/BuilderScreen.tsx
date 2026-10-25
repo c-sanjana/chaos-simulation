@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { addCell, addNode, connect, emptyGraph, moveNode, removeEdge, removeNode, type Cell } from '../../builder/edit';
 import type { BuilderGraph, ComponentKind } from '../../builder/graph';
 import { focusField, useInvalidFields } from '../components/useInvalidFields';
@@ -18,8 +18,6 @@ export interface BuilderScreenProps {
   onUse: () => void;
   /** More buttons for the toolbar, before "Use this topology" (e.g. Cancel). */
   actions?: ReactNode;
-  /** A line under the subtitle (e.g. what the builder supports for now). */
-  note?: string;
 }
 
 /** The last thing that happened, for the status line: a confirmation, or why an edit was refused. */
@@ -27,6 +25,12 @@ interface Status {
   text: string;
   refused: boolean;
 }
+
+/** Problems listed before "Show all": the list never cuts a sentence off, and the canvas stays on screen. */
+const PROBLEMS_SHOWN = 2;
+
+/** Below this width the settings panel sits under the canvas (builder.css), so selecting a box scrolls it into view. */
+const PANEL_BELOW_QUERY = '(max-width: 900px)';
 
 /** The chain from the Client, e.g. "Client → Load balancer → App server → DB, with a Cache". */
 function exampleChain(graph: BuilderGraph): string {
@@ -48,10 +52,12 @@ function exampleChain(graph: BuilderGraph): string {
  * settings panel for whatever is selected. The graph is owned by the parent (`graph`/`onChange`);
  * only the selection, the drag in progress and the status line live here.
  */
-export function BuilderScreen({ graph, onChange, problems, onUse, actions, note }: BuilderScreenProps) {
+export function BuilderScreen({ graph, onChange, problems, onUse, actions }: BuilderScreenProps) {
   const [selection, setSelection] = useState<Selection>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  /** Every problem listed, or only the first few (whole sentences either way; the count is on "Use this topology"). */
+  const [showAll, setShowAll] = useState(false);
   /** The graph as it was before the last Clear, example or removal, so that can be undone. */
   const [undoTo, setUndoTo] = useState<BuilderGraph | null>(null);
   const problemsId = useId();
@@ -70,6 +76,39 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
     setUndoTo(undoable ? graph : null);
     setStatus({ text, refused: false });
   };
+  /**
+   * An edit in the settings panel (a name, a number, a share). It ends what Undo could bring back:
+   * Undo restores the whole graph from before a removal, which would quietly revert this edit too.
+   */
+  const panelChange = (next: BuilderGraph) => {
+    onChange(next);
+    if (undoTo) {
+      setUndoTo(null);
+      setStatus(null);
+    }
+  };
+
+  /** Where focus goes once the next render is on screen: a box's or arrow's settings, the canvas, the status line, a new box. */
+  const [focusNext, setFocusNext] = useState<{ to: 'panel' } | { to: 'canvas' } | { to: 'status' } | { to: 'node'; id: string } | null>(null);
+  useEffect(() => {
+    if (!focusNext || !body) return;
+    setFocusNext(null);
+    if (focusNext.to === 'panel') body.querySelector<HTMLElement>('[data-panel-title]')?.focus();
+    else if (focusNext.to === 'canvas') body.querySelector<HTMLElement>('.csl-bcanvas')?.focus();
+    else if (focusNext.to === 'status') body.querySelector<HTMLElement>('.csl-builder__status')?.focus();
+    // A new box may land outside the canvas's visible part (it scrolls sideways on smaller screens).
+    else body.querySelector(`[data-testid="node-${focusNext.id}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [focusNext, body]);
+  /** Selects a box or arrow; on a narrow screen, where the settings panel sits below the canvas, it scrolls into view. */
+  const select = (next: Selection) => {
+    setSelection(next);
+    if (next && window.matchMedia?.(PANEL_BELOW_QUERY).matches) body?.querySelector('.csl-bpanel')?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  };
+  /** Chosen with the keyboard: select it, then focus its settings. */
+  const open = (next: NonNullable<Selection>) => {
+    setSelection(next);
+    setFocusNext({ to: 'panel' });
+  };
 
   const add = (kind: ComponentKind, cell: Cell | null) => {
     // With no free cell, addNode itself explains that the canvas is full.
@@ -78,6 +117,7 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
     if (result.reason) return refuse(result.reason);
     const node = result.graph.nodes.find((n) => n.id === result.id)!;
     commit(result.graph, `Added ${displayName(node)}. Its settings are open in the Settings panel.`, { type: 'node', id: node.id });
+    setFocusNext({ to: 'node', id: node.id });
   };
 
   const move = (id: string, cell: Cell) => {
@@ -93,15 +133,17 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
     commit(result.graph, `${edgeTitle(result.graph, edge)} now.`, { type: 'edge', id: edge.id });
   };
 
-  const remove = () => {
-    if (selection?.type === 'node') {
-      const node = graph.nodes.find((n) => n.id === selection.id);
+  /** Removes a box (with its arrows) or an arrow: `target`, or else what is selected. Focus goes to the canvas. */
+  const remove = (target: Selection = selection) => {
+    if (target?.type === 'node') {
+      const node = graph.nodes.find((n) => n.id === target.id);
       if (node) commit(removeNode(graph, node.id), `Removed ${displayName(node)} and its calls.`, null, true);
-    } else if (selection?.type === 'edge') {
-      const edge = graph.edges.find((e) => e.id === selection.id);
+    } else if (target?.type === 'edge') {
+      const edge = graph.edges.find((e) => e.id === target.id);
       if (edge) commit(removeEdge(graph, edge.id), `Removed the call. ${edgeTitle(graph, edge).replace(' calls ', ' no longer calls ')}.`, null, true);
     }
     setSelection(null);
+    setFocusNext({ to: 'canvas' });
   };
 
   const loadExample = () => {
@@ -117,9 +159,14 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
     setUndoTo(null);
     setSelection(null);
     setStatus({ text: 'Brought back the previous topology.', refused: false });
+    setFocusNext({ to: 'status' }); // the Undo button is gone; the status line says what happened
   };
 
-  const fieldProblems = invalid.map((f) => `"${f.label}" isn't a number that can be used yet: fix the field marked in red.`);
+  // A half-typed field belongs to the part or call whose settings are open: name it, with the field's own message.
+  const selected = selection?.type === 'node' ? graph.nodes.find((n) => n.id === selection.id) : undefined;
+  const selectedEdge = selection?.type === 'edge' ? graph.edges.find((e) => e.id === selection.id) : undefined;
+  const owner = selected ? `${displayName(selected)}: ` : selectedEdge ? `${edgeTitle(graph, selectedEdge)}: ` : '';
+  const fieldProblems = invalid.map((f) => `${owner}"${f.label}": ${(f.input.validationMessage || "it isn't a number that can be used yet").replace(/\.$/, '')}. Fix the field marked in red.`);
   const allProblems = [...fieldProblems, ...problems];
   const ready = allProblems.length === 0;
   const toFix = allProblems.length === 1 ? 'One thing to fix' : `${allProblems.length} things to fix`;
@@ -137,7 +184,7 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
         <div className="csl-builder__titles">
           <h2 className="csl-builder__title">Build your own system</h2>
           <p className="csl-builder__subtitle">
-            Place components, connect them, and set how each call times out and retries.{note && <span className="csl-builder__note"> {note}</span>}
+            Place components, connect them, and set how each call times out and retries.
           </p>
         </div>
         <div className="csl-builder__actions">
@@ -176,7 +223,8 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
             graph={graph}
             selection={selection}
             drag={drag}
-            onSelect={setSelection}
+            onSelect={select}
+            onOpen={open}
             onDragStart={setDrag}
             onDragEnd={() => setDrag(null)}
             onAdd={add}
@@ -195,7 +243,7 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
             }
           />
           <div className="csl-builder__foot">
-            <p className={`csl-builder__status${status?.refused ? ' csl-builder__status--refused' : ''}`} role="status">
+            <p className={`csl-builder__status${status?.refused ? ' csl-builder__status--refused' : ''}`} role="status" tabIndex={-1}>
               {status && (
                 <>
                   {status.refused && <strong>Not possible: </strong>}
@@ -219,15 +267,20 @@ export function BuilderScreen({ graph, onChange, problems, onUse, actions, note 
                   {toFix} before simulating:
                 </p>
                 <ul className="csl-builder__problem-list">
-                  {allProblems.map((p) => (
+                  {(showAll ? allProblems : allProblems.slice(0, PROBLEMS_SHOWN)).map((p) => (
                     <li key={p}>{p}</li>
                   ))}
                 </ul>
+                {allProblems.length > PROBLEMS_SHOWN && (
+                  <button type="button" className="csl-btn csl-btn--link csl-builder__problems-more" aria-expanded={showAll} onClick={() => setShowAll((x) => !x)}>
+                    {showAll ? 'Show fewer' : `Show all ${allProblems.length}`}
+                  </button>
+                )}
               </div>
             )}
           </div>
         </div>
-        <SettingsPanel graph={graph} selection={selection} onChange={onChange} onSelect={setSelection} onConnect={link} onDelete={remove} />
+        <SettingsPanel graph={graph} selection={selection} onChange={panelChange} onSelect={setSelection} onConnect={link} onDelete={() => remove()} />
       </div>
     </section>
   );

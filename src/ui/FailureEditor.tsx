@@ -11,6 +11,7 @@ import {
   callKey,
   countsText,
   removeFault,
+  withCounts,
   retriesByCaller,
   retryCalls,
   setFault,
@@ -173,17 +174,31 @@ export const SUMMARY_MAX_CALLERS = 4;
  * several parts with different retries reads "App server 1× / 2×". With more than
  * `SUMMARY_MAX_CALLERS` callers, the users' apps and the callers that differ are named and the most
  * common count is said once: "users' apps 2× · Queue 3× · the rest 1×", so it stays on one line.
+ * When most of them don't ask again, that is left unsaid ("the rest 0×" read oddly): the callers
+ * named are then the ones that do.
  */
 export function retriesSummary(draft: Draft): string {
   const label = (id: string) => draft.topology.layout[id]?.label ?? id;
   const groups = retriesByCaller(retryCalls(draft.topology));
-  const text = (g: (typeof groups)[number]) => `${g.caller === 'client' ? "users' apps" : label(g.caller)} ${countsText(g.counts)}`;
+  const text = (g: (typeof groups)[number]) => withCounts(g.caller === 'client' ? "users' apps" : label(g.caller), g.counts);
   if (groups.length <= SUMMARY_MAX_CALLERS) return groups.map(text).join(' · ');
   const [users, ...others] = groups;
   const tally = new Map<string, number>();
   for (const g of others) tally.set(countsText(g.counts), (tally.get(countsText(g.counts)) ?? 0) + 1);
   const common = [...tally].reduce((a, b) => (b[1] > a[1] ? b : a))[0];
-  return [text(users), ...others.filter((g) => countsText(g.counts) !== common).map(text), `the rest ${common}`].join(' · ');
+  const rest = common === countsText([0]) ? [] : [`the rest ${common}`];
+  return [text(users), ...others.filter((g) => countsText(g.counts) !== common).map(text), ...rest].join(' · ');
+}
+
+/**
+ * Every call's retries, for the summary's tooltip, so "App server 1× / 3×" can be told apart:
+ * "users' apps → Load balancer 2×, App server → Database 1×, App server → Queue 3×".
+ */
+export function retriesDetail(draft: Draft): string {
+  const label = (id: string) => draft.topology.layout[id]?.label ?? id;
+  return retryCalls(draft.topology)
+    .map((c) => `${c.caller === 'client' ? "users' apps" : label(c.caller)} → ${label(c.target)} ${countsText([c.retries])}`)
+    .join(', ');
 }
 
 /**
@@ -204,7 +219,7 @@ export function ScenarioSummary({ draft, editing, onToggle, edited = false }: { 
       <span className="csl-summary__text">
         {label(f.tier)} <b>{describeFault(f, instances)}</b> for <b>{(f.endMs - f.startMs) / 1000} s</b> at {f.startMs / 1000} s
         {more.length > 0 && <> (+{more.length} more)</>} · <b>{s.rps} req/s</b> ·{' '}
-        <span title="How many times each layer asks again after giving up on an answer (a retry), front to back">
+        <span title={`How many times each layer asks again after giving up on an answer (a retry), front to back: ${retriesDetail(draft)}`}>
           asks again: <b>{retriesSummary(draft)}</b>
         </span>
       </span>

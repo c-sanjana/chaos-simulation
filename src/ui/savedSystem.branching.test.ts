@@ -19,7 +19,7 @@ describe('saved branched systems', () => {
     saveState({ system, scenarioId: 'custom-db-slow-db1', applied, canvas: graph, canvasOpen: true }, store);
     const restored = loadSaved(store)!;
     expect(restored.system).toEqual(system);
-    expect(restored.scenarioId).toBe('custom-db-slow-db1');
+    expect(restored.scenarioId).toBe('custom-db-slow:db1'); // an older save's id for DB1's failure
     expect(restored.applied.topology.tiers[0].moreDownstream![1]).toMatchObject({ target: 's3', share: 2, retries: 4 });
     expect(restored.canvas).toEqual(graph);
     expect(restored.canvasOpen).toBe(true);
@@ -32,6 +32,7 @@ describe('saved branched systems', () => {
     store.setItem(SAVED_SYSTEM_KEY, JSON.stringify(old));
     const restored = loadSaved(store)!;
     expect(restored.system.kind).toBe('custom');
-    expect(restored.applied).toEqual(old.applied);
+    expect(restored.applied).toEqual({ ...old.applied, scenario: { ...old.applied.scenario, id: 'custom-db-slow:n2' } });
+    expect(restored.scenarioId).toBe('custom-db-slow:n2');
   });
 });

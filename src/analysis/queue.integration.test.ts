@@ -7,12 +7,13 @@ import { customSystem } from '../ui/system';
 import { analyzeRun } from './analyze';
 import { controlConfig } from './recovery';
 import { buildStory } from './story';
+import { findScenario } from '../builder/scenarios';
 
 /** Client → Load balancer → Queue → Server → Database, as drawn on the canvas, with defaults. */
 const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
 if (system.kind !== 'custom') throw new Error('expected a built system');
 const labels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
-const scenario = (id: string) => system.scenarios.find((s) => s.id === id)!;
+const scenario = (id: string) => findScenario(system.scenarios, id)!;
 const analyse = (s: ScenarioPreset, rps: number) => {
   const config = buildRunConfig(system.topology, s, { rps });
   const run = runSimulation(config);

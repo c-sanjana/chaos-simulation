@@ -23,20 +23,36 @@ function twoCalls(): BuilderGraph {
 describe('BuilderScreen with branches', () => {
   it("shows each of a load balancer's arrows with its share, and lets one be changed (the others make up the rest)", () => {
     render(<Harness initial={branchedGraph()} />);
-    expect(screen.getAllByText('33% · 2 s · 1 retry')).toHaveLength(3);
-    const arrow = screen.getByRole('button', { name: 'lb calls s1, 33% of its traffic: gives up after 2 s, then tries again up to 1 time' });
+    // The shares shown add up to 100%.
+    expect(screen.getAllByRole('button', { name: /^34% · 2 s · 1 retry:/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^33% · 2 s · 1 retry:/ })).toHaveLength(2);
+    const arrow = screen.getByRole('button', { name: '34% · 2 s · 1 retry: lb calls s1 (34% of its traffic); it gives up after 2 s, then tries again up to 1 time' });
     fireEvent.click(arrow);
     const share = within(panel()).getByLabelText(/^Share of traffic/);
     fireEvent.change(share, { target: { value: '60' } });
     expect(latest.edges.filter((e) => e.from === 'lb').map((e) => e.call.share)).toEqual([0.6, 0.2, 0.2]);
-    expect(screen.getByText('60% · 2 s · 1 retry')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^60% · 2 s · 1 retry:/ }).textContent).toBe('60% · 2 s · 1 retry');
+  });
+
+  it('typing 70, 20 and 10 into the three arrows gives exactly 70/20/10, and a sliver shows as "<1%", never 0%', () => {
+    render(<Harness initial={branchedGraph()} />);
+    for (const [to, value] of [['s1', '70'], ['s2', '20'], ['s3', '10']]) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`: lb calls ${to} `) }));
+      fireEvent.change(within(panel()).getByRole('spinbutton', { name: new RegExp(`^Share of traffic to ${to}`) }), { target: { value } });
+    }
+    expect(latest.edges.filter((e) => e.from === 'lb').map((e) => e.call.share)).toEqual([0.7, 0.2, 0.1]);
+    fireEvent.change(within(panel()).getByRole('spinbutton', { name: /^Share of traffic to s3/ }), { target: { value: '99.6' } });
+    expect(screen.getAllByRole('button', { name: /^<1% · 2 s · 1 retry:/ })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole('button', { name: /^<1% · 2 s · 1 retry: lb calls s1 \(<1% of its traffic\)/ })[0]);
+    const s1 = within(panel()).getByRole('spinbutton', { name: /^Share of traffic to s1/ }) as HTMLInputElement;
+    expect([s1.value, s1.getAttribute('aria-invalid')]).toEqual(['0.3', 'false']);
   });
 
   it("a load balancer's settings say how it spreads requests and list its calls with their shares", () => {
     render(<Harness initial={branchedGraph()} />);
     fireEvent.click(box('lb'));
     expect(within(panel()).getByText(/Each request goes to one of these, by the share of traffic on its arrow/)).toBeTruthy();
-    expect(within(panel()).getAllByText(/\(33% · 2 s · 1 retry\)/)).toHaveLength(3);
+    expect(within(panel()).getAllByText(/\((34|33)% · 2 s · 1 retry\)/)).toHaveLength(3);
   });
 
   it('an app server calling two parts: one after another (in canvas order) or all at once', () => {

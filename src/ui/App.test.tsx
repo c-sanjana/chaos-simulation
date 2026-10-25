@@ -209,7 +209,7 @@ describe('App', { timeout: 60_000 }, () => {
     const api = within(dialog).getByRole('group', { name: 'App server' });
     // The builder's words for the same settings.
     fireEvent.change(within(api).getByLabelText(/^Copies \(instances\)/), { target: { value: '8' } });
-    fireEvent.click(within(api).getByLabelText('Randomise the wait (jitter)'));
+    fireEvent.click(within(api).getByLabelText(/^Randomise the wait before retrying/));
     fireEvent.click(within(api).getByLabelText('Skip requests whose caller already gave up'));
     fireEvent.click(within(api).getByLabelText('Limit the waiting line'));
     fireEvent.change(within(api).getByLabelText(/^Requests allowed to wait, per copy/), { target: { value: '50' } });
@@ -482,7 +482,7 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(pool.analyzed.at(-1)!.tiers.map((t) => t.id)).toEqual(['loadBalancer-1', 'server-1', 'cache-1', 'database-1']), SLOW);
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Database slows down/);
     // The DB the retry storm slowed down isn't in this system: the failure was reset, and it says why.
-    const reset = screen.getByText(/^The failure was reset to "Database slows down": DB, where it happened, is no longer in your system\./);
+    const reset = screen.getByText(/^The failure was reset to "Database slows down": the example's DB, where it happened, is not in your system\./);
     fireEvent.click(within(reset).getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByText(/The failure was reset/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
@@ -539,6 +539,26 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Cache restarts empty/);
     fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
     expect(screen.getByRole('button', { name: /^Queue, a queue/ })).toBeTruthy();
+    // It says this is the kept drawing; a second Cancel without changes keeps it still (code review 3).
+    expect(screen.getByText(/^This is the drawing you kept from last time, not the system you are running\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
+    expect(screen.getByRole('button', { name: /^Queue, a queue/ })).toBeTruthy();
+    // The running system instead: the kept drawing stays kept for next time.
+    fireEvent.click(screen.getByRole('button', { name: 'Open the system you are running instead' }));
+    expect(screen.queryByRole('button', { name: /^Queue, a queue/ })).toBeNull();
+    expect(screen.queryByText(/This is the drawing you kept/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
+    expect(screen.getByRole('button', { name: /^Queue, a queue/ })).toBeTruthy();
+  });
+
+  it('says so when a damaged save had to be left out, and shows the example', async () => {
+    localStorage.setItem('csl-built-system-v1', '{"system": {"nodes": [{"id": 1}], "edges": []}, "canvas": null}');
+    render(<App pool={new FakePool()} />);
+    expect(screen.getByText(/^Your saved system couldn't be restored \(the save is damaged or from another version of this page\), so the example system is shown\./)).toBeTruthy();
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(screen.getByRole('button', { name: '✎ Build your own system' })).toBeTruthy();
   });
 
   it('"Use this topology" keeps the current failure and step when its parts still exist', async () => {

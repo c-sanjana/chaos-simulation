@@ -24,6 +24,7 @@ import {
   type ServiceSettings,
   aKind,
 } from './graph';
+import { shareFractions, shareWeight } from '../engine/config';
 import { flowCalls } from './graphWalk';
 
 /** Size of the builder's canvas grid. Positions are 1-based, like the topology diagram's. */
@@ -70,15 +71,20 @@ function roomy(graph: BuilderGraph, col: number, row: number): boolean {
 
 /**
  * Where the Add button puts a new component: one empty cell to the right of `besideId` (the
- * selected box) when there is room, else the first cell with room around it on the example's
- * layout lines (every other column; the middle row, then the top, then the bottom), else any
- * cell with room around it, else the first empty cell. Null when the grid is full.
+ * selected box) when there is room, else two rows below or above that (where a load balancer's or
+ * app server's next part goes, so its arrows fan out instead of running through the first one),
+ * else the first cell with room around it on the example's layout lines (every other column; the
+ * middle row, then the top, then the bottom), else any cell with room around it, else the first
+ * empty cell. Null when the grid is full.
  * ASSUMPTION: boxes in touching cells hide the arrow (and its label) between them; one empty cell
- * between boxes leaves room for both, as on the example.
+ * between boxes leaves room for both, as on the example. Below before above, so a new part comes
+ * after the existing ones in call order (top to bottom).
  */
 export function addCell(graph: BuilderGraph, besideId?: string): Cell | null {
   const beside = graph.nodes.find((n) => n.id === besideId);
-  if (beside && roomy(graph, beside.col + 2, beside.row)) return { col: beside.col + 2, row: beside.row };
+  if (beside) {
+    for (const row of [beside.row, beside.row + 2, beside.row - 2]) if (roomy(graph, beside.col + 2, row)) return { col: beside.col + 2, row };
+  }
   for (const row of [3, 1, 5]) {
     for (let col = 1; col <= GRID_COLS; col += 2) if (roomy(graph, col, row)) return { col, row };
   }
@@ -190,7 +196,27 @@ export function connect(graph: BuilderGraph, from: string, to: string): EditResu
   const why = connectRefusal(a.settings.kind, b.settings.kind);
   if (why) return refused(graph, why);
   const edge: BuilderEdge = { id: `${from}--${to}`, from, to, call: defaultCall(a.settings.kind, b.settings.kind) };
-  return { graph: { ...graph, edges: [...graph.edges, edge] }, id: edge.id };
+  const next = { ...graph, edges: [...graph.edges, edge] };
+  return { graph: a.settings.kind === 'loadBalancer' ? withEvenNewShare(next, edge.id) : next, id: edge.id };
+}
+
+/**
+ * After a new arrow from a load balancer: when its other arrows have shares set, the new arrow
+ * gets an even share (1 of n arrows: 25% as the 4th) and the others share the rest in their
+ * proportions, the way `setShare` rebalances; e.g. 50/25/25 + a new server → 37.5/18.75/18.75/25.
+ * Without shares set, every arrow (the new one too) is even already.
+ * ASSUMPTION: a new server joins as an equal; without this, the new arrow (no share = weight 1)
+ * would take half the traffic of three arrows whose shares add up to 1.
+ */
+function withEvenNewShare(graph: BuilderGraph, edgeId: string): BuilderGraph {
+  const edge = graph.edges.find((e) => e.id === edgeId)!;
+  const siblings = flowCalls(graph, edge.from);
+  if (!siblings.some((e) => e.id !== edgeId && e.call.share !== undefined)) return graph;
+  const others = siblings.filter((e) => e.id !== edgeId);
+  const rest = shareFractions(others.map((e) => e.call.share));
+  const even = 1 / siblings.length;
+  const share = new Map<string, number>([[edgeId, roundShare(even)], ...others.map((e, i): [string, number] => [e.id, roundShare(rest[i] * (1 - even))])]);
+  return { ...graph, edges: graph.edges.map((e) => (share.has(e.id) ? { ...e, call: { ...e.call, share: share.get(e.id) } } : e)) };
 }
 
 /** Whether `connect(graph, from, to)` would succeed. */
@@ -239,44 +265,72 @@ export function updateCall(graph: BuilderGraph, edgeId: string, patch: Partial<C
   return { ...graph, edges: graph.edges.map((e) => (e.id === edgeId ? { ...e, call: { ...e.call, ...patch } } : e)) };
 }
 
-/** A split weight as used: its share, or 1 when it has none (or a nonsensical one). */
-export const shareWeight = (share: number | undefined): number => (share !== undefined && Number.isFinite(share) && share >= 0 ? share : 1);
+/** Share maths lives with the config's `share` (one definition for the builder, the drawer and the analysis). */
+export { shareFractions, shareWeight };
 
-/** Each weight as a fraction of all of them (even when they add up to nothing). */
-export function shareFractions(shares: Array<number | undefined>): number[] {
-  const w = shares.map(shareWeight);
-  const total = w.reduce((a, b) => a + b, 0);
-  return w.map((x) => (total > 0 ? x / total : 1 / w.length));
+/** A share edit's result: the new shares (fractions adding up to 1), and the arrows set by hand so far (see shareEdit). */
+export interface ShareEdit {
+  shares: number[];
+  pinned: number[];
 }
 
 /**
- * The shares after one of them is set to `percent` of the traffic: the others keep their
- * proportions between themselves and share what is left. Returned as fractions adding up to 1.
+ * The shares after one of them (`index`) is set to `percent` of the traffic. The arrows set by
+ * hand earlier in the same round of edits (`pinned`) keep their shares, and the others share what
+ * is left in their proportions; so typing 70, then 20, then 10 gives exactly 70/20/10. When that
+ * can't work (no other arrow is left to make up the rest and the sum is off, or the arrows set by
+ * hand already add up to more than is left), every other arrow shares the rest in its proportions,
+ * and the round starts again from this arrow. Returned with the arrows set by hand after this edit.
  * E.g. three even shares, the first set to 50% → 0.5, 0.25, 0.25.
  * ASSUMPTION: people think of a split in percent of the traffic, and expect the other arrows to make
  * up the rest rather than to have to balance every arrow by hand.
  */
-export function sharesWith(shares: Array<number | undefined>, index: number, percent: number): number[] {
+export function shareEdit(shares: Array<number | undefined>, index: number, percent: number, pinned: number[] = []): ShareEdit {
   const f = shareFractions(shares);
   const p = Math.min(1, Math.max(0, percent / 100));
-  const rest = 1 - f[index];
-  const round = (x: number) => Math.round(x * 1e6) / 1e6;
-  return f.map((x, i) => round(i === index ? p : rest > 0 ? (x * (1 - p)) / rest : (1 - p) / (f.length - 1)));
+  const kept = pinned.filter((i) => i !== index && i >= 0 && i < f.length);
+  const keptTotal = kept.reduce((sum, i) => sum + f[i], 0);
+  const free = f.map((_, i) => i).filter((i) => i !== index && !kept.includes(i));
+  // It holds while the others can make up the rest, or when the arrows set by hand already add up exactly.
+  const holds = free.length > 0 ? keptTotal + p <= 1 + 1e-9 : Math.abs(keptTotal + p - 1) < 1e-6;
+  const movable = holds ? free : f.map((_, i) => i).filter((i) => i !== index);
+  const left = 1 - p - (holds ? keptTotal : 0);
+  const movableTotal = movable.reduce((sum, i) => sum + f[i], 0);
+  const next = f.map((x, i) => (i === index ? p : !movable.includes(i) ? x : movableTotal > 0 ? (x * left) / movableTotal : left / movable.length));
+  return { shares: next.map(roundShare), pinned: holds ? [...kept, index] : [index] };
 }
 
+/** The shares after one of them is set to `percent` (shareEdit, with no arrow set by hand before). */
+export function sharesWith(shares: Array<number | undefined>, index: number, percent: number): number[] {
+  return shareEdit(shares, index, percent).shares;
+}
+
+/** A share kept to 6 decimals, so stored shares stay readable (0.333333, not 0.33333333333333337). */
+const roundShare = (x: number) => Math.round(x * 1e6) / 1e6;
+
 /**
- * Sets the share of traffic a load balancer sends along one of its arrows (in percent); its other
- * arrows share the rest in their current proportions (see `sharesWith`).
+ * Sets the share of traffic a load balancer sends along one of its arrows (in percent). The arrows
+ * set by hand before in this round (`pinned`, by edge id) keep theirs; the others share the rest
+ * (see shareEdit). Returns the graph and the arrows set by hand after this edit.
  */
-export function setShare(graph: BuilderGraph, edgeId: string, percent: number): BuilderGraph {
+export function editShare(graph: BuilderGraph, edgeId: string, percent: number, pinned: string[] = []): { graph: BuilderGraph; pinned: string[] } {
   const edge = graph.edges.find((e) => e.id === edgeId);
-  if (!edge) return graph;
+  if (!edge) return { graph, pinned };
   const siblings = flowCalls(graph, edge.from);
   const index = siblings.findIndex((e) => e.id === edgeId);
-  if (index < 0 || siblings.length < 2) return graph;
-  const next = sharesWith(siblings.map((e) => e.call.share), index, percent);
-  const byId = new Map(siblings.map((e, i) => [e.id, next[i]]));
-  return { ...graph, edges: graph.edges.map((e) => (byId.has(e.id) ? { ...e, call: { ...e.call, share: byId.get(e.id) } } : e)) };
+  if (index < 0 || siblings.length < 2) return { graph, pinned };
+  const ids = siblings.map((e) => e.id);
+  const next = shareEdit(siblings.map((e) => e.call.share), index, percent, pinned.map((id) => ids.indexOf(id)));
+  const byId = new Map(siblings.map((e, i) => [e.id, next.shares[i]]));
+  return {
+    graph: { ...graph, edges: graph.edges.map((e) => (byId.has(e.id) ? { ...e, call: { ...e.call, share: byId.get(e.id) } } : e)) },
+    pinned: next.pinned.map((i) => ids[i]),
+  };
+}
+
+/** Sets one arrow's share of traffic, the others sharing the rest in their proportions (editShare with nothing set by hand before). */
+export function setShare(graph: BuilderGraph, edgeId: string, percent: number): BuilderGraph {
+  return editShare(graph, edgeId, percent).graph;
 }
 
 /** Whether an app server calls its parts one after another ('sequence') or all at once ('parallel'). */

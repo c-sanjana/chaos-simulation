@@ -69,6 +69,9 @@ export function compileGraph(graph: BuilderGraph, name = 'Your topology'): Topol
  *   which the server's band keeps free.
  * - A part called by several parts (a shared database) then moves, with what it calls, level with
  *   the middle of its callers when that spot is free, so the arrows meet it from both sides.
+ * - A call that skips a column never runs under a box: when a box is in its way on both rows its
+ *   line could run along (the caller's and the callee's), the callee moves, with what it calls, to
+ *   free lanes below (see the loop's comment).
  * - Rows: lane l is grid row 1 + 2 × (l − top), with a cache row always kept above the top lane of
  *   boxes (as the presets have), so a chain sits on row 3 with its cache on row 1.
  */
@@ -146,6 +149,33 @@ function layoutGraph(
     }
     const free = [...moving].every((id) => !used.has(`${col(id)}:${lane.get(id)! + delta}`) && (!ownsCache(id) || !used.has(`${col(id)}:${lane.get(id)! + delta - 1}`)));
     if (free) for (const id of moving) lane.set(id, lane.get(id)! + delta);
+  }
+
+  // A call that skips columns is drawn straight along its row, or bent into the callee's row or out
+  // of the caller's (ui/edgeRoutes.ts). When a box sits in the way on every row it could run along,
+  // the callee moves, with everything it was the first to call, to fresh lanes below everything
+  // else: its row is then empty left of it, so the call (and every other call into it) bends into
+  // that row instead of running under a box. Each move empties a row; a handful of moves at most.
+  const callers = [client, ...flow].filter((n) => lane.has(n.id));
+  for (let moves = 0; moves <= flow.length; moves++) {
+    const boxes = new Set<string>();
+    for (const [id, l] of lane) {
+      boxes.add(`${col(id)}:${l}`);
+      if (ownsCache(id)) boxes.add(`${col(id)}:${l - 1}`);
+    }
+    /** No box on lane `l` strictly between columns `c1` and `c2`. */
+    const clear = (l: number, c1: number, c2: number) => {
+      for (let c = c1 + 1; c < c2; c++) if (boxes.has(`${c}:${l}`)) return false;
+      return true;
+    };
+    const blocked = callers
+      .flatMap((n) => flowCalls(graph, n.id).map((e) => [n.id, e.to] as const))
+      .find(([a, b]) => lane.has(b) && !clear(lane.get(b)!, col(a), col(b)) && !clear(lane.get(a)!, col(a), col(b)));
+    if (!blocked) break;
+    const moving = new Set(subtree(blocked[1]));
+    const top = Math.min(...[...moving].map((id) => lane.get(id)! - (ownsCache(id) ? 1 : 0)));
+    const bottom = Math.max(...[...lane].filter(([id]) => !moving.has(id)).map(([, l]) => l));
+    for (const id of moving) lane.set(id, lane.get(id)! + bottom + 1 - top);
   }
 
   const cacheLanes = [...lane].filter(([id]) => ownsCache(id)).map(([, l]) => l - 1);

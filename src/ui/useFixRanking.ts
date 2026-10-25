@@ -39,13 +39,21 @@ const EMPTY: FixRankingState = { original: null, candidates: [], ranked: [], tes
  *
  * Each fix is analysed in full where the pool keeps results (see CellOptions.analysisLabels), so
  * replaying the chosen fix at the viewer's settings reuses the ranking's run instead of re-running it.
+ *
+ * As in useAnalysis, a ranking is only ever returned for the config it belongs to: in the render
+ * where the config changes (before the effect starts again), it is already EMPTY, so the fix step
+ * never shows, or replays, a fix ranked for the previous config.
  */
 export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analysis | null, labels: Record<string, string>, run?: RunResult): FixRankingState {
   const key = analysis ? stableKey(config) + stableKey(labels) : null;
-  const [state, setState] = useState<FixRankingState>(EMPTY);
+  const [keyed, setKeyed] = useState<{ key: string | null; value: FixRankingState }>({ key: null, value: EMPTY });
   useEffect(() => {
+    /** Starts this config's ranking afresh. */
+    const start = (value: FixRankingState) => setKeyed({ key, value });
+    /** Updates this config's ranking, never another's (a late result of a cancelled ranking is dropped). */
+    const setState = (update: (s: FixRankingState) => FixRankingState) => setKeyed((k) => (k.key === key ? { key, value: update(k.value) } : k));
     if (!analysis) {
-      setState(EMPTY);
+      start(EMPTY);
       return;
     }
     const r = analysis.recovery;
@@ -53,7 +61,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
     const candidates = candidateFixes(config, analysis.signals, labels, run);
     const results: Array<{ candidate: FixCandidate; outcome: FixOutcome }> = [];
     const robustness: Record<string, Robustness> = {};
-    setState({ ...EMPTY, original, candidates, checking: candidates.length > 0 });
+    start({ ...EMPTY, original, candidates, checking: candidates.length > 0 });
     const update = (id: string, r: Robustness) => {
       robustness[id] = { ...robustness[id], ...r };
       setState((s) => ({ ...s, robustness: { ...robustness }, ranked: rankFixes(original, results, robustness) }));
@@ -99,5 +107,5 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
     return () => batch.cancel();
     // `key` stands in for config, labels and analysis (compared by value; the analysis follows from them).
   }, [pool, key]);
-  return state;
+  return keyed.key === key ? keyed.value : EMPTY;
 }

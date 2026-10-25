@@ -9,11 +9,12 @@ import { customSystem } from '../ui/system';
 import { analyzeRun } from './analyze';
 import { MAX_SETTLE_MS, moreTimeNeeded, simulateUntilSettled } from './settle';
 import { buildStory } from './story';
+import { findScenario } from '../builder/scenarios';
 
 /** Client → App server → Queue → Database, as drawn on the canvas with defaults. */
 const system = customSystem(chainGraph(['client', 'server', 'queue', 'database']));
 if (system.kind !== 'custom') throw new Error('expected a built system');
-const scenario = (id: string) => system.scenarios.find((s) => s.id === id)!;
+const scenario = (id: string) => findScenario(system.scenarios, id)!;
 const labels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
 
 describe('simulateUntilSettled', { timeout: 120_000 }, () => {

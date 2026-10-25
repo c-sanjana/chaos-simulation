@@ -1,4 +1,8 @@
 import { retryStormRun } from '../analysis/testRuns';
+import { defaultCall, defaultSettings, type ComponentKind } from '../builder/graph';
+import { buildRunConfig } from '../data/buildConfig';
+import { runSimulation } from '../engine/run';
+import { customSystem } from './system';
 import { retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RecoveryResult } from '../analysis/recovery';
@@ -291,5 +295,26 @@ describe('unansweredShare', () => {
     const client = topologyView(webChain, config, run, 45_000).nodes.find((n) => n.id === 'client')!;
     expect(client).toMatchObject({ health: 'bad', lines: ['203 rps sent', expect.stringMatching(/^\d+% not answered$/)] });
     expect(unansweredShare(run.client, 20)).toBeLessThan(0.05);
+  });
+});
+
+describe('a cache two app servers look things up in (review 3)', () => {
+  it('draws the first server’s lookups as the arrow, and the lookups from both on the cache’s box', () => {
+    const node = (id: string, kind: ComponentKind, col: number, row: number) => ({ id, label: id, col, row, settings: defaultSettings(kind) });
+    const nodes = [node('client', 'client', 1, 3), node('lb', 'loadBalancer', 3, 3), node('s1', 'server', 5, 1), node('s2', 'server', 5, 5), node('cache', 'cache', 7, 1), node('db', 'database', 7, 3)];
+    const kind = (id: string) => nodes.find((n) => n.id === id)!.settings.kind;
+    const edge = (from: string, to: string) => ({ id: `${from}--${to}`, from, to, call: defaultCall(kind(from), kind(to)) });
+    const system = customSystem({ nodes, edges: [edge('client', 'lb'), edge('lb', 's1'), edge('lb', 's2'), edge('s1', 'cache'), edge('s2', 'cache'), edge('s1', 'db'), edge('s2', 'db')] });
+    if (system.kind !== 'custom') throw new Error('expected a built system');
+    const config = { ...buildRunConfig(system.topology, system.scenarios[0]), durationMs: 20_000, faults: [] };
+    const run = runSimulation(config);
+    const { nodes: boxes, edges } = topologyView(system.topology, config, run, 15_000);
+    const cache = boxes.find((n) => n.id === 'cache')!;
+    expect(cache.lines[0]).toMatch(/^\d+ lookups\/s in$/);
+    expect(cache.lines[1]).toMatch(/^hit rate \d+%$/);
+    expect(edges.filter((e) => e.cache).map((e) => e.from)).toEqual(['s1']);
+    const total = Number(cache.lines[0].split(' ')[0]);
+    const drawn = Number(edges.find((e) => e.cache)!.label.split(' ')[0]);
+    expect(drawn).toBeLessThan(total);
   });
 });

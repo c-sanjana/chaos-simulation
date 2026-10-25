@@ -118,6 +118,12 @@ export function retriesByCaller(calls: RetryCall[]): Array<{ caller: string; cou
 export const countsText = (counts: number[]): string => counts.map((n) => `${n}×`).join(' / ');
 
 /**
+ * A part's name with its retry counts: "Load balancer 2×", but "App server 2: 2×" for a name that
+ * ends in a number, which would otherwise read as one number ("App server 2 2×").
+ */
+export const withCounts = (name: string, counts: number[]): string => `${name}${/\d$/.test(name) ? ':' : ''} ${countsText(counts)}`;
+
+/**
  * Sets how many times `caller` retries its call to `target` (every one of its calls when `target`
  * is left out).
  */

@@ -113,6 +113,28 @@ const medianMs = (t: TierConfig) => (t.service.kind === 'lognormal' ? t.service.
 
 const lengths = (seconds: number[]): Axis => ({ param: 'outageMs', label: 'failure length', values: seconds.map((s) => s * 1000) });
 
+/** The kinds of failure a built system offers, as the start of their ids. */
+export const BUILT_SCENARIO_KINDS = ['custom-db-slow', 'custom-cache-restart', 'custom-front-slow', 'custom-queue-backlog'] as const;
+export type BuiltScenarioKind = (typeof BUILT_SCENARIO_KINDS)[number];
+
+/** A built scenario's id: its kind and the part it is aimed at, e.g. 'custom-db-slow:db2'. */
+export const builtScenarioId = (kind: BuiltScenarioKind, partId: string): string => `${kind}:${partId}`;
+
+/**
+ * The scenario `id` names in `list`, or undefined. Besides the ids `builtScenarioId` gives, the ids
+ * of older saves still work: the plain kind ('custom-db-slow') named the busiest part of that kind,
+ * which is the first of the kind in the list; `custom-db-slow-<part id>` named one of the others.
+ */
+export function findScenario(list: ScenarioPreset[], id: string): ScenarioPreset | undefined {
+  const exact = list.find((s) => s.id === id);
+  if (exact) return exact;
+  for (const kind of BUILT_SCENARIO_KINDS) {
+    if (id === kind) return list.find((s) => s.id.startsWith(`${kind}:`));
+    if (id.startsWith(`${kind}-`)) return list.find((s) => s.id === builtScenarioId(kind, id.slice(kind.length + 1)));
+  }
+  return undefined;
+}
+
 /** At most this many scenarios of one kind (databases, caches, queues), the busiest first, so the list stays short. */
 export const MAX_PER_KIND = 3;
 
@@ -120,8 +142,9 @@ export const MAX_PER_KIND = 3;
  * The scenarios a built topology offers, each aimed at the part it names (by what the part is,
  * not its id): each database slows down; each cache restarts empty; the front door slows down; the
  * work behind each queue slows down. Only those that apply are offered. With several parts of a
- * kind, the busiest (largest share of the users' requests) come first, up to `MAX_PER_KIND`; the
- * first of each kind keeps the plain id ('custom-db-slow'), the others add the part's id.
+ * kind, the busiest (largest share of the users' requests) come first, up to `MAX_PER_KIND`. Each
+ * id names its kind and its part ('custom-db-slow:db2', see `builtScenarioId`), so an id always runs
+ * the failure it was offered for, even after the shares change which part is busiest.
  * `kinds` says what each tier is, by tier id ('loadBalancer', 'server', 'database', 'cache', 'queue').
  */
 export function builtScenarios(topology: TopologyPreset, kinds: Record<string, string>, rps: number): ScenarioPreset[] {
@@ -135,26 +158,25 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
       .filter((t) => share(t) > 0)
       .sort((a, b) => share(b) - share(a) || (lastFirst ? position(b) - position(a) : position(a) - position(b)))
       .slice(0, MAX_PER_KIND);
-  const idFor = (base: string, i: number, t: TierConfig) => (i === 0 ? base : `${base}-${t.id}`);
   const label = (id: string) => topology.layout[id]?.label ?? id;
   const x = builtTrafficAxis(topology, rps);
   const base = { topology: topology.id, rps, durationMs: DURATION_MS };
   const out: ScenarioPreset[] = [];
 
-  busiest(topology.tiers.filter((t) => kinds[t.id] === 'database'), true).forEach((db, i) => {
+  busiest(topology.tiers.filter((t) => kinds[t.id] === 'database'), true).forEach((db) => {
     out.push({
       ...base,
-      id: idFor('custom-db-slow', i, db),
+      id: builtScenarioId('custom-db-slow', db.id),
       title: `${label(db.id)} slows down`,
       blurb: `${label(db.id)} is 8× slower for 5 s; everything that retries piles on.`,
       faults: [{ tier: db.id, kind: 'slow', factor: 8, startMs: START_MS, endMs: START_MS + 5_000 }],
       map: { x, y: lengths([12, 8, 5, 3, 2, 1]) },
     });
   });
-  busiest(topology.tiers.filter((t) => t.cache)).forEach((cache, i) => {
+  busiest(topology.tiers.filter((t) => t.cache)).forEach((cache) => {
     out.push({
       ...base,
-      id: idFor('custom-cache-restart', i, cache),
+      id: builtScenarioId('custom-cache-restart', cache.id),
       title: `${label(cache.id)} restarts empty`,
       blurb: `${label(cache.id)} goes down for 5 s and comes back empty; every lookup falls through.`,
       faults: [{ tier: cache.id, kind: 'dead', startMs: START_MS, endMs: START_MS + 5_000, flushAtEnd: true }],
@@ -174,14 +196,14 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
     const factor = Math.min(1000, byTimeout, Math.max(2, Math.round((2 * tierCapacityRps(front)) / (rps * (share(front) || 1)))));
     out.push({
       ...base,
-      id: 'custom-front-slow',
+      id: builtScenarioId('custom-front-slow', front.id),
       title: `${label(front.id)} slows down`,
       blurb: `${label(front.id)}, the first thing users reach, takes ~${formatTime(median * factor)} a request instead of ~${formatTime(median)} (${factor}× slower) for 20 s.`,
       faults: [{ tier: front.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],
       map: { x, y: lengths([30, 20, 10, 5, 2]) },
     });
   }
-  busiest(topology.tiers.filter((t) => t.queue && t.downstream && byId.has(t.downstream.target))).forEach((queue, i) => {
+  busiest(topology.tiers.filter((t) => t.queue && t.downstream && byId.has(t.downstream.target))).forEach((queue) => {
     const worker = byId.get(queue.downstream!.target)!;
     // ASSUMPTION: slow it until each piece of work takes long enough that the consumers get through
     // only about half the messages arriving (consumers ÷ time per message = the queue's traffic ÷ 2).
@@ -190,7 +212,7 @@ export function builtScenarios(topology: TopologyPreset, kinds: Record<string, s
     const factor = Math.min(1000, Math.max(2, Math.round((2 * queue.queue!.consumers * 1000) / (rps * share(queue)) / meanMs(worker))));
     out.push({
       ...base,
-      id: idFor('custom-queue-backlog', i, queue),
+      id: builtScenarioId('custom-queue-backlog', queue.id),
       title: `Work behind ${label(queue.id)} slows down`,
       blurb: `${label(worker.id)} takes ~${formatTime(medianMs(worker) * factor)} a request instead of ~${formatTime(medianMs(worker))} (${factor}× slower) for 20 s; messages pile up in ${label(queue.id)}. Does it catch up?`,
       faults: [{ tier: worker.id, kind: 'slow', factor, startMs: START_MS, endMs: START_MS + 20_000 }],

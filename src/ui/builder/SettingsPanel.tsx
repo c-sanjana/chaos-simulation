@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { canConnectNodes, connectRefusal, setFanOut, setShare, updateCall, updateNode, type SettingsPatch } from '../../builder/edit';
+import { canConnectNodes, connectRefusal, editShare, setFanOut, updateCall, updateNode, type SettingsPatch } from '../../builder/edit';
 import { flowCalls } from '../../builder/graphWalk';
 import {
   KIND_BLURBS,
@@ -18,7 +18,8 @@ import {
 import { CheckboxField, NumberField } from '../components/Fields';
 import { LIMITS } from '../draft';
 import { FIELD_LIMITS, p99Message } from '../fieldLimits';
-import { callSentence, displayName, edgeEnds, edgeLabel, splitShare } from './describe';
+import { sharePercentField } from '../format';
+import { callSentence, displayName, edgeEnds, edgeLabel, splitPercent, splitShare } from './describe';
 import { KindIcon } from './KindIcon';
 import { PALETTE_KINDS } from './Palette';
 import type { Selection } from './BuilderCanvas';
@@ -166,7 +167,9 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
       <div className="csl-bpanel__head">
         <KindIcon kind={s.kind} size={20} />
         <div>
-          <h3 className="csl-bpanel__title">{displayName(node)}</h3>
+          <h3 className="csl-bpanel__title" tabIndex={-1} data-panel-title>
+            {displayName(node)}
+          </h3>
           <p className="csl-bpanel__sub">
             {KIND_LABELS[s.kind]}: {KIND_BLURBS[s.kind].charAt(0).toLowerCase() + KIND_BLURBS[s.kind].slice(1)}
           </p>
@@ -193,7 +196,7 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
           <div className="csl-bpanel__radios" role="radiogroup" aria-label="Calls its parts">
             <span className="csl-bpanel__radios-title">Calls its parts</span>
             <label className="csl-bpanel__radio">
-              <input type="radio" name={`fan-${node.id}`} checked={s.fanOut !== 'parallel'} onChange={() => onChange(setFanOut(graph, node.id, 'sequence'))} />
+              <input type="radio" name={`fan-${node.id}`} checked={s.fanOut === 'sequence' || s.fanOut === undefined} onChange={() => onChange(setFanOut(graph, node.id, 'sequence'))} />
               One after another <span className="csl-bpanel__muted">(top to bottom on the canvas; if one fails, the request fails and the rest aren't called)</span>
             </label>
             <label className="csl-bpanel__radio">
@@ -254,7 +257,17 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
   );
 }
 
-function EdgeSettings({ edge, from, to, graph, onChange, onDelete, focusTitle }: Pick<SettingsPanelProps, 'graph' | 'onChange' | 'onDelete'> & { edge: BuilderEdge; from: BuilderNode; to: BuilderNode; focusTitle: boolean }) {
+function EdgeSettings({
+  edge,
+  from,
+  to,
+  graph,
+  onChange,
+  onDelete,
+  focusTitle,
+  pinned,
+  onPinned,
+}: Pick<SettingsPanelProps, 'graph' | 'onChange' | 'onDelete'> & { edge: BuilderEdge; from: BuilderNode; to: BuilderNode; focusTitle: boolean; pinned: string[]; onPinned: (ids: string[]) => void }) {
   // Just connected with the keyboard: focus moves to the new call, so its settings are read next.
   const title = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -275,7 +288,7 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete, focusTitle }:
           →
         </span>
         <div>
-          <h3 className="csl-bpanel__title" ref={title} tabIndex={-1}>
+          <h3 className="csl-bpanel__title" ref={title} tabIndex={-1} data-panel-title>
             {fromName} → {toName}
           </h3>
           <p className="csl-bpanel__sub">
@@ -284,8 +297,19 @@ function EdgeSettings({ edge, from, to, graph, onChange, onDelete, focusTitle }:
         </div>
       </div>
       {share !== null && (
-        <Group title="Share of traffic" hint={`The part of ${fromName}'s requests sent to ${toName}. Its other arrows share the rest in their current proportions.`}>
-          <NumberField label="Share of traffic" unit="%" value={Math.round(share * 100)} min={1} max={99} integer onChange={(v) => onChange(setShare(graph, edge.id, v))} />
+        <Group title="Traffic split" hint={`The part of ${fromName}'s requests sent to ${toName}. ${fromName}'s other arrows make up the rest: those whose share you set keep it, the others keep their proportions.`}>
+          <NumberField
+            label={`Share of traffic to ${toName}`}
+            unit="%"
+            value={sharePercentField(share, splitPercent(graph, edge)!)}
+            min={FIELD_LIMITS.minSharePct}
+            max={FIELD_LIMITS.maxSharePct}
+            onChange={(v) => {
+              const next = editShare(graph, edge.id, v, pinned);
+              onPinned(next.pinned);
+              onChange(next.graph);
+            }}
+          />
         </Group>
       )}
       <Group title="Giving up" hint="Without a timeout, a caller waits forever for a stuck component, and its own callers pile up behind it.">
@@ -314,6 +338,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const { graph, selection } = props;
   /** The call just made with Connect, whose heading takes focus when its settings open. */
   const [connected, setConnected] = useState<string | null>(null);
+  /** The arrows whose share was typed in this round (see editShare): they keep it while the others make up the rest. */
+  const [pinned, setPinned] = useState<string[]>([]);
   const connect = (from: string, to: string) => {
     setConnected(`${from}--${to}`); // the id `connect` gives a new call
     props.onConnect(from, to);
@@ -332,7 +358,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
       {/* The panel is as tall as the canvas column and scrolls inside, so it never makes the page scroll. */}
       <div className="csl-bpanel__scroll">
       {node && <NodeSettings key={node.id} {...props} onConnect={connect} node={node} />}
-      {edge && ends.from && ends.to && <EdgeSettings key={edge.id} {...props} edge={edge} from={ends.from} to={ends.to} focusTitle={edge.id === connected} />}
+      {edge && ends.from && ends.to && <EdgeSettings key={edge.id} {...props} edge={edge} from={ends.from} to={ends.to} focusTitle={edge.id === connected} pinned={pinned} onPinned={setPinned} />}
       {!node && !(edge && ends.from && ends.to) && (
         <div className="csl-bpanel__intro">
           <h3 className="csl-bpanel__title">Settings</h3>

@@ -156,3 +156,17 @@ export interface RunConfig {
   tiers: TierConfig[];
   faults?: Fault[];
 }
+
+/**
+ * A split call's weight as used: its `share`, or 1 when it has none (so absent shares split
+ * evenly). validateConfig refuses a share that isn't above 0; anything nonsensical counts as 1
+ * here, so a drawing being edited still reads sensibly. The one definition every reader uses.
+ */
+export const shareWeight = (share: number | undefined): number => (share !== undefined && Number.isFinite(share) && share >= 0 ? share : 1);
+
+/** Each split weight (see shareWeight) as a fraction of all of them (even when they add up to nothing). */
+export function shareFractions(shares: Array<number | undefined>): number[] {
+  const w = shares.map(shareWeight);
+  const total = w.reduce((a, b) => a + b, 0);
+  return w.map((x) => (total > 0 ? x / total : 1 / w.length));
+}

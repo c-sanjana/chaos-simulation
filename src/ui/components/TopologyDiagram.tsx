@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { ARROW_FAIL, ARROW_OK, ARROW_RETRY, arrowThickness, edgeKind, flowDurationS, isFailing, type EdgeKind } from './arrowStyle';
+import { RoutedLines, type Room } from './RoutedLines';
 import type { Health, TopologyEdgeView, TopologyNodeView } from './types';
 import './topology.css';
 
@@ -19,36 +21,16 @@ import './topology.css';
  *   the box's accessible name always has the words.
  * - The key under the diagram explains all of this in one line, without relying on motion.
  * - Branches: arrows between boxes on different rows (or past empty cells) are drawn over the grid
- *   with right-angle bends (RoutedLines, measured from the boxes), with the same thickness, retry
- *   band, flow dashes and arrowhead colours as straight ones; their text sits in one arrow cell
- *   (RoutedEdge), on the side of the line away from the bend. See ui/edgeRoutes.ts.
+ *   with right-angle bends (RoutedLines.tsx, measured from the boxes), with the same thickness,
+ *   retry band, flow dashes and arrowhead colours as straight ones; their text sits in one arrow
+ *   cell (RoutedEdge), on the side of the line away from the bend, and the grid makes room for it
+ *   when it reaches past the top or bottom row. See ui/edgeRoutes.ts.
+ * - What an applied fix changed on an arrow: a "🔧 no retries (was 1)" chip under it, shortened to
+ *   "🔧" when the arrow is too narrow for the words, and every change in words under the diagram.
  */
 
-const ARROW_OK = 'var(--csl-arrow)';
-const ARROW_RETRY = 'var(--csl-retry)';
-const ARROW_FAIL = 'var(--csl-fail)';
-
-/** Error share above which a box or arrow is drawn as failing. Matches BAD_ERROR_SHARE in viewModels.ts. */
-export const FAILING_ERROR_SHARE = 0.05;
-/** Retry share above which an arrow is drawn as retrying (orange label and arrowhead). */
-export const RETRYING_SHARE = 0.05;
-
-/** Arrow thickness in px: proportional to requests/s, clamped so thin flows stay visible. */
-export function arrowThickness(rps: number): number {
-  return Math.round(Math.min(14, Math.max(2, rps / 45)));
-}
-
-/**
- * Seconds for the flow dashes to move one pattern length, or null for no motion (no requests).
- * Speed grows with the logarithm of requests/s so that 50 rps and 1,000 rps both look sensible;
- * it is clamped to 0.4..2.4 s and rounded to 0.1 s so small changes between replay frames
- * don't make the dashes jump.
- */
-export function flowDurationS(rps: number): number | null {
-  if (!(rps > 0)) return null;
-  const seconds = Math.min(2.4, Math.max(0.4, 2.6 - 0.7 * Math.log10(rps)));
-  return Math.round(seconds * 10) / 10;
-}
+export { arrowThickness, edgeKind, FAILING_ERROR_SHARE, flowDurationS, RETRYING_SHARE } from './arrowStyle';
+export { routePoints, TRUNK_AFTER_SOURCE, TRUNK_BEFORE_TARGET, type Box } from './RoutedLines';
 
 /** ASSUMPTION: an instance counts as saturated ("hot") once essentially every worker is busy. */
 export function instanceColor(busy: number): string {
@@ -57,10 +39,6 @@ export function instanceColor(busy: number): string {
 
 /** Users' box counts requests not answered (see unansweredShare); a tier counts failed responses. */
 const errorWord = (node: TopologyNodeView) => (node.id === 'client' ? 'not answered' : 'errors');
-
-function isFailing(errorShare: number | undefined): boolean {
-  return (errorShare ?? 0) > FAILING_ERROR_SHARE;
-}
 
 function percent(share: number): string {
   return `${Math.round(share * 100)}%`;
@@ -99,12 +77,17 @@ export function nodeAriaLabel(node: TopologyNodeView): string {
   return `${node.label}${count}: ${node.lines[0]}, ${node.lines[1]}; ${healthWord(node.health)}${fault}${failing}${overloaded}${changeWords(node.change)}`;
 }
 
-/** "🔧 queue limit 93": what an applied fix changed, on a box or under an arrow. Screen readers get it from the accessible name. */
-function ChangeTag({ change, className }: { change: string; className: string }) {
+/**
+ * "🔧 queue limit 93": what an applied fix changed, on a box or under an arrow. Screen readers get
+ * it from the accessible name. `fit`: on an arrow too narrow for the words (step 3's side-by-side
+ * diagrams), just "🔧"; the words are then in the list under the diagram (ChangeList), never
+ * squeezed onto several lines or cut off.
+ */
+function ChangeTag({ change, className, fit = false }: { change: string; className: string; fit?: boolean }) {
   const text = withoutIcon(change);
   return (
     <span className={`csl-change ${className}`} title={`Changed by the fix: ${text}`} aria-hidden="true">
-      🔧 {text}
+      {fit ? <Fitted forms={[`🔧 ${text}`, '🔧']} kind="change" /> : `🔧 ${text}`}
     </span>
   );
 }
@@ -249,15 +232,6 @@ export function edgeAriaLabel(edge: TopologyEdgeView, nodes: TopologyNodeView[])
   return `${ends}${rate}${repeats}${failing}${changeWords(edge.change)}`;
 }
 
-type EdgeKind = 'ok' | 'retrying' | 'failing';
-
-/** Failing wins over retrying; an unhealthy arrow without a failure is mostly retries. */
-export function edgeKind(edge: TopologyEdgeView): EdgeKind {
-  if (isFailing(edge.errorShare)) return 'failing';
-  if (edge.health === 'bad' || (edge.retryShare ?? 0) > RETRYING_SHARE) return 'retrying';
-  return 'ok';
-}
-
 /**
  * The arrow's shaft: a track (red when failing), an orange band for the retry share, and the
  * moving flow dashes. The band runs along the shaft and its thickness is the retry share of the
@@ -307,7 +281,7 @@ export function rateForms(label: string): string[] {
 }
 
 /** Estimated px per character and extra px (pill padding and border) of arrow captions, at 12 px. */
-const FIT_METRICS = { label: { perChar: 7.3, extra: 18 }, detail: { perChar: 6.2, extra: 2 } } as const;
+const FIT_METRICS = { label: { perChar: 7.3, extra: 18 }, detail: { perChar: 6.2, extra: 2 }, change: { perChar: 6.9, extra: 16 } } as const;
 
 /** The width bucket (px, rounded up to 10, within 40..200) a text needs; see .csl-fit--min/max* in topology.css. */
 export function fitBucket(text: string, kind: keyof typeof FIT_METRICS): number {
@@ -357,7 +331,8 @@ function Edge({ edge, nodes }: { edge: TopologyEdgeView; nodes: TopologyNodeView
   const cls = `csl-edge csl-edge--${edge.orientation} csl-edge--${kind}${edge.health === 'bad' ? ' csl-edge--bad' : ''}${edge.rps > 0 ? '' : ' csl-edge--still'}${edge.clearStart ? ' csl-edge--clear-start' : ''}${edge.clearEnd ? ' csl-edge--clear-end' : ''}`;
   const a11y = { role: 'img', 'aria-label': edgeAriaLabel(edge, nodes), 'data-testid': `edge-${edge.id}` };
   const place = { gridColumn: edge.col, gridRow: edge.row };
-  const change = edge.change && <ChangeTag change={edge.change} className="csl-edge__change" />;
+  // A cache arrow's column is as wide as a box: its words always fit.
+  const change = edge.change && <ChangeTag change={edge.change} className="csl-edge__change" fit={edge.orientation !== 'vertical'} />;
 
   if (edge.orientation === 'routed') return <RoutedEdge edge={edge} cls={cls} a11y={a11y} place={place} kind={kind} change={change} />;
   if (edge.orientation === 'vertical') {
@@ -434,101 +409,30 @@ function RoutedEdge({ edge, cls, a11y, place, kind, change }: { edge: TopologyEd
   );
 }
 
-/** A box's position and size inside the grid, in px. */
-export interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** Gap between a box and the start or tip of an arrow (the straight arrows' cell padding). */
-const ARROW_GAP = 6;
-/** Arrowhead length (as on straight arrows). */
-const HEAD = 10;
-/** Where a bend runs: this far after the caller's edge, or before the callee's (leaving room for the arrowhead). */
-export const TRUNK_AFTER_SOURCE = ARROW_GAP + 8;
-export const TRUNK_BEFORE_TARGET = ARROW_GAP + HEAD + 4;
-
 /**
- * The corners of a routed arrow's line, from the caller's right edge (middle) to the callee's left
- * edge (middle), the arrowhead's tip last. Straight when both are level or the route has no bend.
+ * Everything an applied fix changed, in words, under the diagram: "🔧 App server → Database 2: no
+ * retries (was 1)". On a narrow arrow the chip is only "🔧" (ChangeTag), so this is where its words
+ * are read.
  */
-export function routePoints(route: NonNullable<TopologyEdgeView['route']>, a: Box, b: Box): Array<[number, number]> {
-  const x1 = a.x + a.w + ARROW_GAP;
-  const y1 = a.y + a.h / 2;
-  const x2 = b.x - ARROW_GAP;
-  const y2 = b.y + b.h / 2;
-  if (route.trunk === 'none' || Math.abs(y1 - y2) < 0.5) return [[x1, y1], [x2, y2]];
-  const xt = route.trunk === 'source' ? a.x + a.w + TRUNK_AFTER_SOURCE : b.x - TRUNK_BEFORE_TARGET;
-  return [[x1, y1], [xt, y1], [xt, y2], [x2, y2]];
-}
-
-/** An SVG path through the points, stopping `HEAD` px short of the last (where the arrowhead starts). */
-function shaftPath(points: Array<[number, number]>): string {
-  const [x2, y2] = points[points.length - 1];
-  const body = points.slice(0, -1).map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`);
-  return `${body.join(' ')} L${x2 - HEAD} ${y2}`;
-}
-
-/**
- * The boxes' positions in the grid (by node id), measured after layout and again when anything
- * resizes. `layer` is an element placed directly in the grid (its parent is the grid; the grid's
- * own ref is not attached yet when a child's layout effect runs).
- */
-function useBoxes(layer: RefObject<Element>, key: string): Record<string, Box> {
-  const [boxes, setBoxes] = useState<Record<string, Box>>({});
-  useLayoutEffect(() => {
-    const el = layer.current?.parentElement;
-    if (!el) return;
-    const measure = () => {
-      const next: Record<string, Box> = {};
-      el.querySelectorAll<HTMLElement>('[data-node-id]').forEach((n) => {
-        next[n.dataset.nodeId!] = { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight };
-      });
-      setBoxes((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-    };
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
-    observer?.observe(el);
-    el.querySelectorAll('[data-node-id]').forEach((n) => observer?.observe(n));
-    return () => observer?.disconnect();
-  }, [layer, key]);
-  return boxes;
-}
-
-/**
- * The lines of routed arrows, drawn over the grid under the boxes and the arrows' text: a shaft as
- * thick as the requests/s (red when failing), an orange dashed band inside it for the retry share,
- * the moving flow dashes, and the arrowhead (orange when retrying, red when failing).
- */
-function RoutedLines({ edges, layoutKey }: { edges: TopologyEdgeView[]; layoutKey: string }) {
-  const svg = useRef<SVGSVGElement>(null);
-  const boxes = useBoxes(svg, layoutKey);
+function ChangeList({ nodes, edges }: { nodes: TopologyNodeView[]; edges: TopologyEdgeView[] }) {
+  const name = (id: string | undefined) => nodes.find((n) => n.id === id)?.label;
+  const items = [
+    ...edges.filter((e) => e.change).map((e) => {
+      const ends = edgeEnds(e, nodes);
+      const [from, to] = [name(e.from ?? ends.from?.id), name(e.to ?? ends.to?.id)];
+      return `${from && to ? `${from} → ${to}: ` : ''}${withoutIcon(e.change!)}`;
+    }),
+    ...nodes.filter((n) => n.change).map((n) => `${n.label}: ${withoutIcon(n.change!)}`),
+  ];
   return (
-    <svg ref={svg} className="csl-routes" aria-hidden="true" data-testid="routed-lines">
-      {edges.map((edge) => {
-        const a = boxes[edge.from ?? ''];
-        const b = boxes[edge.to ?? ''];
-        if (!a || !b || !edge.route) return null;
-        const points = routePoints(edge.route, a, b);
-        const d = shaftPath(points);
-        const kind = edgeKind(edge);
-        const thickness = arrowThickness(edge.rps);
-        const duration = flowDurationS(edge.rps);
-        const retry = edge.retryShare ?? 0;
-        const [x2, y2] = points[points.length - 1];
-        const head = kind === 'failing' ? ARROW_FAIL : kind === 'retrying' ? ARROW_RETRY : ARROW_OK;
-        return (
-          <g key={edge.id} data-testid={`route-${edge.id}`} className={`csl-route csl-route--${kind}`}>
-            <path d={d} className="csl-route__shaft" style={{ stroke: kind === 'failing' ? ARROW_FAIL : ARROW_OK, strokeWidth: thickness }} />
-            {retry > 0 && <path d={d} className="csl-route__retry" data-testid="route-retry" style={{ strokeWidth: Math.max(1, Math.round(thickness * retry)) }} />}
-            {duration !== null && <path d={d} className="csl-route__flow" style={{ strokeWidth: thickness, animationDuration: `${duration}s` }} />}
-            <path d={`M${x2 - HEAD} ${y2 - 7} L${x2} ${y2} L${x2 - HEAD} ${y2 + 7} Z`} style={{ fill: head }} />
-          </g>
-        );
-      })}
-    </svg>
+    <ul className="csl-topology-changes" aria-label="Changed by the fix">
+      {items.map((item) => (
+        <li key={item}>
+          <span aria-hidden="true">🔧 </span>
+          {item}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -594,14 +498,40 @@ export interface TopologyDiagramProps {
   compact?: boolean;
 }
 
+/** How far a badge on a box's border reaches outside the box, in px (`.csl-node__edge--top/bottom` in topology.css). */
+export const BADGE_OUTSIDE_PX = { full: 13, compact: 11 } as const;
+/** The gap between rows of boxes, and the gap where a box is straight above another (room for a badge under one and over the other). */
+const smallGapPx = (compact: boolean) => (compact ? 4 : 12);
+const badgeGapPx = (compact: boolean) => 2 * (compact ? BADGE_OUTSIDE_PX.compact : BADGE_OUTSIDE_PX.full) + 2;
+
+/** A box straight above another across row `r` (a gap row): a badge under the one and over the other meet there. */
+function stacked(nodes: Array<{ col: number; row: number }>, r: number): boolean {
+  return nodes.some((a) => a.row === r - 1 && nodes.some((b) => b.row === r + 1 && b.col === a.col));
+}
+
+/**
+ * How much taller a branched diagram's gaps are for its badges than the small gaps (see gridStyle),
+ * so the page can take that height from the chart and still fit one screen. `caches`: the cache
+ * boxes, each straight above its server across a cache arrow's row, which is tall anyway.
+ */
+export function badgeRoomPx(nodes: Array<{ id: string; col: number; row: number }>, caches: Set<string>, compact = false): number {
+  const rows = Math.max(0, ...nodes.map((n) => n.row));
+  if (rows <= 3) return 0;
+  const flow = nodes.filter((n) => !caches.has(n.id));
+  let extra = 0;
+  for (let r = 2; r < rows; r += 2) if (stacked(flow, r)) extra += badgeGapPx(compact) - smallGapPx(compact);
+  return extra;
+}
+
 /** Narrowest box in a long chain: below this the diagram scrolls sideways rather than squeezing names to a letter or two. */
 export const LONG_CHAIN_BOX_MIN_PX = 76;
 
 /**
  * Columns for a chain longer than the presets' 7: boxes and arrows alternate, sharing the width
  * (the presets keep their tuned 7-column template from the stylesheet). Rows for a branched system
- * (boxes below row 3): boxes as tall as they need, a cache arrow's row as on the presets, a small
- * gap between other rows of boxes (routed lines pass through it), and nothing for empty rows.
+ * (boxes below row 3): boxes as tall as they need, a cache arrow's row as on the presets, a gap
+ * between other rows of boxes (routed lines pass through it), big enough for the badges on their
+ * borders where one box is straight above another, and nothing for empty rows.
  */
 export function gridStyle(nodes: TopologyNodeView[], edges: TopologyEdgeView[] = [], compact = false): CSSProperties | undefined {
   const style: CSSProperties = {};
@@ -617,7 +547,10 @@ export function gridStyle(nodes: TopologyNodeView[], edges: TopologyEdgeView[] =
       const r = i + 1;
       if (r % 2 === 1) return 'auto';
       if (edges.some((e) => e.orientation === 'vertical' && e.row === r)) return compact ? '40px' : '56px';
-      return boxesOn(r - 1) && boxesOn(r + 1) ? (compact ? '4px' : '12px') : '0px';
+      // Between boxes straight above one another, room for a badge under the upper box and one over
+      // the lower box, so neither covers the other box (or the other badge); else a small gap.
+      if (stacked(nodes, r)) return `${badgeGapPx(compact)}px`;
+      return boxesOn(r - 1) && boxesOn(r + 1) ? `${smallGapPx(compact)}px` : '0px';
     }).join(' ');
   }
   return Object.keys(style).length > 0 ? style : undefined;
@@ -677,8 +610,14 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, edit
   const scroll = useSideScroll<HTMLDivElement>();
   const routed = edges.filter((e) => e.orientation === 'routed');
   // Boxes are re-measured when the layout (or the set of arrows) changes; resizes are observed.
-  const layoutKey = `${compact}|${nodes.map((n) => `${n.id}@${n.col},${n.row}`).join(';')}|${routed.map((e) => e.id).join(';')}`;
+  const layoutKey = `${compact}|${nodes.map((n) => `${n.id}@${n.col},${n.row}`).join(';')}|${routed.map((e) => `${e.id}${e.change ? '+' : ''}`).join(';')}`;
   const scrolls = scroll.more.left || scroll.more.right;
+  /** Room for routed arrows' text that reaches past the top or bottom row (measured by RoutedLines). */
+  const [room, setRoom] = useState<Room>({ top: 0, bottom: 0 });
+  const onRoom = useCallback((next: Room) => setRoom((r) => (r.top === next.top && r.bottom === next.bottom ? r : next)), []);
+  const grid = gridStyle(nodes, edges, compact);
+  const roomy = routed.length > 0 && (room.top > 0 || room.bottom > 0) ? { ...grid, marginTop: room.top, marginBottom: room.bottom } : grid;
+  const changed = nodes.some((n) => n.change) || edges.some((e) => e.change);
   return (
     <div>
       {scrolls && (
@@ -688,8 +627,8 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, edit
       )}
       <div className={`csl-topology-fade${scroll.more.left ? ' csl-topology-fade--left' : ''}${scroll.more.right ? ' csl-topology-fade--right' : ''}`}>
       <div className="csl-topology-scroll" ref={scroll.ref}>
-        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}${longChain ? ' csl-topology-grid--long' : ''}${dense ? ' csl-topology-grid--dense' : ''}`} style={gridStyle(nodes, edges, compact)}>
-          {routed.length > 0 && <RoutedLines edges={routed} layoutKey={layoutKey} />}
+        <div className={`csl-topology-grid${compact ? ' csl-topology-grid--compact' : ''}${longChain ? ' csl-topology-grid--long' : ''}${dense ? ' csl-topology-grid--dense' : ''}`} style={roomy}>
+          {routed.length > 0 && <RoutedLines edges={routed} layoutKey={layoutKey} onRoom={onRoom} />}
           {nodes.map((n) => (
             <Node key={n.id} node={n} selected={n.id === selectedId} onSelect={onSelect} editable={editable} longChain={longChain} dense={dense} />
           ))}
@@ -699,8 +638,9 @@ export function TopologyDiagram({ nodes, edges, selectedId, onSelect, note, edit
         </div>
       </div>
       </div>
+      {changed && <ChangeList nodes={nodes} edges={edges} />}
       <div className={`csl-topology-key csl-topology-foot${actions ? ' csl-topology-foot--actions' : ''}`}>
-        <Key showChange={nodes.some((n) => n.change) || edges.some((e) => e.change)} note={note} />
+        <Key showChange={changed} note={note} />
         {actions && <span className="csl-topology-foot__actions">{actions}</span>}
       </div>
     </div>
