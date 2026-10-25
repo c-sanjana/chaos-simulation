@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Fault } from '../engine/config';
 import { NumberField } from './components/Fields';
+import { FIELD_LIMITS } from './fieldLimits';
 import {
   addFault,
   describeFault,
@@ -77,7 +78,7 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
               label={`${label(c.caller)} → ${label(c.target)}`}
               value={c.retries}
               min={0}
-              max={10}
+              max={FIELD_LIMITS.maxRetries}
               integer
               onChange={(v) => onChange(updateRetries(draft, c.caller, v, c.target))}
             />

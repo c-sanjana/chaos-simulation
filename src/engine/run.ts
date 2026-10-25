@@ -13,7 +13,9 @@ export function runSimulation(config: RunConfig): RunResult {
   const buckets = new Buckets(config.durationMs, config.bucketMs ?? 1000);
 
   const tiers = new Map<string, Tier>();
-  config.tiers.forEach((tc, i) => tiers.set(tc.id, new Tier(sim, tc, i, new TierMetrics(buckets))));
+  // Each tier's calls, in the order it makes them: its cache lookups, then its downstream calls.
+  const targets = (tc: RunConfig['tiers'][number]) => [...(tc.cacheAside ? [tc.cacheAside.target] : []), ...callsOf(tc).map((c) => c.target)];
+  config.tiers.forEach((tc, i) => tiers.set(tc.id, new Tier(sim, tc, i, new TierMetrics(buckets, targets(tc)))));
   for (const tier of tiers.values()) {
     const { cacheAside } = tier.config;
     tier.connect(callsOf(tier.config).map((c) => tiers.get(c.target)!), cacheAside ? tiers.get(cacheAside.target)! : null);

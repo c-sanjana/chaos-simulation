@@ -33,7 +33,7 @@ describe('a built topology with a message queue', { timeout: 120_000 }, () => {
     expect(analysis.timeline.map((e) => e.text)).toContainEqual(expect.stringMatching(/^Messages pile up in queue 2: up to \d+ waiting, some delivered \d+ s late$/));
     const step = story.find((s) => s.kind === 'backlog')!;
     expect(step).toMatchObject({ tMs: 30_000, tone: 'bad', headline: 'Queue 2 backing up', figure: expect.stringMatching(/^\d+ waiting$/) });
-    expect(step.text).toMatch(/^Messages piled up in the queue 2: up to \d+ waiting\. The people sending them didn't notice: it answers as soon as it stores a message\.$/);
+    expect(step.text).toMatch(/^Messages piled up in queue 2: up to \d+ waiting\. The people sending them didn't notice: it answers as soon as it stores a message\.$/);
     expect(fixes.map((f) => f.id)).toContain('more-consumers');
     const more = fixes.find((f) => f.id === 'more-consumers')!;
     expect(more.title).toBe('Twice as many consumers: queue 2, 16 → 32 consumers');
@@ -45,7 +45,7 @@ describe('a built topology with a message queue', { timeout: 120_000 }, () => {
     const { analysis, story } = analyse(scenario('custom-queue-backlog'), 140);
     expect(analysis.recovery).toMatchObject({ verdict: 'stuck', failedRequests: 0 });
     expect(analysis.timeline.at(-1)!.text).toMatch(/^Still stuck: [\d,]+ messages still waiting in queue 2$/);
-    expect(story.at(-1)).toMatchObject({ kind: 'stuck', headline: 'Never caught up', text: expect.stringMatching(/^It never caught up: [\d,]+ messages were still waiting in the queue 2 at the end of the run\.$/) });
+    expect(story.at(-1)).toMatchObject({ kind: 'stuck', headline: 'Never caught up', text: expect.stringMatching(/^It never caught up: [\d,]+ messages were still waiting in queue 2 at the end of the run\.$/) });
     // At lower traffic the same slowdown drains in time.
     expect(analyse(scenario('custom-queue-backlog'), 100).analysis.recovery.verdict).toBe('recovered');
   });
@@ -53,7 +53,7 @@ describe('a built topology with a message queue', { timeout: 120_000 }, () => {
   it('more traffic than the work behind the queue can do: overloaded, though every sender is answered', () => {
     const { analysis, story } = analyse(scenario('custom-queue-backlog'), 220);
     expect(analysis.recovery).toMatchObject({ verdict: 'overloaded', failedRequests: 0 });
-    expect(story.find((s) => s.headline === 'Too much traffic anyway')!.text).toBe('Even without the failure, this much traffic is more than the system can handle: work piles up in the queue 2 faster than it gets done.');
+    expect(story.find((s) => s.headline === 'Too much traffic anyway')!.text).toBe('Even without the failure, this much traffic is more than the system can handle: work piles up in queue 2 faster than it gets done.');
   });
 
   it('callers in front of the queue never saw a slowdown behind it, so the story does not say they asked again', () => {
@@ -68,7 +68,7 @@ describe('a built topology with a message queue', { timeout: 120_000 }, () => {
     const { story, analysis } = analyse(scenario('custom-front-slow'), 100);
     expect(story.find((s) => s.kind === 'giveup')!.text).toMatch(/^Users' apps give up/);
     const back = story.find((s) => s.kind === 'back')!;
-    if (analysis.recovery.verdict === 'stuck') expect(back.text).toMatch(/the pile of messages in the queue 2 was still there\.$/);
+    if (analysis.recovery.verdict === 'stuck') expect(back.text).toMatch(/the pile of messages in queue 2 was still there\.$/);
   });
 
   it('a dropped message is told once, in the singular', () => {

@@ -15,6 +15,6 @@ export interface Analysis {
  * overrides the verdict (simulateUntilSettled adds how long a drain still needed).
  */
 export function analyzeRun(run: RunResult, control: RunResult, config: RunConfig, labels: Record<string, string> = {}, recovery: RecoveryResult = assessRecovery(run, control, config)): Analysis {
-  const signals = computeSignals(run, config, recovery);
+  const signals = computeSignals(run, config, recovery, control);
   return { recovery, signals, timeline: buildTimeline(run, config, recovery, signals, labels) };
 }

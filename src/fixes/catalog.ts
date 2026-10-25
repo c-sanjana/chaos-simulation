@@ -1,9 +1,10 @@
-import type { Signals } from '../analysis/signals';
+import type { SignalName } from '../analysis/signals';
 
 /**
  * Candidate fixes, as data. Each is one change (one setting; for 'retryOneLayer' the retries of
- * every call but one; for 'retryBudgetEveryLayer' a budget on every call that retries), interpreted by `applyFix` (candidates.ts), which works out where in a given
- * config the change goes and with what value.
+ * every call but one; for 'retryBudgetEveryLayer' a budget on every call that retries),
+ * interpreted by `applyFix` (candidates.ts), which works out where in a given config the change
+ * goes and with what value.
  */
 export type FixKind =
   | 'retryBudget'
@@ -51,7 +52,7 @@ export interface FixDefinition {
    */
   refutable?: Record<string, Refutation>;
   /** which signal makes it relevant; null = a common instinct that is always tried */
-  signal: keyof Signals | null;
+  signal: SignalName | null;
   /**
    * Retry fixes only: whether the change is made by one caller ('layer': what one service team
    * can ship on its own) or agreed across every layer that retries ('stack'). Retries multiply

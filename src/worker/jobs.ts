@@ -9,6 +9,7 @@ import type { RunConfig } from '../engine/config';
 import { withSimulationProgress } from '../engine/progress';
 import type { RunResult } from '../engine/result';
 import { runSizeProblem } from '../data/limits';
+import { callsPerRequest } from '../analysis/helpers';
 
 /** What a tipping-point map needs from one cell: small, so it is cheap to send between threads. */
 export interface CellSummary {
@@ -44,7 +45,7 @@ export function executeJob(job: Job, onProgress?: (fraction: number) => void): J
 export function executeJob(job: Job, onProgress?: (fraction: number) => void): JobResult {
   // A guard before any work: one oversized run can exhaust the tab's memory. (Settling extends a
   // run to at most MAX_SETTLE_MS, well inside the cap for any traffic the guard lets through.)
-  const tooBig = runSizeProblem(job.config.client.rps, job.config.durationMs);
+  const tooBig = runSizeProblem(job.config.client.rps, job.config.durationMs, callsPerRequest(job.config));
   if (tooBig) throw new Error(tooBig);
   const phase = onProgress ? progressPhases(job.config.durationMs, onProgress) : () => null;
   const { config, run, control, recovery } = simulateUntilSettled(job.config, (which, simulate) => withSimulationProgress(phase(which), simulate));

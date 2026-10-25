@@ -3,8 +3,8 @@
  * Nothing here simulates or decides anything; it only selects and formats.
  */
 import type { Analysis } from '../analysis/analyze';
-import { admittedIn, formatMs, leafCapacityRps, strictestCallerInto, trafficShares } from '../analysis/helpers';
-import type { RecoveryResult } from '../analysis/recovery';
+import { admittedIn, formatMs, leafCapacityRps, strictestCallerInto, strugglingPart, trafficShares } from '../analysis/helpers';
+import { maxRequestMs, type RecoveryResult } from '../analysis/recovery';
 import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
 import { placeCalls, trunkSides } from './edgeRoutes';
 import type { RunResult, TierSeries } from '../engine/result';
@@ -177,13 +177,13 @@ export function topologyView(
 }
 
 /**
- * How much of a tier's arrivals in bucket b came along each call into it: by each caller's own
- * arrivals that second (the client: requests sent), times the part of them it sends this way (a
- * splitting load balancer's share; a cache-aside server only on misses).
- * ASSUMPTION: the engine counts arrivals per tier, not per call, so a part called by several (a
- * shared database) has its arrivals divided between its arrows this way. One caller (every preset,
- * every chain) gets them all, exactly as before. Retries and failures are shown at the callee's
- * rate on each of its arrows. When nothing arrived anywhere, the split follows the traffic shares.
+ * How much of a tier's arrivals in bucket b came along each call into it: what each call sent
+ * that second, counted per call by the engine (review 3: splitting by the callers' own arrivals
+ * gave a shared database's traffic and retries to the wrong caller). For results without those
+ * counts: each caller's own arrivals that second (the client: requests sent), times the part of
+ * them it sends this way (a splitting load balancer's share; a cache-aside server only on misses).
+ * One caller (every preset, every chain) gets them all, exactly as before. When nothing arrived
+ * anywhere, the split follows the traffic shares.
  */
 export function callWeights(config: RunConfig, run: RunResult, b: number, calls: Array<{ from: string; to: string; cache: boolean }>): number[] {
   const byId = new Map(config.tiers.map((t) => [t.id, t]));
@@ -206,7 +206,20 @@ export function callWeights(config: RunConfig, run: RunResult, b: number, calls:
     }
     return fraction;
   };
-  const live = calls.map((c) => (c.from === 'client' ? run.client.sent[b] : run.tiers[c.from] ? arrivals(run.tiers[c.from], b) : 0) * part(c.from, c.to, c.cache));
+  // Every try each call sent this second, counted per call by the engine (TierSeries.calls); users'
+  // apps send what arrived less what the other callers sent. Hand-made results without per-call
+  // counts fall back to each caller's own arrivals × the part sent this way.
+  const sent = (from: string, to: string) => run.tiers[from]?.calls?.find((x) => x.target === to);
+  const counted = calls.every((c) => c.from === 'client' || sent(c.from, c.to));
+  const exact = (c: { from: string; to: string }): number => {
+    if (c.from !== 'client') {
+      const x = sent(c.from, c.to)!;
+      return x.first[b] + x.retries[b];
+    }
+    const others = calls.filter((d) => d.to === c.to && d.from !== 'client').reduce((n, d) => n + exact(d), 0);
+    return Math.max(0, (run.tiers[c.to] ? arrivals(run.tiers[c.to], b) : 0) - others);
+  };
+  const live = calls.map((c) => (counted ? exact(c) : (c.from === 'client' ? run.client.sent[b] : run.tiers[c.from] ? arrivals(run.tiers[c.from], b) : 0) * part(c.from, c.to, c.cache)));
   const stat = calls.map((c) => (c.from === 'client' ? 1 : shares[c.from] ?? 0) * part(c.from, c.to, c.cache));
   return calls.map((c, i) => {
     const same = calls.map((d, j) => (d.to === c.to ? j : -1)).filter((j) => j >= 0);
@@ -217,6 +230,19 @@ export function callWeights(config: RunConfig, run: RunResult, b: number, calls:
     }
     return 1 / same.length;
   });
+}
+
+/**
+ * Retries sent along call i in bucket b, from the engine's per-call counts (users' apps: the
+ * target's retries less the other callers'), or null without them (then split like the traffic).
+ */
+function retriesAlong(run: RunResult, calls: Array<{ from: string; to: string }>, i: number, b: number): number | null {
+  const sentBy = (from: string, to: string) => run.tiers[from]?.calls?.find((x) => x.target === to);
+  const c = calls[i];
+  if (c.from !== 'client') return sentBy(c.from, c.to)?.retries[b] ?? null;
+  const others = calls.filter((d) => d.to === c.to && d.from !== 'client').map((d) => sentBy(d.from, d.to));
+  if (others.some((x) => x === undefined)) return null;
+  return Math.max(0, run.tiers[c.to].arrivalsRetry[b] - others.reduce((n, x) => n + x!.retries[b], 0));
 }
 
 function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b: number): TopologyEdgeView[] {
@@ -234,7 +260,7 @@ function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b:
     if (!place) return;
     const target = run.tiers[call.to];
     const total = arrivals(target, b) * weights[i];
-    const retries = target.arrivalsRetry[b] * weights[i];
+    const retries = retriesAlong(run, calls, i, b) ?? target.arrivalsRetry[b] * weights[i];
     const rps = perSecond(run, total);
     const where = {
       ...place,
@@ -265,6 +291,15 @@ function edgesAt(topology: TopologyPreset, config: RunConfig, run: RunResult, b:
 
 /** Leaf tier that was pushed hardest relative to its capacity: the natural default for "Load & retries". */
 export function bottleneckTier(config: RunConfig, run: RunResult): string {
+  // The part the story and the fixes are about (one shared rule, review 3), judged over the same
+  // seconds as the analysis (see assessRecovery); failing that, the highest peak over the run.
+  const faults = config.faults ?? [];
+  if (faults.length > 0) {
+    const endMs = Math.max(...faults.map((f) => f.endMs));
+    const untilMs = Math.min(run.durationMs, Math.max(endMs, run.durationMs - maxRequestMs(config)));
+    const struggling = strugglingPart(config, run, { fromMs: Math.min(...faults.map((f) => f.startMs)), endMs, untilMs });
+    if (struggling) return struggling.id;
+  }
   let best = config.tiers[config.tiers.length - 1].id;
   let bestRatio = -1;
   for (const tc of config.tiers) {
