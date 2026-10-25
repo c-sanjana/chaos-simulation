@@ -3,12 +3,14 @@ import { Glossary, GLOSSARY } from './Glossary';
 import { mergeWindows } from './windows';
 
 describe('Glossary', () => {
-  it('explains the jargon the page uses, behind a Words button', () => {
+  it('explains the jargon the page uses, behind a Glossary button', () => {
     const { container } = render(<Glossary />);
     const details = container.querySelector('details')!;
     expect(details.open).toBe(false);
-    fireEvent.click(screen.getByText('Words'));
-    expect(screen.getByRole('heading', { name: 'Words used on this page' })).toBeTruthy();
+    expect(container.querySelector('summary')!.textContent).toBe('Glossary'); // the icon is decoration
+    expect(container.querySelector('summary')!.hasAttribute('aria-label')).toBe(false); // its name is its text
+    fireEvent.click(screen.getByText('Glossary'));
+    expect(screen.getByRole('heading', { name: 'Glossary: words used on this page' })).toBeTruthy();
     for (const term of ['req/s, rps', 'Timeout', 'Retry', 'Queue', 'Workers', 'p99 (slowest 1%)', 'Random run #']) expect(screen.getByText(term)).toBeTruthy();
     for (const { meaning } of GLOSSARY) expect(meaning).toMatch(/\.$/);
   });

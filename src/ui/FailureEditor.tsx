@@ -203,7 +203,9 @@ export function retriesDetail(draft: Draft): string {
 }
 
 /**
- * One-line summary of the scenario, its failures and retries, with a button that opens the editor.
+ * The experiment being run, as the banner under the page title: labelled "Failure being tested",
+ * the preset's name in bold, then its failure (⚡, as the diagram marks it), traffic and retries
+ * as chips, with the button that opens the editor at its end.
  * `edited`: the settings differ from the preset's, so its name gets "(edited)".
  */
 export function ScenarioSummary({ draft, editing, onToggle, edited = false }: { draft: Draft; editing: boolean; onToggle: () => void; edited?: boolean }) {
@@ -213,18 +215,29 @@ export function ScenarioSummary({ draft, editing, onToggle, edited = false }: { 
   const instances = draft.topology.tiers.find((t) => t.id === f.tier)?.instances ?? 1;
   return (
     <section className="csl-summary" aria-label="Scenario">
-      <strong>
-        {s.title}
-        {edited && <span className="csl-summary__edited"> (edited)</span>}
-      </strong>
-      <span className="csl-summary__text">
-        {label(f.tier)} <b>{describeFault(f, instances)}</b> for <b>{(f.endMs - f.startMs) / 1000} s</b> at {f.startMs / 1000} s
-        {more.length > 0 && <> (+{more.length} more)</>} · <b>{s.rps} req/s</b> ·{' '}
-        <span title={`How many times each layer asks again after giving up on an answer (a retry), front to back: ${retriesDetail(draft)}`}>
+      <div className="csl-summary__head">
+        <span className="csl-summary__label">Failure being tested</span>
+        <strong className="csl-summary__name">
+          {s.title}
+          {edited && <span className="csl-summary__edited"> (edited)</span>}
+        </strong>
+      </div>
+      <ul className="csl-summary__facts">
+        <li className="csl-summary__fact csl-summary__fact--fault">
+          <span className="csl-summary__bolt" aria-hidden="true">
+            ⚡
+          </span>
+          {label(f.tier)} <b>{describeFault(f, instances)}</b> for <b>{(f.endMs - f.startMs) / 1000} s</b> at {f.startMs / 1000} s
+          {more.length > 0 && <> (+{more.length} more)</>}
+        </li>
+        <li className="csl-summary__fact">
+          <b>{s.rps} req/s</b>
+        </li>
+        <li className="csl-summary__fact" title={`How many times each layer asks again after giving up on an answer (a retry), front to back: ${retriesDetail(draft)}`}>
           asks again: <b>{retriesSummary(draft)}</b>
-        </span>
-      </span>
-      <button type="button" className="csl-btn csl-btn--small" aria-expanded={editing} onClick={onToggle}>
+        </li>
+      </ul>
+      <button type="button" className="csl-btn csl-btn--small csl-summary__change" aria-expanded={editing} onClick={onToggle}>
         {editing ? 'Close' : 'Change failure'}
       </button>
     </section>

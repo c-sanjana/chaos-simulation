@@ -92,6 +92,6 @@ export const tourStops: TourStop[] = [
     target: 'help',
     screen: 2,
     title: 'Your turn',
-    body: 'Try Change failure, or build your own system. Use the ? button to see this demo again.',
+    body: 'Try Change failure, or build your own system. Glossary explains terms. Use the ? button to replay.',
   },
 ];
