@@ -83,7 +83,7 @@ export function buildTimeline(
     afterLoad /= Math.max(1, endSecond - afterFault);
     if (recovery.verdict === 'stuck' && afterLoad > capacity) {
       // Not before the load first went over (a failure in front of this tier, such as a slow
-      // Gateway, can pass the pile on only once it ends).
+      // Load balancer, can pass the pile on only once it ends).
       const tMs = Math.max(recovery.lastFaultEndMs, at(first));
       const now = load(Math.min(Math.floor(tMs / run.bucketMs), t.arrivalsFirst.length - 1)) / capacity;
       entries.push({

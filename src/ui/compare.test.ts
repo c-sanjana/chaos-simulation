@@ -26,7 +26,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     expect(c.rows[3]).toMatchObject({ before: expect.stringMatching(/%$/), tone: 'worse' });
     expect(c.rows[3].change).toMatch(/^\+\d+ pts$/);
     // Only retries changed: the takeaway says why, from the run.
-    expect(c.takeaway).toBe("The App server retried more, adding repeats. It was stuck either way because users' apps (5×), the Gateway (3×) and the App server (5×) multiply the load.");
+    expect(c.takeaway).toBe("The App server retried more, adding repeats. It was stuck either way because users' apps (5×), the Load balancer (3×) and the App server (5×) multiply the load.");
   });
 
   it('says why cutting users\' retries made things worse: the other layers still multiply the load', () => {
@@ -34,7 +34,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     const c = compareRuns(base, fewer, labels);
     expect(c.rows[0].label).toBe('Failed requests');
     if (c.rows[0].tone === 'worse') {
-      expect(c.takeaway).toBe('Users retried less, so more failures reached them directly. It was still stuck because users\' apps (1×), the Gateway (3×) and the App server (1×) still multiply the load.');
+      expect(c.takeaway).toBe('Users retried less, so more failures reached them directly. It was still stuck because users\' apps (1×), the Load balancer (3×) and the App server (1×) still multiply the load.');
     } else {
       expect(c.takeaway).toMatch(/^Users retried less(, so fewer repeats piled up and fewer requests failed)?\. It was still stuck because/);
     }
@@ -95,12 +95,12 @@ describe('retryTakeaway', () => {
   const changes = (next: Draft) => settingsChanges(d, next);
   it('tells retry changes as cause and effect, and stays out of the way otherwise', () => {
     const gw = updateRetries(d, 'gateway', 1);
-    expect(retryTakeaway(d, gw, changes(gw), 'recovered', 'recovered', rows('worse'))).toBe('The Gateway retried less, so more failures reached users directly. It recovered either way.');
-    expect(retryTakeaway(d, gw, changes(gw), 'stuck', 'stuck', rows('same'))).toBe("The Gateway retried less. It was still stuck because users' apps (5×), the Gateway (1×) and the App server (1×) still multiply the load.");
+    expect(retryTakeaway(d, gw, changes(gw), 'recovered', 'recovered', rows('worse'))).toBe('The Load balancer retried less, so more failures reached users directly. It recovered either way.');
+    expect(retryTakeaway(d, gw, changes(gw), 'stuck', 'stuck', rows('same'))).toBe("The Load balancer retried less. It was still stuck because users' apps (5×), the Load balancer (1×) and the App server (1×) still multiply the load.");
     const users = updateRetries(d, 'client', 8);
     expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('better'))).toBe('Users retried more, adding repeats, yet fewer requests failed. It recovered either way.');
     const none = updateRetries(updateRetries(updateRetries(d, 'client', 0), 'gateway', 0), 'api', 0);
-    expect(retryTakeaway(d, none, changes(none), 'stuck', 'stuck', rows('worse'))).toBe("Users' apps, the Gateway and the App server retried less, so more failures reached users directly. It was still stuck.");
+    expect(retryTakeaway(d, none, changes(none), 'stuck', 'stuck', rows('worse'))).toBe("Users' apps, the Load balancer and the App server retried less, so more failures reached users directly. It was still stuck.");
     // Up at one layer and down at another, or another setting changed: no clear story.
     const mixed = updateRetries(updateRetries(d, 'client', 1), 'api', 3);
     expect(retryTakeaway(d, mixed, changes(mixed), 'stuck', 'stuck', rows('same'))).toBeNull();
@@ -139,7 +139,7 @@ describe('settingsChanges', () => {
       'Traffic 200 → 150 req/s',
       'Run length 120 → 90 s',
       'DB slows 8× for 5 s at 30 s → slows 4× for 10 s at 30 s',
-      'Gateway → App server retries 3 → 0',
+      'Load balancer → App server retries 3 → 0',
       "Users' timeout 3000 → 5000 ms",
       'App server copies 4 → 6',
       'App server queue limit none → 50',
@@ -151,8 +151,8 @@ describe('settingsChanges', () => {
 
   it('lists added and removed failures', () => {
     const two = addFault(d);
-    expect(settingsChanges(d, two)).toEqual(['Added: Gateway slows 4× for 5 s at 30 s']);
-    expect(settingsChanges(two, d)).toEqual(['Removed: Gateway slows 4× for 5 s at 30 s']);
+    expect(settingsChanges(d, two)).toEqual(['Added: Load balancer slows 4× for 5 s at 30 s']);
+    expect(settingsChanges(two, d)).toEqual(['Removed: Load balancer slows 4× for 5 s at 30 s']);
     expect(settingsChanges(d, d)).toEqual([]);
   });
 });

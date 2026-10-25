@@ -120,7 +120,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     const { p50, p99 } = answerTimes(run);
     expect(p99).toHaveLength(run.client.sent.length);
     expect(p50[10]).toBeLessThan(100); // healthy: quick answers
-    expect(p99[80]).toBeGreaterThan(1900); // stuck: users wait ~2 s (the Gateway gives up on the API), then get an error
+    expect(p99[80]).toBeGreaterThan(1900); // stuck: users wait ~2 s (the load balancer gives up on the API), then get an error
     expect(run.client.latencyP99Ms[80]).not.toBeGreaterThan(p99[80]); // the success-only line looked faster
     const view = chartView('latency', config, run, labels, null);
     expect(view.spec.series.map((x) => x.label)).toEqual(['Slowest 1% wait (p99)', 'Typical wait (median)', "Users' apps give up on one try after 3 s"]);

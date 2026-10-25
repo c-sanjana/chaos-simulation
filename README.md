@@ -13,10 +13,10 @@ traffic, whether it actually helps and whether it moves the tipping point.
 
 The page opens on a **retry storm**. A database slows down 8× for just 5 seconds, at a traffic
 level it normally handles easily. Every layer retries, differently, as real systems often do:
-users' apps ask again up to 5 times, the Gateway retries the app server 3 times and the app server retries the
+users' apps ask again up to 5 times, the load balancer retries the app server 3 times and the app server retries the
 DB once (all editable per layer). Two other presets fail elsewhere in the stack: **Cache restarts
 empty** (the cache goes down for 5 s and comes back cold, so every lookup stampedes the DB) and
-**Gateway slows down** (the front door slows 50× for 20 s and users' retries pile onto it). Any
+**Load balancer slows down** (the front door slows 50× for 20 s and users' retries pile onto it). Any
 part can fail (slow down, go down, lose one server, or for the cache restart empty), and several
 failures can be combined. On a first visit a one-minute guided demo follows the retry storm on
 the default system: it plays the replay forward and pauses at each moment that matters (calm
@@ -51,7 +51,7 @@ random run #), and ☾ switches to dark mode (the page stays light unless you ch
    from before (grey) to now (blue) with a ▲/▼ change (failed requests, retries sent, peak load on
    the most overloaded part, busy workers, messages dropped behind a queue), and a plain takeaway.
    After changing only retries it says why, from the run: "Users retried less, so more failures
-   reached them directly. It was still stuck because users' apps (1×), the Gateway (3×) and the
+   reached them directly. It was still stuck because users' apps (1×), the load balancer (3×) and the
    App server (1×) still multiply the load."
 
    The diagram marks the injected slowdown (⚡), overloaded parts (⚠) and failing calls (✕), with
@@ -69,7 +69,7 @@ random run #), and ☾ switches to dark mode (the page stays light unless you ch
    seeds, and with a slowdown twice as long. Fixes that hold up rank first (✓); the others are
    marked ⚠ "helped only sometimes", or ✕ when they helped in only 1 of 5 runs (luck); a key under
    the tabs explains the marks and numbers, and the first fix says why it is first. Each fix says
-   what happened, **why it worked or didn't here** (measured: e.g. "Users' apps (5×), the Gateway
+   what happened, **why it worked or didn't here** (measured: e.g. "Users' apps (5×), the load balancer
    (3×) and the app server (1×) still retry, so the database still had up to 3.2× the work it can
    handle after the failure ended"), how it works, why it was suggested, and its pros and cons
    (including cost and drawbacks measured in the run; a pro or con the run contradicts is left
@@ -306,7 +306,7 @@ the first check, this fix did not help in the default scenario (0 of 5 seeds); w
 The full record is in [PLAN.md](PLAN.md): requirements, risks, scope, the decision log and the
 time log. The main calls:
 
-- **Depth over breadth.** One topology done well (Client → Gateway → App server → DB, with a cache-aside
+- **Depth over breadth.** One topology done well (Client → Load balancer → App server → DB, with a cache-aside
   cache) before adding more. The drag-and-drop builder, multi-region, LLM explanations and other
   scenarios are recorded as "revisit after V1".
 - **Simulate every request, not aggregated traffic.** This is what makes per-request
@@ -327,11 +327,11 @@ time log. The main calls:
     **every** layer does help: 8 s, 538 failed, 3 of 5 seeds, and the tipping point at a 5 s
     slowdown moves from 100 to 240 req/s (⚠: not with a 10 s slowdown). Each retry fix's panel is
     labelled "one layer" or "whole stack" and shows the end-to-end multiplication: up to 48× the
-    calls reach the DB while it fails (users' apps 6 × Gateway 4 × App server 2); a one-layer budget
+    calls reach the DB while it fails (users' apps 6 × Load balancer 4 × App server 2); a one-layer budget
     takes that to 26×, a budget on every layer to 1.3×.
   - **Cache restarts empty** (stuck, 12,747 failed): coalescing cache misses (1 s, 0 failed; 5 of
     5) and bounding the DB queue (23 s) hold up; a longer timeout helps only sometimes.
-  - **Gateway slows down** (stuck, 10,361 failed): bounding the queue (7 s, 0 failed; 5 of 5) holds
+  - **Load balancer slows down** (stuck, 10,361 failed): bounding the queue (7 s, 0 failed; 5 of 5) holds
     up; a retry budget at every layer (6 s) and retrying at one layer only also help at the default
     seed. This preset's 2× longer slowdown happens
     to recover by itself, so the longer-slowdown check is skipped there (it can't tell anything).
@@ -346,8 +346,8 @@ time log. The main calls:
       computing before their caller's deadline and finished after it.
   - **Helped on 5 of 5 seeds, but not with a 10 s slowdown:** a 3× longer App server → DB timeout:
     3 s (147 failed). It works only because this slowdown is short: with a 10 s slowdown it stays
-    stuck, with more failures (14,813) than no fix at all. It also makes the app server wait longer for the DB (3 s) than the Gateway waits for the
-    app server (2 s), so all 147 failures are Gateway timeouts. The app marks it ⚠.
+    stuck, with more failures (14,813) than no fix at all. It also makes the app server wait longer for the DB (3 s) than the load balancer waits for the
+    app server (2 s), so all 147 failures are Load balancer timeouts. The app marks it ⚠.
   - **Helped on 1 of 5 seeds:** capping retries at 1: 13 s (841 failed). One
     retry at 200 req/s sits right on the tipping point.
   - **Did not help (0 of 5 seeds):**

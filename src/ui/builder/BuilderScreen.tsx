@@ -28,7 +28,7 @@ interface Status {
   refused: boolean;
 }
 
-/** The chain from the Client, e.g. "Client → Gateway → App server → DB, with a Cache". */
+/** The chain from the Client, e.g. "Client → Load balancer → App server → DB, with a Cache". */
 function exampleChain(graph: BuilderGraph): string {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const names: string[] = [];

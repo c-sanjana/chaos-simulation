@@ -39,7 +39,7 @@ export interface StoryStep {
   figure?: string;
   /** Load as a multiple of capacity (1 = exactly full), drawn as a meter. */
   meter?: number;
-  /** Each retrying caller's retries, front to back, e.g. users' apps 5, gateway 3, API 1. */
+  /** Each retrying caller's retries, front to back, e.g. users' apps 5, load balancer 3, API 1. */
   cascade?: Array<{ who: string; retries: number }>;
 }
 
@@ -151,7 +151,7 @@ const about = (x: number) => `about ${x >= 100 ? Math.round(x / 10) * 10 : Math.
  * The tier whose load explains the trouble: the failed tier if it does the work itself (it calls
  * nothing), or, when a cache fails, the tier that cache protects (with several, e.g. a cache in
  * front of a fan-out, the one that got the most work for what it can handle). When a tier that
- * calls others fails (the Gateway, say), the tier it relies on that got the most work for what it
+ * calls others fails (the load balancer, say), the tier it relies on that got the most work for what it
  * can handle, if that ever went over. Null otherwise.
  */
 function pressureTier(ctx: Context, fault: Fault): string | null {
@@ -163,11 +163,14 @@ function pressureTier(ctx: Context, fault: Fault): string | null {
     return behind.map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) })).sort((a, b) => b.peak - a.peak)[0].id;
   }
   if (leafCapacityRps(tier) !== null) {
-    // When a load balancer splits traffic over the failed part and others, repeats split afresh
-    // and can land on the others, overloading them instead: tell the one that got the most work
-    // for what it can handle, if it got more than the failed part and more than it can handle.
+    // Repeats sent because of the failed part go back through whatever their senders call: a load
+    // balancer splits them afresh over the other pools, and a server that calls a database before
+    // the failed part sends every repeat to that database first. Either can overload another part
+    // instead (measured: Database 2 slowing overloaded Database, which the app server calls first,
+    // while Database 2 itself then got nothing). Tell the one that got the most work for what it
+    // can handle, if it got more than the failed part and more than it can handle.
     const own = peakLoad(ctx, fault.tier, fault.startMs);
-    const others = splitSiblings(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
+    const others = otherWorkers(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
     const worst = others.sort((a, b) => b.peak - a.peak)[0];
     return worst !== undefined && worst.peak > 1 && worst.peak > own ? worst.id : fault.tier;
   }
@@ -176,21 +179,9 @@ function pressureTier(ctx: Context, fault: Fault): string | null {
   return worst !== undefined && worst.peak > 1 ? worst.id : null;
 }
 
-/**
- * The tiers doing the work themselves behind the other branches of every split that includes
- * `id` (a load balancer's other pools), not `id` itself. Empty in a chain.
- */
-function splitSiblings(config: RunConfig, id: string): string[] {
-  const out = new Set<string>();
-  for (const caller of config.tiers) {
-    const calls = callsOf(caller);
-    if (caller.fanOut !== 'split' || calls.length < 2 || !calls.some((c) => c.target === id)) continue;
-    for (const c of calls) {
-      if (c.target === id) continue;
-      for (const leaf of [c.target, ...reachableFrom(config, c.target)]) if (leaf !== id && leafCapacityRps(tierOf(config, leaf)) !== null) out.add(leaf);
-    }
-  }
-  return [...out];
+/** Every other tier users' requests reach that does the work itself (calls nothing), not `id`. Empty in a chain. */
+function otherWorkers(config: RunConfig, id: string): string[] {
+  return reachableFrom(config, 'client').filter((leaf) => leaf !== id && leafCapacityRps(tierOf(config, leaf)) !== null);
 }
 
 /** The tiers a miss in `cacheId` is read from: every downstream call of every tier that looks things up in it. */
@@ -345,7 +336,7 @@ function layerCount(config: RunConfig, faultTier: string): number {
 /**
  * Who asks again, when that is more than what the caller that noticed does (or '' if not): with
  * several layers, how their repeats multiply ("Every layer asks again when it gives up: users'
- * apps up to 5 times, the gateway 3 times, the API once. One slow answer can come back as many
+ * apps up to 5 times, the load balancer 3 times, the API once. One slow answer can come back as many
  * requests."); with one layer in front of the noticing caller, that layer ("Users' apps ask
  * again when they give up, up to 5 times."). Only layers that retry are listed; a retry budget gets a
  * sentence of its own.
@@ -469,17 +460,20 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
   // While the whole tier is down it refuses everything at once, so its load says nothing.
   const down = (s: number) => (ctx.config.faults ?? []).some((f) => f.tier === id && f.kind === 'dead' && f.instance === undefined && f.startMs < (s + 1) * ctx.bucketMs && f.endMs > s * ctx.bucketMs);
   const failureEndS = Math.ceil(ctx.analysis.recovery.lastFaultEndMs / ctx.bucketMs);
-  // A failed tier in front of this one (the Gateway, say) held a pile while it was slow or down.
-  const passedOn = main.tier !== id && !tierOf(ctx.config, main.tier).cache && queueAtEnd(ctx, main.tier, main.endMs) >= 1;
+  // A failed tier in front of this one (the load balancer, say) held a pile while it was slow or down.
+  const passedOn = main.tier !== id && !tierOf(ctx.config, main.tier).cache && reachableFrom(ctx.config, main.tier).includes(id) && queueAtEnd(ctx, main.tier, main.endMs) >= 1;
   for (let s = from; s < to; s++) {
     if (load(s) > capacity && !down(s)) {
       const full = `even at full speed (${about(capacity)} a second)`;
+      // Another part than the failed one: say how the trouble reached it.
+      const failed = tierOf(ctx.config, main.tier);
+      const landed = main.tier !== id && !failed.cache && leafCapacityRps(failed) !== null && retries ? ` Repeats land on it too, not only on ${ctx.say(main.tier)}.` : '';
       const text = s < failureEndS
-        ? `So ${name} got more requests than it can handle, ${full}.`
+        ? `So ${name} got more requests than it can handle, ${full}.${landed}`
         : passedOn
           ? `Then ${ctx.say(main.tier)} passed its pile of requests on all at once, more than ${name} can handle (${about(capacity)} a second).`
           : retries
-            ? `Then the requests asked again pushed ${name} past what it can handle, ${full}.`
+            ? `Then the requests asked again pushed ${name} past what it can handle, ${full}.${landed}`
             : `Then ${name} got more requests than it can handle, ${full}.`;
       return { tMs: s * ctx.bucketMs, text, tone: 'bad', kind: 'overload', headline: `${capitalise(noun(name))} overloaded`, meter: load(s) / capacity, figure: `${(load(s) / capacity).toFixed(1)}×` };
     }

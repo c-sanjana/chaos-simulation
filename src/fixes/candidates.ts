@@ -428,13 +428,13 @@ function callsTowards(config: RunConfig, tierId: string, run?: RunResult): CallR
  *
  * Why there? With one retrying layer this is the call whose retries arrive at the overloaded tier
  * (as before). With several, every layer's repeats end up there, and the choice was measured on
- * the three presets at their default settings (retries: users' apps 5, Gateway 3, API 1). No
+ * the three presets at their default settings (retries: users' apps 5, Load balancer 3, API 1). No
  * single-call change made a stuck run recover. Changing the call nearest the bottleneck never
  * failed more requests than doing nothing, while changing users' apps (the call with the most
- * retries, whose repeats are what the retryShare signal sees at the Gateway) often did: capping
+ * retries, whose repeats are what the retryShare signal sees at the load balancer) often did: capping
  * them failed 24–45% more requests, a budget up to 9% more, because users' own repeats are what
  * rescue a request once the layers behind them have given up. Moving outwards from the bottleneck
- * lets "cap retries" reach the Gateway when the API already retries only once.
+ * lets "cap retries" reach the load balancer when the API already retries only once.
  */
 function retryCallTowards(config: RunConfig, signals: Signals, applies: (ref: CallRef) => boolean, run?: RunResult): CallRef | null {
   const id = bottleneck(signals);

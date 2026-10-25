@@ -2,6 +2,9 @@
  * End to end: a branched system drawn on the canvas, compiled, simulated by the engine and shown on
  * the diagram (needs the engine's branching: split, sequence and shared parts).
  */
+import { analyzed } from '../analysis/testRuns';
+import { buildStory } from '../analysis/story';
+import { defaultCall, defaultSettings, type ComponentKind } from '../builder/graph';
 import { branchedGraph } from '../builder/testGraphs';
 import { buildRunConfig } from '../data/buildConfig';
 import { runSimulation } from '../engine/run';
@@ -46,5 +49,33 @@ describe('a branched built system, simulated and drawn', { timeout: 60_000 }, ()
     ];
     const empty = { ...run, tiers: Object.fromEntries(Object.entries(run.tiers).map(([id, t]) => [id, { ...t, arrivalsFirst: t.arrivalsFirst.map(() => 0), arrivalsRetry: t.arrivalsRetry.map(() => 0), ok: t.ok.map(() => 0) }])) };
     expect(callWeights(config, empty, 5, calls)).toEqual([0.5, 0.5]);
+  });
+});
+
+/**
+ * Reported by the user: App server calls Database, then App server 2, which calls Database 2.
+ * Database 2 slowing makes everyone in front ask again, and every repeat reaches Database first
+ * (the app server calls it first), so Database is what gets overloaded, while App server 2 then
+ * gets nothing. The story must name the database the diagram shows overloaded.
+ */
+describe('a server calling a database and then a second server (user report)', { timeout: 60_000 }, () => {
+  const node = (id: string, kind: ComponentKind, label: string, col: number) => ({ id, label, col, row: 3, settings: defaultSettings(kind) });
+  const nodes = [node('client-1', 'client', 'Client', 1), node('server-1', 'server', 'App server', 3), node('database-1', 'database', 'Database', 5), node('server-2', 'server', 'App server 2', 7), node('database-2', 'database', 'Database 2', 9)];
+  const kindOf = (id: string) => nodes.find((n) => n.id === id)!.settings.kind;
+  const edge = (from: string, to: string) => ({ id: `${from}--${to}`, from, to, call: defaultCall(kindOf(from), kindOf(to)) });
+  const system = customSystem({ nodes, edges: [edge('client-1', 'server-1'), edge('server-1', 'database-1'), edge('server-1', 'server-2'), edge('server-2', 'database-2')] });
+  if (system.kind !== 'custom') throw new Error('expected a built system');
+  const scenario = system.scenarios.find((s) => s.faults.some((f) => f.tier === 'database-2'))!;
+  const { config, run, analysis } = analyzed(buildRunConfig(system.topology, scenario));
+  const labels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
+  const story = buildStory(run, config, analysis, labels);
+
+  it('slows Database 2, and tells Database (called first) as the overloaded part, as the diagram does', () => {
+    expect(config.faults).toEqual([expect.objectContaining({ tier: 'database-2', kind: 'slow' })]);
+    const overload = story.find((s) => s.kind === 'overload');
+    expect(overload?.headline).toBe('Database overloaded');
+    expect(overload?.text).toMatch(/Repeats land on it too, not only on the database 2\.$/);
+    const verdict = story.find((s) => s.kind === 'stuck')!;
+    expect(verdict.text).not.toMatch(/database 2 getting/);
   });
 });

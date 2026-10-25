@@ -1,16 +1,16 @@
 import type { TopologyPreset } from './types';
 
 /**
- * A classic web app: Client → Gateway → API → DB, with a cache-aside cache beside the API.
+ * A classic web app: Client → Load balancer → API → DB, with a cache-aside cache beside the API.
  *
  * Numbers are illustrative but in realistic ranges (PLAN.md: "intuition, not prediction"):
- * - Gateway and API run thread pools of a few hundred workers per instance (e.g. Tomcat's
+ * - Load balancer and API run thread pools of a few hundred workers per instance (e.g. Tomcat's
  *   default of 200), so many requests can be waiting on the DB at once.
  * - The DB has 4 cores and a ~25 ms mean query time: about 160 queries/s of capacity, sized so
  *   normal cache-miss traffic keeps it well below saturation.
- * - Timeouts shrink going down the stack (client 3 s > gateway→API 2 s > API→DB 1 s), a common
+ * - Timeouts shrink going down the stack (client 3 s > load balancer→API 2 s > API→DB 1 s), a common
  *   configuration.
- * - Every layer retries, and differently: users' clients retry 5 times, the Gateway retries the API
+ * - Every layer retries, and differently: users' clients retry 5 times, the load balancer retries the API
  *   3 times and the API retries the DB once (user decision, 2026-10-24). One slow DB answer can
  *   therefore come back as many requests; nested timeouts limit how many (PLAN.md).
  */
@@ -64,7 +64,8 @@ export const webChain: TopologyPreset = {
   ],
   layout: {
     client: { label: 'Client', col: 1, row: 3 },
-    gateway: { label: 'Gateway', col: 3, row: 3 },
+    // The same component the builder calls a load balancer (user decision: one name everywhere).
+    gateway: { label: 'Load balancer', col: 3, row: 3 },
     // The tier runs the app's own code; "App server" is plainer for newcomers than "API" (user decision).
     api: { label: 'App server', col: 5, row: 3 },
     cache: { label: 'Cache', col: 5, row: 1 },

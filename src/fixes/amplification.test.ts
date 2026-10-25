@@ -50,7 +50,7 @@ describe('retry amplification', () => {
 describe('the fix panel\'s "across the stack" line on the default retry storm', { timeout: 60_000 }, () => {
   const { config, analysis } = analyzed(buildRunConfig(webChain, retryStorm));
   const byId = Object.fromEntries(candidateFixes(config, analysis.signals, labels).map((c) => [c.id, c]));
-  const whole = "If every call fails, retries can multiply the calls reaching the database up to 48× (users' apps 6 × the gateway 4 × the app server 2).";
+  const whole = "If every call fails, retries can multiply the calls reaching the database up to 48× (users' apps 6 × the load balancer 4 × the app server 2).";
 
   it('labels each retry fix one layer or whole stack, and no other fix', () => {
     expect(Object.fromEntries(Object.values(byId).map((c) => [c.id, c.scope ?? null]))).toEqual({
@@ -78,7 +78,7 @@ describe('the fix panel\'s "across the stack" line on the default retry storm', 
 
   it('puts a 10% budget on every call that retries, and says who', () => {
     const c = byId['retry-budget-every-layer'];
-    expect(c.what).toBe("Users' apps, the Gateway and the App server each stop retrying once retries reach 10% of their first attempts.");
+    expect(c.what).toBe("Users' apps, the Load balancer and the App server each stop retrying once retries reach 10% of their first attempts.");
     expect(c.title).toBe('Retry budget of 10% at every layer: every layer that retries');
     const budgets = [c.config.client.call, ...c.config.tiers.flatMap((t) => (t.downstream ? [t.downstream] : []))].map((p) => (p.retries > 0 ? p.retryBudget : null));
     expect(budgets).toEqual([0.1, 0.1, 0.1]); // users' apps, gateway → app server, app server → DB

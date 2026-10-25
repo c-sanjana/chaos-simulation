@@ -41,14 +41,14 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
     expect(at('…but it never recovers')).toBeLessThanOrEqual(run.durationMs);
   });
 
-  it('at "The database slows down", the app server, the Gateway and users’ apps have all started asking again', () => {
+  it('at "The database slows down", the app server, the load balancer and users’ apps have all started asking again', () => {
     const s = Math.floor(at('The database slows down') / run.bucketMs);
-    // Repeats arriving at a tier come from its caller: the app server's at the DB, the Gateway's at
-    // the app server, users' apps' at the Gateway.
+    // Repeats arriving at a tier come from its caller: the app server's at the DB, the load balancer's at
+    // the app server, users' apps' at the load balancer.
     expect(run.tiers.db.arrivalsRetry[s]).toBeGreaterThan(0);
     expect(run.tiers.api.arrivalsRetry[s]).toBeGreaterThan(0);
     expect(run.tiers.gateway.arrivalsRetry[s]).toBeGreaterThan(0);
-    // Users' first repeats arrive at 33 s, after the app server's and the Gateway's.
+    // Users' first repeats arrive at 33 s, after the app server's and the load balancer's.
     expect(run.tiers.gateway.arrivalsRetry.findIndex((n) => n > 0)).toBe(33);
     expect(run.tiers.gateway.arrivalsRetry.findIndex((n) => n > 0)).toBeGreaterThan(run.tiers.api.arrivalsRetry.findIndex((n) => n > 0));
   });

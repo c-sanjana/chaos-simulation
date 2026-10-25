@@ -157,11 +157,11 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
       const { story } = storyOf(webWithSearch(fanOut));
       const cause = step(story, 'giveup');
       expect(cause.text).toBe(
-        "The app server gives up on a database answer after 1 s. Every layer asks again when it gives up: users' apps up to 5 times, the gateway 3 times, the app server once. One slow answer can come back as many requests.",
+        "The app server gives up on a database answer after 1 s. Every layer asks again when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many requests.",
       );
       expect(cause.cascade).toEqual([
         { who: "users' apps", retries: 5 },
-        { who: 'the gateway', retries: 3 },
+        { who: 'the load balancer', retries: 3 },
         { who: 'the app server', retries: 1 },
       ]);
       // A miss reads from both: an emptied cache sends more requests to each.

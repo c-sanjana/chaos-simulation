@@ -168,7 +168,7 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
 export const SUMMARY_MAX_CALLERS = 4;
 
 /**
- * Who asks again and how many times, front to back, in words: "users' apps 5× · Gateway 3× · App
+ * Who asks again and how many times, front to back, in words: "users' apps 5× · Load balancer 3× · App
  * server 1×" (REVIEW2 3.7: "retries 5 / 3 / 1" meant nothing to a newcomer). A part that calls
  * several parts with different retries reads "App server 1× / 2×". With more than
  * `SUMMARY_MAX_CALLERS` callers, the users' apps and the callers that differ are named and the most

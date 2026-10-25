@@ -6,7 +6,7 @@ export const TOUR_FIX = FIX_CATALOG.find((d) => d.kind === 'boundQueue')!.short;
 
 /**
  * The guided tour, told as a demo: the retry storm on the default system (200 requests a second;
- * users' apps ask again up to 5 times, the Gateway 3 and the app server once), followed from calm
+ * users' apps ask again up to 5 times, the load balancer 3 and the app server once), followed from calm
  * traffic to stuck, then its tipping point and a fix. The features are introduced where the story
  * needs them.
  *
@@ -30,7 +30,7 @@ export const tourStops: TourStop[] = [
     screen: 0,
     atMs: 20_000,
     title: 'Normal traffic',
-    body: 'Requests flow from users’ apps through the Gateway and app server to the database. All calm.',
+    body: 'Requests flow from users’ apps through the load balancer and app server to the database. All calm.',
   },
   {
     target: 'topology',
@@ -38,7 +38,7 @@ export const tourStops: TourStop[] = [
     // By 34 s users' apps have started asking again too (their first repeats arrive at 33 s).
     atMs: 34_000,
     title: 'The database slows down',
-    body: 'Answers take longer than the app server waits (1 s), so it asks again. So do the Gateway and users’ apps: the striped arrows.',
+    body: 'Answers take longer than the app server waits (1 s), so it asks again. So do the load balancer and users’ apps (striped arrows).',
   },
   {
     target: 'charts',

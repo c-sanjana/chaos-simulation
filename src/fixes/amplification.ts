@@ -2,7 +2,7 @@ import { pathsTo, spokenName } from '../analysis/helpers';
 import type { CallPolicy, RunConfig } from '../engine/config';
 
 /**
- * Retries multiply from layer to layer: if users' apps try 6 times, the Gateway 4 times for each
+ * Retries multiply from layer to layer: if users' apps try 6 times, the load balancer 4 times for each
  * of those and the App server 2 times for each of those, one request can become 6 × 4 × 2 = 48
  * calls to the database while it fails. Service owners tuning one layer see only their own factor;
  * this shows the whole product, before and after a retry fix.
@@ -47,7 +47,7 @@ export function formatFactor(x: number): string {
 
 /**
  * The fix panel's "Across the stack" sentence, e.g. "Only one layer changes. If every call fails,
- * retries can multiply the calls reaching the database up to 48× (users' apps 6 × the gateway 4 ×
+ * retries can multiply the calls reaching the database up to 48× (users' apps 6 × the load balancer 4 ×
  * the app server 2). With this fix: up to 26× (6 × 4 × 1.1)." Null when nothing reaches the tier
  * or nothing on the way retries, before or after.
  */

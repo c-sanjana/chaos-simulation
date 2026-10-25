@@ -41,14 +41,14 @@ describe('tippingSentence', () => {
 });
 
 describe('cascadeSentence', () => {
-  const labels = { client: 'Client', gateway: 'Gateway', api: 'App server' };
+  const labels = { client: 'Client', gateway: 'Load balancer', api: 'App server' };
   const calls = (client: number, gateway: number, api: number) => [
     { caller: 'client', target: 'gateway', retries: client },
     { caller: 'gateway', target: 'api', retries: gateway },
     { caller: 'api', target: 'db', retries: api },
   ];
   it('uses the story’s every/several rule, and names a single retrying caller', () => {
-    expect(cascadeSentence(calls(5, 3, 1), labels)).toBe('Every layer asks again when it gives up (Client 5×, Gateway 3×, App server 1×), so one failed answer can come back as many requests.');
+    expect(cascadeSentence(calls(5, 3, 1), labels)).toBe('Every layer asks again when it gives up (Client 5×, Load balancer 3×, App server 1×), so one failed answer can come back as many requests.');
     expect(cascadeSentence(calls(5, 0, 1), labels)).toBe('Several layers ask again when they give up (Client 5×, App server 1×), so one failed answer can come back as many requests.');
     expect(cascadeSentence(calls(0, 0, 3), labels)).toBe('App server asks again when it gives up (3×), so one failed answer can come back as more requests.');
     expect(cascadeSentence(calls(0, 0, 0), labels)).toBe('');

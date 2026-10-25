@@ -293,7 +293,7 @@ export function nameOf(id: string, labels: Record<string, string>): string {
 
 /**
  * How a newcomer would say a tier's name: "the database" for DB, acronyms as they are ("the
- * API"), anything else in lower case ("the cache", "the gateway").
+ * API"), anything else in lower case ("the cache", "the load balancer").
  */
 export function spokenName(id: string, labels: Record<string, string>): string {
   const label = nameOf(id, labels);

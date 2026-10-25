@@ -29,7 +29,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const e = explain(storm, 'retry-budget');
     expect(e.helped).toBe(false);
     expect(e.title).toBe("Why it didn't help here");
-    expect(e.text).toMatch(/^Users' apps \(5×\), the gateway \(3×\) and the app server \(1×, 10% budget\) still retry, so the database still had up to \d\.\d× the work it can handle after the failure ended\./);
+    expect(e.text).toMatch(/^Users' apps \(5×\), the load balancer \(3×\) and the app server \(1×, 10% budget\) still retry, so the database still had up to \d\.\d× the work it can handle after the failure ended\./);
     // The number is measured: the most work the database took on in a second after the failure ended.
     const capacity = (4 * 1000) / (20 * Math.exp(Math.log(5) ** 2 / (2 * 2.3263478740408408 ** 2)));
     const db = e.after.run.tiers.db;
@@ -80,7 +80,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const e = explain(long, 'longer-timeout');
     expect(e.helped).toBe(false);
     expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up and asked again\. Users' apps/);
-    // A slow Gateway is not what the app server waits for: no such comparison.
+    // A slow Load balancer is not what the app server waits for: no such comparison.
     expect(explain(buildRunConfig(webChain, gatewaySlow), 'longer-timeout').text).not.toMatch(/The failure lasted/);
   });
 

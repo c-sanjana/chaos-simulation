@@ -40,12 +40,12 @@ export const cacheRestart: ScenarioPreset = {
 
 /**
  * The front door slows down. ASSUMPTION: 50× (1 ms → 50 ms per request, e.g. CPU throttling or long
- * GC pauses); the Gateway has so much spare capacity that a smaller slowdown is barely noticed.
+ * GC pauses); the load balancer has so much spare capacity that a smaller slowdown is barely noticed.
  */
 export const gatewaySlow: ScenarioPreset = {
   id: 'gateway-slow',
-  title: 'Gateway slows down',
-  blurb: "The Gateway slows down; users' clients retry, and the repeats pile onto it.",
+  title: 'Load balancer slows down',
+  blurb: "The load balancer slows down; users' clients retry, and the repeats pile onto it.",
   topology: 'web-chain',
   rps: 200,
   durationMs: 120_000,

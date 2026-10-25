@@ -158,36 +158,36 @@ describe('on the stuck retry storm, retrying at one layer (3 App server → DB r
   });
 });
 
-describe('on the default retry storm, every layer retrying (users\' apps 5, Gateway 3, API 1)', { timeout: 60_000 }, () => {
+describe('on the default retry storm, every layer retrying (users\' apps 5, Load balancer 3, API 1)', { timeout: 60_000 }, () => {
   const { config, analysis } = analyzed(buildRunConfig(webChain, retryStorm));
   const candidates = candidateFixes(config, analysis.signals, labels);
   const byId = Object.fromEntries(candidates.map((c) => [c.id, c]));
 
   it('suggests every fix, retrying at one layer included', () => {
     expect(candidates.map((c) => c.id)).toEqual(FIX_CATALOG.filter((d) => d.kind !== 'moreConsumers').map((d) => d.id)); // no queue here
-    // Retries arrived mostly at the Gateway (users' repeats), but the DB is where the pile is.
+    // Retries arrived mostly at the load balancer (users' repeats), but the DB is where the pile is.
     expect(analysis.signals.retryShare!.tier).toBe('gateway');
     expect(analysis.signals.queueWaitOverTimeout!.tier).toBe('db');
   });
 
-  it('aims the retry fixes at the call into the DB, moving out to the Gateway to cap its 3 retries', () => {
+  it('aims the retry fixes at the call into the DB, moving out to the load balancer to cap its 3 retries', () => {
     expect(Object.fromEntries(['retry-budget', 'cap-retries', 'jitter-backoff', 'retry-one-layer'].map((id) => [id, byId[id].title]))).toEqual({
       'retry-budget': 'Retry budget of 10%: App server → DB',
-      'cap-retries': 'Cap retries at 1: Gateway → App server',
+      'cap-retries': 'Cap retries at 1: Load balancer → App server',
       'jitter-backoff': 'Exponential backoff with full jitter: App server → DB',
       'retry-one-layer': 'Retry at one layer only: App server → DB',
     });
-    expect(byId['cap-retries'].what).toBe('Gateway retries a failed call to App server at most once (instead of 3 times).');
+    expect(byId['cap-retries'].what).toBe('Load balancer retries a failed call to App server at most once (instead of 3 times).');
     expect(diffPaths(config, byId['cap-retries'].config)).toEqual(['tiers.0.downstream.retries']);
   });
 
-  it('retrying at one layer keeps the app server → DB retry and turns off users\' and the Gateway\'s', () => {
+  it('retrying at one layer keeps the app server → DB retry and turns off users\' and the load balancer\'s', () => {
     const fix = byId['retry-one-layer'];
-    expect(fix.what).toBe("Only the App server asks the DB again (once); users' apps and the Gateway no longer retry.");
+    expect(fix.what).toBe("Only the App server asks the DB again (once); users' apps and the Load balancer no longer retry.");
     expect(fix.how).toBe(
       'The app server is the only one that asks the database again; every other layer passes errors straight back, so repeats no longer multiply from layer to layer.',
     );
-    expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Gateway's load`);
+    expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Load balancer's load`);
     expect(diffPaths(config, fix.config).sort()).toEqual(['client.call.retries', 'tiers.0.downstream.retries']);
     expect([fix.config.client.call.retries, fix.config.tiers[0].downstream!.retries, fix.config.tiers[1].downstream!.retries]).toEqual([0, 0, 1]);
   });

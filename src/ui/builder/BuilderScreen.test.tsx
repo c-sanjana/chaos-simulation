@@ -38,9 +38,9 @@ describe('BuilderScreen: empty canvas and toolbar', () => {
     expect(latest).toEqual(exampleGraph());
     expect(screen.queryByText('Your canvas is empty')).toBeNull();
     expect(screen.getByRole('button', { name: /^Client, a client: 200 req\/s/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Client calls Gateway: gives up after 3 s, then tries again up to 5 times' }).textContent).toBe('3 s · 5 retries');
+    expect(screen.getByRole('button', { name: 'Client calls Load balancer: gives up after 3 s, then tries again up to 5 times' }).textContent).toBe('3 s · 5 retries');
     expect(screen.getByRole('button', { name: 'App server calls DB: gives up after 1 s, then tries again up to 1 time' }).textContent).toBe('1 s · 1 retry');
-    expect(status().textContent).toBe('Loaded the example: Client → Gateway → App server → DB, with a Cache.');
+    expect(status().textContent).toBe('Loaded the example: Client → Load balancer → App server → DB, with a Cache.');
   });
 
   it('clears the canvas, and can undo the clear', () => {

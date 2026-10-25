@@ -54,7 +54,7 @@ function yourPart(tip: TippingPoint, current: { x: number; y: number }, verdict:
 
 /**
  * Who asks again, using the same every/several rule as the story: "Every layer asks again when it
- * gives up (Client 5×, Gateway 3×, App server 1×), so one failed answer can come back as many
+ * gives up (Client 5×, Load balancer 3×, App server 1×), so one failed answer can come back as many
  * requests." With one retrying caller it names that caller; with none it says nothing.
  */
 export function cascadeSentence(calls: RetryCall[], labels: Record<string, string>): string {

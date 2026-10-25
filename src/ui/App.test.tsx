@@ -56,9 +56,9 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(pool.analyzed.at(-1)!.client.rps).toBe(80), SLOW);
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     // Retries per layer, front to back (defaults 5 / 3 / 1).
-    expect(['Client → Gateway', 'Gateway → App server', 'App server → DB'].map((l) => (screen.getByLabelText(l) as HTMLInputElement).value)).toEqual(['5', '3', '1']);
+    expect(['Client → Load balancer', 'Load balancer → App server', 'App server → DB'].map((l) => (screen.getByLabelText(l) as HTMLInputElement).value)).toEqual(['5', '3', '1']);
     fireEvent.change(screen.getByLabelText('App server → DB'), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText('Client → Gateway'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Client → Load balancer'), { target: { value: '2' } });
     const first = screen.getByRole('group', { name: 'Failure 1' });
     fireEvent.change(within(first).getByLabelText(/^How much slower/), { target: { value: '4' } });
     fireEvent.change(within(first).getByLabelText(/^Lasting/), { target: { value: '10' } });
@@ -80,7 +80,7 @@ describe('App', { timeout: 60_000 }, () => {
       { tier: 'db', kind: 'slow', factor: 4, startMs: 20_000, endMs: 30_000 },
       { tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 20_000, endMs: 30_000 },
     ]);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*asks again: users' apps 2× · Gateway 3× · App server 0×/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*asks again: users' apps 2× · Load balancer 3× · App server 0×/);
     // Extra failures can be removed; the first stays.
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     expect(screen.queryByRole('button', { name: 'Remove failure 1' })).toBeNull();
@@ -122,7 +122,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /^Cache restarts empty/ }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'cache', kind: 'dead', flushAtEnd: true }), SLOW);
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/Cache goes down and restarts empty for 5 s/);
-    fireEvent.click(screen.getByRole('button', { name: /^Gateway slows down/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Load balancer slows down/ }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults![0]).toMatchObject({ tier: 'gateway', kind: 'slow', factor: 50 }), SLOW);
     const part = within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('Part') as HTMLSelectElement;
     expect(part.value).toBe('gateway');
@@ -140,7 +140,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
     expect(screen.getByText(/With a 5 s failure, the system tips at 120 req\/s/)).toBeTruthy();
-    expect(screen.getByText(/Every layer asks again when it gives up \(Client 5×, Gateway 3×, App server 1×\)/)).toBeTruthy();
+    expect(screen.getByText(/Every layer asks again when it gives up \(Client 5×, Load balancer 3×, App server 1×\)/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /80 requests per second, 1s failure length: recovers in 2 s/ })).toBeTruthy();
     await screen.findByRole('heading', { name: /Replaying 200 req\/s · 5s failure length/ }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
@@ -158,7 +158,7 @@ describe('App', { timeout: 60_000 }, () => {
     render(<App pool={pool} />);
     fireEvent.click(screen.getByRole('button', { name: /Where's the tipping point/ }));
     const summary = screen.getByRole('region', { name: 'Scenario' });
-    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · asks again: users' apps 5× · Gateway 3× · App server 1×/);
+    expect(summary.textContent).toMatch(/Retry storm.*DB slows 8× for 5 s at 30 s · 200 req\/s · asks again: users' apps 5× · Load balancer 3× · App server 1×/);
     const toggle = within(summary).getByRole('button', { name: 'Change failure' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
@@ -214,7 +214,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(within(api).getByLabelText('Limit the waiting line'));
     fireEvent.change(within(api).getByLabelText(/^Requests allowed to wait, per copy/), { target: { value: '50' } });
     fireEvent.change(within(api).getByLabelText(/^Retries to DB/), { target: { value: '1' } });
-    const gateway = within(dialog).getByRole('group', { name: 'Gateway' });
+    const gateway = within(dialog).getByRole('group', { name: 'Load balancer' });
     fireEvent.change(within(gateway).getByLabelText(/^Retries to App server/), { target: { value: '2' } });
     fireEvent.change(within(gateway).getByLabelText(/^Timeout to App server/), { target: { value: '1500' } });
     fireEvent.change(within(gateway).getByLabelText(/^Wait before retrying/), { target: { value: '20' } });
@@ -229,7 +229,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.change(within(cache).getByLabelText(/^Popularity skew/), { target: { value: '0.8' } });
     fireEvent.change(within(dialog).getByLabelText(/^User traffic/), { target: { value: '150' } });
     fireEvent.change(within(dialog).getByLabelText(/^Duration/), { target: { value: '90' } });
-    fireEvent.change(within(dialog).getByLabelText(/^Timeout to Gateway/), { target: { value: '2500' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Timeout to Load balancer/), { target: { value: '2500' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Re-run simulation' }));
     await waitFor(() => expect(pool.analyzed.some((c) => c.client.rps === 150)).toBe(true), SLOW);
     const c = pool.analyzed.find((x) => x.client.rps === 150)!;
@@ -256,8 +256,8 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /Edit all settings/ }));
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(within(dialog).getByLabelText('Give up on Gateway after a timeout'));
-    expect(within(dialog).queryByLabelText(/^Timeout to Gateway/)).toBeNull();
+    fireEvent.click(within(dialog).getByLabelText('Give up on Load balancer after a timeout'));
+    expect(within(dialog).queryByLabelText(/^Timeout to Load balancer/)).toBeNull();
     const cache = within(dialog).getByRole('group', { name: 'Cache' });
     fireEvent.click(within(cache).getByLabelText('Entries expire'));
     expect(within(cache).queryByLabelText(/^Expire after/)).toBeNull();
@@ -276,7 +276,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(pool.analyzed).toHaveLength(1);
     fireEvent.change(traffic, { target: { value: '200' } });
     // A typical time above the slowest 1%: the slowest-1% field says so, and Re-run points at it.
-    const gateway = within(dialog).getByRole('group', { name: 'Gateway' });
+    const gateway = within(dialog).getByRole('group', { name: 'Load balancer' });
     fireEvent.change(within(gateway).getByLabelText(/^Typical time per request/), { target: { value: '9' } });
     await within(dialog).findByText('Fix "Slowest 1% take" first');
     expect(within(gateway).getByText('Must take longer than the typical time (9 ms)')).toBeTruthy();
@@ -416,7 +416,7 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(position()).toBeLessThan(60_000));
     expect(pool.analyzed).toHaveLength(1); // the same run, replayed: nothing re-simulated
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).not.toMatch(/\(edited\)/);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/asks again: users' apps 5× · Gateway 3× · App server 1×/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/asks again: users' apps 5× · Load balancer 3× · App server 1×/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     const add = screen.getByRole('button', { name: '+ Add another failure' }) as HTMLButtonElement;

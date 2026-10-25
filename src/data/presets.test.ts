@@ -1,5 +1,5 @@
 /**
- * The bundled presets with the default retries at every layer (users' apps 5, Gateway → App server 3,
+ * The bundled presets with the default retries at every layer (users' apps 5, Load balancer → App server 3,
  * App server → DB 1): each default run gets stuck, and each map's staircase is where the comments in
  * scenarios.ts say it is. Measured, not scripted: if the engine changes, these say which claim moved.
  */
@@ -42,7 +42,7 @@ describe('presets at their default settings (retries 5 / 3 / 1)', { timeout: 60_
     expect(verdictOf(cacheRestart)).toBe('stuck');
   });
 
-  it('gateway slow: a 20 s Gateway slowdown at 200 req/s gets stuck', () => {
+  it('gateway slow: a 20 s Load balancer slowdown at 200 req/s gets stuck', () => {
     expect(verdictOf(gatewaySlow)).toBe('stuck');
   });
 });

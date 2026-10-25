@@ -163,7 +163,7 @@ const count = (n: number) => {
 const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 /**
- * "Users' apps (5×) and the gateway (3×) still retry", or null when no layer retries. A layer whose
+ * "Users' apps (5×) and the load balancer (3×) still retry", or null when no layer retries. A layer whose
  * calls retry different numbers of times shows the range ("the API (1–3×)"); one whose calls all
  * have a retry budget says so ("the API (1×, 10% budget)"), since its repeats are then capped.
  */

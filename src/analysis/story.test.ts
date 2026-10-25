@@ -189,7 +189,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
 
   it('a failure on a tier that calls others: the caller notices, but there is no load step', () => {
     const story = storyOf(storm([{ tier: 'api', kind: 'slow', factor: 1000, startMs: 30_000, endMs: 35_000 }]));
-    expect(texts(story)).toContain('The gateway gives up on an app server answer after 2 s and does not ask again, so those users got an error.');
+    expect(texts(story)).toContain('The load balancer gives up on an app server answer after 2 s and does not ask again, so those users got an error.');
     expect(story.some((s) => /requests a second/.test(s.text))).toBe(false);
   });
 
@@ -197,7 +197,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
     const story = storyOf(storm([{ tier: 'api', instance: 1, kind: 'dead', startMs: 30_000, endMs: 35_000 }]));
     expect(texts(story).slice(0, 3)).toEqual([
       'At 30 s one of the 4 app server instances went down for 5 seconds.',
-      'The gateway gets an error for requests sent to that instance straight away and does not ask again, so those users got an error.',
+      'The load balancer gets an error for requests sent to that instance straight away and does not ask again, so those users got an error.',
       'At 35 s one of the 4 app server instances was back up.',
     ]);
   });
@@ -205,7 +205,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
 
 describe('buildStory on the presets, with the default retries at every layer (5 / 3 / 1)', { timeout: 60_000 }, () => {
   const cascade =
-    "Every layer asks again when it gives up: users' apps up to 5 times, the gateway 3 times, the app server once. One slow answer can come back as many requests.";
+    "Every layer asks again when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many requests.";
 
   it('retry storm: the app server gives up on the database, and every layer asks again', () => {
     const story = storyOf(buildRunConfig(webChain, retryStorm));
@@ -240,10 +240,10 @@ describe('buildStory on the presets, with the default retries at every layer (5 
   it('gateway slows down: users\' apps give up on it, and its pile reaches the database once it is back', () => {
     const story = storyOf(buildRunConfig(webChain, gatewaySlow));
     expect(story.map((s) => [s.tMs, s.text])).toEqual([
-      [30_000, 'At 30 s the gateway became 50× slower for 20 seconds.'],
-      [37_000, `Users' apps give up on a gateway answer after 3 s. ${cascade}`],
-      [50_000, 'At 50 s the gateway was back to normal speed — but the pile of repeated requests was still there.'],
-      [50_000, 'Then the gateway passed its pile of requests on all at once, more than the database can handle (about 160 a second).'],
+      [30_000, 'At 30 s the load balancer became 50× slower for 20 seconds.'],
+      [37_000, `Users' apps give up on a load balancer answer after 3 s. ${cascade}`],
+      [50_000, 'At 50 s the load balancer was back to normal speed — but the pile of repeated requests was still there.'],
+      [50_000, 'Then the load balancer passed its pile of requests on all at once, more than the database can handle (about 160 a second).'],
       [
         54_000,
         "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too. " +
@@ -252,7 +252,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
       [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.3× the work it can handle.'],
     ]);
     expectPlain(story);
-    // The numbers come from the run: the pile reached the app server in the second the gateway was back.
+    // The numbers come from the run: the pile reached the app server in the second the load balancer was back.
     const { run } = analyzed(buildRunConfig(webChain, gatewaySlow));
     expect(run.tiers.gateway.queueAvg[49]).toBeGreaterThan(1);
     expect(run.tiers.api.arrivalsFirst[50]).toBeGreaterThan(10 * gatewaySlow.rps);
@@ -268,7 +268,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
   it('when the layer that noticed does not ask again, the cascade still tells who does', () => {
     const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { api: 0 } })));
     expect(story[1]).toBe(
-      'The app server gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps up to 5 times, the gateway 3 times. One slow answer can come back as many requests.',
+      'The app server gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps up to 5 times, the load balancer 3 times. One slow answer can come back as many requests.',
     );
   });
 
@@ -276,7 +276,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
     const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, gateway: 0, api: 0 } })));
     expect(story).toContain("The app server gives up on a database answer after 1 s. Users' apps ask again when they give up, once.");
     const gateway = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 0, gateway: 3, api: 0 } })));
-    expect(gateway).toContain('The app server gives up on a database answer after 1 s. The gateway asks again when it gives up, up to 3 times.');
+    expect(gateway).toContain('The app server gives up on a database answer after 1 s. The load balancer asks again when it gives up, up to 3 times.');
   });
 
   it('a database outage: one failed answer; a retry budget gets a sentence of its own', () => {
@@ -289,8 +289,8 @@ describe('buildStory on the presets, with the default retries at every layer (5 
     };
     const story = storyOf(budgeted);
     expect(story[1].text).toBe(
-      "The app server gets an error from the database straight away. Every layer asks again when it gives up: users' apps up to 5 times, the gateway 3 times, the app server once. " +
-        "Users' apps stop asking again once repeats reach 10% of their requests. The gateway stops asking again once repeats reach 20% of its requests. " +
+      "The app server gets an error from the database straight away. Every layer asks again when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. " +
+        "Users' apps stop asking again once repeats reach 10% of their requests. The load balancer stops asking again once repeats reach 20% of its requests. " +
         'One failed answer can come back as many requests.',
     );
     expectPlain(story);
@@ -310,7 +310,7 @@ describe('buildStory pictures: a few words, a number, a meter or the cascade per
     ]);
     expect(story[1].cascade).toEqual([
       { who: "users' apps", retries: 5 },
-      { who: 'the gateway', retries: 3 },
+      { who: 'the load balancer', retries: 3 },
       { who: 'the app server', retries: 1 },
     ]);
     expect(story[2].meter).toBeGreaterThan(1);

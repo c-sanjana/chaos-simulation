@@ -80,7 +80,7 @@ export function useFixRanking(pool: SimPool, config: RunConfig, analysis: Analys
           longerConfig ? batch.cell(longerConfig) : Promise.resolve(null),
         ]);
         // ASSUMPTION: a longer slowdown the system recovers from by itself says nothing about a fix
-        // (measured: the Gateway preset's 40 s slowdown recovers while 20 s gets stuck), so skip it.
+        // (measured: the load balancer preset's 40 s slowdown recovers while 20 s gets stuck), so skip it.
         const stuck = (v: string) => v === 'stuck' || v === 'overloaded';
         const longerOriginal = longerResult && stuck(longerResult.verdict) ? longerResult : null;
         setState((s) => ({ ...s, longerApplies: longerOriginal !== null }));

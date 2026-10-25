@@ -4,7 +4,7 @@
  *
  * First with one retrying layer (the app server retries the DB), where the retry fixes work as their
  * descriptions say; then each preset as it ships, with every layer retrying (users' apps 5,
- * Gateway 3, API 1), where changing one call's retries is no longer enough.
+ * Load balancer 3, API 1), where changing one call's retries is no longer enough.
  */
 import { analyzed, retryStormRun } from '../analysis/testRuns';
 import { buildRunConfig } from '../data/buildConfig';
@@ -158,7 +158,7 @@ describe('fixes for the default retry storm (200 rps, every layer retrying: 5 / 
     expect(byId['retry-one-layer'].outcome).toMatchObject({ verdict: 'recovered', recoveryMs: 13_000 });
   });
 
-  // Dropping expired requests no longer helps: users' apps and the Gateway keep asking again, so
+  // Dropping expired requests no longer helps: users' apps and the load balancer keep asking again, so
   // the DB's queue refills with requests whose (API) caller is still waiting.
   it('ranks the fixes that helped first, then the rest by failed requests', () => {
     expect(ranked.map((r) => r.candidate.id)).toEqual([
@@ -215,10 +215,10 @@ describe('fixes for the default cache restart (200 rps, cache down 5 s and back 
   });
 });
 
-describe('fixes for the default gateway slowdown (200 rps, Gateway 50× slower for 20 s)', { timeout: 120_000 }, () => {
+describe('fixes for the default gateway slowdown (200 rps, Load balancer 50× slower for 20 s)', { timeout: 120_000 }, () => {
   const { original, ranked, byId } = rankPreset(gatewaySlow);
 
-  // The Gateway's pile lands on the DB when it recovers: shedding load at the DB helps, and so does
+  // The load balancer's pile lands on the DB when it recovers: shedding load at the DB helps, and so does
   // limiting retries at every layer; a longer App server → DB timeout does not (the pile comes from in front).
   it('bounding the DB queue, a retry budget at every layer and retrying at one layer help', () => {
     expect(original.verdict).toBe('stuck');

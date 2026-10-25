@@ -13,7 +13,7 @@ import { hashPath, Stream, uniform } from './rng';
 import type { Simulation } from './simulation';
 
 /**
- * A tier (gateway, API, cache, database…): a set of identical instances behind a load balancer.
+ * A tier (load balancer, API, cache, database…): a set of identical instances behind a load balancer.
  *
  * Handling an attempt: compute on a core for a sampled service time (with `dropExpired`, an attempt
  * whose caller's deadline passed before it got a core is dropped instead), then

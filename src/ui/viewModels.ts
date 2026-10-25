@@ -511,7 +511,7 @@ export function axisPhrase(axis: Axis, v: number): string {
 }
 
 /**
- * The retry cascade in words, front to back, e.g. "Client 5×, Gateway 3×, API 1×"; null when no
+ * The retry cascade in words, front to back, e.g. "Client 5×, Load balancer 3×, API 1×"; null when no
  * call retries.
  */
 export function retriesPhrase(calls: Array<{ caller: string; retries: number }>, labels: Record<string, string>): string | null {

@@ -224,7 +224,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
   });
 
   it('says what "the failure is over" means for whichever part failed last', () => {
-    const labels = { db: 'DB', cache: 'Cache', gateway: 'Gateway' };
+    const labels = { db: 'DB', cache: 'Cache', gateway: 'Load balancer' };
     expect(failureOverText([{ tier: 'db', kind: 'slow', factor: 8, startMs: 0, endMs: 5000 }], labels)).toBe('the database is back to normal speed');
     expect(failureOverText([{ tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 0, endMs: 5000 }], labels)).toBe('the cache is back up, but empty');
     expect(
@@ -235,7 +235,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
         ],
         labels,
       ),
-    ).toBe('the gateway is back up');
+    ).toBe('the load balancer is back up');
   });
 });
 
@@ -345,7 +345,7 @@ describe('RunPlayer accessibility', { timeout: 60_000 }, () => {
   it('lists the tier behind the default scope once ("DB (most overloaded)", not DB again)', () => {
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
     const scope = screen.getByLabelText('Show metrics for') as HTMLSelectElement;
-    expect(Array.from(scope.options).map((o) => o.text)).toEqual(['DB (most overloaded)', 'Gateway', 'App server', 'Cache']);
+    expect(Array.from(scope.options).map((o) => o.text)).toEqual(['DB (most overloaded)', 'Load balancer', 'App server', 'Cache']);
     // Picked on a tab where it isn't the default, then back on Load & retries: shown as the default.
     fireEvent.click(screen.getByRole('button', { name: 'Latency' }));
     fireEvent.change(scope, { target: { value: 'db' } });

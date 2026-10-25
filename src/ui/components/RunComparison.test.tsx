@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { RunComparison } from './RunComparison';
 
 const comparison = {
-  changes: ['App server → DB retries 1 → 5', 'Traffic 200 → 150 req/s', 'Gateway copies 2 → 3', 'Cache size 1000 → 2000'],
+  changes: ['App server → DB retries 1 → 5', 'Traffic 200 → 150 req/s', 'Load balancer copies 2 → 3', 'Cache size 1000 → 2000'],
   rows: [
     { label: 'Failed requests', before: '12,561', now: '12,651', change: 'same', tone: 'same' as const, values: { before: 12_561, now: 12_651, max: 12_651 } },
     { label: 'Retries sent (all layers)', before: '110,742', now: '135,545', change: '+22%', tone: 'worse' as const, values: { before: 110_742, now: 135_545, max: 135_545 } },
@@ -17,7 +17,7 @@ describe('RunComparison', () => {
     render(<RunComparison comparison={comparison} onDismiss={onDismiss} />);
     const panel = screen.getByRole('region', { name: 'Compared with your last run' });
     const chips = within(within(panel).getByRole('list', { name: 'What you changed' })).getAllByRole('listitem');
-    expect(chips.map((c) => c.textContent)).toEqual(['App server → DB retries 1 → 5', 'Traffic 200 → 150 req/s', 'Gateway copies 2 → 3', '+1 more']);
+    expect(chips.map((c) => c.textContent)).toEqual(['App server → DB retries 1 → 5', 'Traffic 200 → 150 req/s', 'Load balancer copies 2 → 3', '+1 more']);
 
     const bells = panel.querySelectorAll('.csl-dumbbell');
     expect(bells).toHaveLength(3);
