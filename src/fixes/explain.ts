@@ -183,7 +183,7 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
     // Compared only with a failure of the part that call waits for: another part's failure says nothing about this wait.
     const longest = Math.max(0, ...(after.config.faults ?? []).filter((f) => changed && f.tier === changed.target).map((f) => f.endMs - f.startMs));
     if (changed && changed.timeoutMs < longest) {
-      return text(`The failure lasted ${formatMs(longest)}, longer than the new ${formatMs(changed.timeoutMs)} wait, so ${say(changed.owner)} still gave up and asked again${cause ? `. ${cause}` : ''}.`);
+      return text(`The failure lasted ${formatMs(longest)}, longer than the new ${formatMs(changed.timeoutMs)} wait, so ${say(changed.owner)} still gave up and retried${cause ? `. ${cause}` : ''}.`);
     }
   }
   if (kind === 'addInstances' && pressure !== null && grew(before.config, after.config) === pressure && loadPart) {

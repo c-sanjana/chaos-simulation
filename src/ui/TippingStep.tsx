@@ -58,9 +58,10 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
               <strong style={{ fontWeight: 600 }}>{verdictText}</strong>
               {summary && summary.failedRequests > 0 && <span className="csl-status">{formatCount(summary.failedRequests)} failed requests</span>}
             </div>
-            {!onMap(scenario) && (
+            {/* Only while the cell shown stands in for the viewer's own settings: once they pick a cell, it is theirs. */}
+            {!onMap(scenario) && selected.x === nearestCell(scenario).x && selected.y === nearestCell(scenario).y && (
               <p className="csl-status" style={{ margin: 0 }}>
-                Your settings ({current.x} req/s, {axisPhrase(yAxis, current.y)}) aren't one of the map's cells; the nearest is selected.
+                Your settings ({current.x} req/s, {axisPhrase(yAxis, current.y)}) fall between the map's cells; the nearest one is shown.
               </p>
             )}
             {rowTip && <p className="csl-tipping__finding">{tippingSentence({ tip: rowTip, yAxis, current, currentVerdict })}</p>}

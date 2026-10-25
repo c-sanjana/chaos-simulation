@@ -31,7 +31,7 @@ function expectPlain(steps: StoryStep[]) {
   expect(steps.map((s) => s.tMs)).toEqual([...steps.map((s) => s.tMs)].sort((a, b) => a - b));
   for (const { text } of steps) {
     for (const sentence of text.split(/(?<=\.) /)) expect(sentence.split(/\s+/).length).toBeLessThanOrEqual(25);
-    expect(text).not.toMatch(/p99|p50|rps|tier|timeout|timed out|retr|capacity|latency|throughput|saturat/i);
+    expect(text).not.toMatch(/p99|p50|rps|tier|timeout|timed out|capacity|latency|throughput|saturat/i);
     expect(text).toMatch(/[.]$/);
   }
 }
@@ -42,14 +42,14 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
     const story = buildStory(run, config, analysis, labels);
     expect(plain(story)).toEqual([
       { tMs: 30_000, tone: 'fault', text: 'At 30 s the database became 8× slower for 5 seconds.' },
-      { tMs: 31_000, tone: 'info', text: 'The app server gives up on a database answer after 1 s and asks again, up to 3 more times.' },
+      { tMs: 31_000, tone: 'info', text: 'The app server gives up on a database answer after 1 s and retries up to 3 times.' },
       { tMs: 33_000, tone: 'bad', text: 'So the database got more requests than it can handle, even at full speed (about 160 a second).' },
       { tMs: 35_000, tone: 'info', text: 'At 35 s the database was back to normal speed — but the pile of repeated requests was still there.' },
       {
         tMs: 58_000,
         tone: 'bad',
         text:
-          "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too. " +
+          "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too. " +
           "Cache entries ran out and weren't refilled, sending even more requests to the database.",
       },
       { tMs: 117_000, tone: 'bad', text: 'It never recovered: still failing at the end of the run, with the database getting up to 4.8× the work it can handle.' },
@@ -74,7 +74,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
     expect(plain(story)).toEqual([
       { tMs: 30_000, tone: 'fault', text: 'At 30 s the database became 8× slower for 5 seconds.' },
       { tMs: 30_000, tone: 'bad', text: `Slowed down, the database could serve only about 20 requests a second, but it got ${run.tiers.db.arrivalsFirst[30]}.` },
-      { tMs: 31_000, tone: 'info', text: 'The app server gives up on a database answer after 1 s and does not ask again, so those users got an error.' },
+      { tMs: 31_000, tone: 'info', text: 'The app server gives up on a database answer after 1 s and does not retry, so those users got an error.' },
       { tMs: 35_000, tone: 'info', text: 'At 35 s the database was back to normal speed and started on the requests that had piled up.' },
       { tMs: analysis.recovery.recoveredAtMs, tone: 'good', text: 'It worked through the backlog and was back to normal 3 s after the failure ended.' },
     ]);
@@ -83,8 +83,8 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
 
   it('with one retry, the repeats push the database over only after the failure, and it recovers', () => {
     const story = storyOf(storm(retryStorm.faults, { retries: 1 }));
-    expect(texts(story)).toContain('The app server gives up on a database answer after 1 s and asks again once.');
-    const over = story.find((s) => s.text.startsWith('Then the requests asked again pushed the database past what it can handle'))!;
+    expect(texts(story)).toContain('The app server gives up on a database answer after 1 s and retries once.');
+    const over = story.find((s) => s.text.startsWith('Then the retried requests pushed the database past what it can handle'))!;
     expect(over.tMs).toBeGreaterThan(35_000);
     expect(story.at(-1)).toMatchObject({ tone: 'good', text: expect.stringMatching(/^It worked through the backlog and was back to normal \d+ s after the failure ended\.$/) });
     expectPlain(story);
@@ -94,12 +94,12 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
     const story = storyOf(storm([{ tier: 'db', kind: 'dead', startMs: 30_000, endMs: 35_000 }]));
     expect(texts(story)).toEqual([
       'At 30 s the database went down for 5 seconds.',
-      'The app server gets an error from the database straight away and asks again, up to 3 more times.',
+      'The app server gets an error from the database straight away and retries up to 3 times.',
       'At 35 s the database was back up.',
       'It was back to normal 1 s after the failure ended.',
     ]);
     const noRetries = storyOf(storm([{ tier: 'db', kind: 'dead', startMs: 30_000, endMs: 35_000 }], { retries: 0 }));
-    expect(texts(noRetries)).toContain('The app server gets an error from the database straight away and does not ask again, so those users got an error.');
+    expect(texts(noRetries)).toContain('The app server gets an error from the database straight away and does not retry, so those users got an error.');
     expect(noRetries.at(-1)).toMatchObject({ tMs: 35_000, tone: 'good', text: 'It was back to normal as soon as the failure ended.' });
     expectPlain(story);
   });
@@ -184,12 +184,12 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
   it('mentions a retry budget in plain words', () => {
     const config = storm([slowDb(30_000, 35_000)]);
     const budgeted = { ...config, tiers: config.tiers.map((t) => (t.id === 'api' ? { ...t, downstream: { ...t.downstream!, retryBudget: 0.1 } } : t)) };
-    expect(texts(storyOf(budgeted))).toContain('The app server gives up on a database answer after 1 s and asks again, up to 3 more times, as long as repeats stay under 10% of its requests.');
+    expect(texts(storyOf(budgeted))).toContain('The app server gives up on a database answer after 1 s and retries up to 3 times, as long as repeats stay under 10% of its requests.');
   });
 
   it('a failure on a tier that calls others: the caller notices, but there is no load step', () => {
     const story = storyOf(storm([{ tier: 'api', kind: 'slow', factor: 1000, startMs: 30_000, endMs: 35_000 }]));
-    expect(texts(story)).toContain('The load balancer gives up on an app server answer after 2 s and does not ask again, so those users got an error.');
+    expect(texts(story)).toContain('The load balancer gives up on an app server answer after 2 s and does not retry, so those users got an error.');
     expect(story.some((s) => /requests a second/.test(s.text))).toBe(false);
   });
 
@@ -197,7 +197,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
     const story = storyOf(storm([{ tier: 'api', instance: 1, kind: 'dead', startMs: 30_000, endMs: 35_000 }]));
     expect(texts(story).slice(0, 3)).toEqual([
       'At 30 s one of the 4 app server instances went down for 5 seconds.',
-      'The load balancer gets an error for requests sent to that instance straight away and does not ask again, so those users got an error.',
+      'The load balancer gets an error for requests sent to that instance straight away and does not retry, so those users got an error.',
       'At 35 s one of the 4 app server instances was back up.',
     ]);
   });
@@ -205,7 +205,7 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
 
 describe('buildStory on the presets, with the default retries at every layer (5 / 3 / 1)', { timeout: 60_000 }, () => {
   const cascade =
-    "Every layer asks again when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many requests.";
+    "Every layer retries when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many requests.";
 
   it('retry storm: the app server gives up on the database, and every layer asks again', () => {
     const story = storyOf(buildRunConfig(webChain, retryStorm));
@@ -216,7 +216,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
       [35_000, 'At 35 s the database was back to normal speed — but the pile of repeated requests was still there.'],
       [
         36_000,
-        "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too. " +
+        "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too. " +
           "Cache entries ran out and weren't refilled, sending even more requests to the database.",
       ],
       [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.2× the work it can handle.'],
@@ -231,7 +231,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
       [30_000, `Without the cache, the app server sent every lookup to the database instead. ${cascade}`],
       [30_000, 'So the database got more requests than it can handle, even at full speed (about 160 a second).'],
       [35_000, 'At 35 s the cache was back up, but empty — and the pile of repeated requests was still there.'],
-      [36_000, "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too."],
+      [36_000, "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too."],
       [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.3× the work it can handle.'],
     ]);
     expectPlain(story);
@@ -246,7 +246,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
       [50_000, 'Then the load balancer passed its pile of requests on all at once, more than the database can handle (about 160 a second).'],
       [
         54_000,
-        "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too. " +
+        "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too. " +
           "Cache entries ran out and weren't refilled, sending even more requests to the database.",
       ],
       [98_900, 'It never recovered: still failing at the end of the run, with the database getting up to 3.3× the work it can handle.'],
@@ -261,22 +261,22 @@ describe('buildStory on the presets, with the default retries at every layer (5 
   it('lists only the layers that ask again, with "once" and "twice", and says "Several layers" when not all do', () => {
     const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, lb: 0, api: 2 } })));
     expect(story[1]).toBe(
-      'The app server gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps once, the app server twice. One slow answer can come back as many requests.',
+      'The app server gives up on a database answer after 1 s. Several layers retry when they give up: users\' apps once, the app server twice. One slow answer can come back as many requests.',
     );
   });
 
   it('when the layer that noticed does not ask again, the cascade still tells who does', () => {
     const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { api: 0 } })));
     expect(story[1]).toBe(
-      'The app server gives up on a database answer after 1 s. Several layers ask again when they give up: users\' apps up to 5 times, the load balancer 3 times. One slow answer can come back as many requests.',
+      'The app server gives up on a database answer after 1 s. Several layers retry when they give up: users\' apps up to 5 times, the load balancer 3 times. One slow answer can come back as many requests.',
     );
   });
 
   it('when only a layer further up asks again, it says so instead of "those users got an error"', () => {
     const story = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 1, lb: 0, api: 0 } })));
-    expect(story).toContain("The app server gives up on a database answer after 1 s. Users' apps ask again when they give up, once.");
+    expect(story).toContain("The app server gives up on a database answer after 1 s. Users' apps retry when they give up, once.");
     const lb = texts(storyOf(buildRunConfig(webChain, retryStorm, { retries: { client: 0, lb: 3, api: 0 } })));
-    expect(lb).toContain('The app server gives up on a database answer after 1 s. The load balancer asks again when it gives up, up to 3 times.');
+    expect(lb).toContain('The app server gives up on a database answer after 1 s. The load balancer retries when it gives up, up to 3 times.');
   });
 
   it('a database outage: one failed answer; a retry budget gets a sentence of its own', () => {
@@ -289,8 +289,8 @@ describe('buildStory on the presets, with the default retries at every layer (5 
     };
     const story = storyOf(budgeted);
     expect(story[1].text).toBe(
-      "The app server gets an error from the database straight away. Every layer asks again when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. " +
-        "Users' apps stop asking again once repeats reach 10% of their requests. The load balancer stops asking again once repeats reach 20% of its requests. " +
+      "The app server gets an error from the database straight away. Every layer retries when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. " +
+        "Users' apps stop retrying once retries reach 10% of their requests. The load balancer stops retrying once retries reach 20% of its requests. " +
         'One failed answer can come back as many requests.',
     );
     expectPlain(story);
@@ -302,7 +302,7 @@ describe('buildStory pictures: a few words, a number, a meter or the cascade per
     const story = storyOf(buildRunConfig(webChain, retryStorm));
     expect(story.map(({ kind, headline, figure }) => ({ kind, headline, figure }))).toEqual([
       { kind: 'fault', headline: 'Database 8× slower', figure: '5 s' },
-      { kind: 'giveup', headline: 'The app server gives up, everyone asks again', figure: '1 s' },
+      { kind: 'giveup', headline: 'The app server gives up, everyone retries', figure: '1 s' },
       { kind: 'overload', headline: expect.any(String), figure: expect.stringMatching(/^\d+\.\d×$/) },
       { kind: 'back', headline: expect.any(String), figure: 'pile remains' },
       { kind: 'waste', headline: expect.any(String), figure: expect.any(String) },
@@ -331,7 +331,7 @@ describe('buildStory tells only the asking again that happened', { timeout: 60_0
     const story = storyOf(buildRunConfig(webChain, cacheRestart, { rps: 80 }));
     const step = story.find((s) => s.kind === 'giveup');
     expect(step?.headline ?? '').not.toMatch(/asks? again/);
-    expect(step?.text ?? '').not.toMatch(/asks again when it gives up/);
+    expect(step?.text ?? '').not.toMatch(/retries when it gives up/);
   });
 });
 
@@ -348,7 +348,7 @@ describe('buildStory on small systems', { timeout: 60_000 }, () => {
   it('one slowed or failed instance halves what the service can serve; users see the errors', () => {
     const slowed = texts(storyOf(direct({ tier: 'svc', instance: 0, kind: 'slow', factor: 10, startMs: 10_000, endMs: 15_000 })));
     expect(slowed[0]).toBe('At 10 s one of the 2 svc instances became 10× slower for 5 seconds.');
-    expect(slowed).toContain("Users' apps give up on a svc answer after 200 ms and do not ask again, so those users saw an error.");
+    expect(slowed).toContain("Users' apps give up on a svc answer after 200 ms and do not retry, so those users saw an error.");
     expect(slowed.some((t) => /^With one instance slowed, the svc could serve only about 220 requests a second, but it got \d+\.$/.test(t))).toBe(true);
 
     const down = texts(storyOf(direct({ tier: 'svc', instance: 0, kind: 'dead', startMs: 10_000, endMs: 15_000 })));
@@ -377,6 +377,6 @@ describe('buildStory on small systems', { timeout: 60_000 }, () => {
     const { run, analysis } = analyzed(config);
     const tweaked = structuredClone(run);
     tweaked.tiers.db.wastedMs[36] = 0.6 * tweaked.tiers.db.busyCoresAvg[36] * 1000;
-    expect(texts(buildStory(tweaked, config, analysis, labels))).toContain("60% of the database's work was for requests nobody was waiting for any more, so new ones were given up on and asked again too.");
+    expect(texts(buildStory(tweaked, config, analysis, labels))).toContain("60% of the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too.");
   });
 });

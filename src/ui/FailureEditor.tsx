@@ -32,7 +32,7 @@ const KIND_LABELS: Record<FaultKindChoice, string> = {
 };
 
 /**
- * What fails, how badly and when; how many times each layer asks again; and the traffic.
+ * What fails, how badly and when; how many times each layer retries; and the traffic.
  * A form: Run is disabled while a field holds an invalid value (the field keeps it, explained) or
  * the settings don't fit together. With nothing changed, the button replays the run from the start.
  */
@@ -70,7 +70,7 @@ export function FailureEditor({ draft, onChange, onRun, dirty }: { draft: Draft;
         {!canAdd && <span className="csl-status">Every part already has a failure.</span>}
       </fieldset>
       <fieldset className="csl-failure__group">
-        <legend className="csl-failure__legend">Retries: how many times each caller asks again after giving up</legend>
+        <legend className="csl-failure__legend">Retries: how many times each caller retries after giving up</legend>
         <div className="csl-failure__row">
           {retryCalls(draft.topology).map((c) => (
             <NumberField
@@ -170,12 +170,12 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
 export const SUMMARY_MAX_CALLERS = 4;
 
 /**
- * Who asks again and how many times, front to back, in words: "users' apps 5× · Load balancer 3× · App
+ * Who retries and how many times, front to back, in words: "users' apps 5× · Load balancer 3× · App
  * server 1×" (REVIEW2 3.7: "retries 5 / 3 / 1" meant nothing to a newcomer). A part that calls
  * several parts with different retries reads "App server 1× / 2×". With more than
  * `SUMMARY_MAX_CALLERS` callers, the users' apps and the callers that differ are named and the most
  * common count is said once: "users' apps 2× · Queue 3× · the rest 1×", so it stays on one line.
- * When most of them don't ask again, that is left unsaid ("the rest 0×" read oddly): the callers
+ * When most of them don't retry, that is left unsaid ("the rest 0×" read oddly): the callers
  * named are then the ones that do.
  */
 export function retriesSummary(draft: Draft): string {
@@ -233,8 +233,8 @@ export function ScenarioSummary({ draft, editing, onToggle, edited = false }: { 
         <li className="csl-summary__fact">
           <b>{s.rps} req/s</b>
         </li>
-        <li className="csl-summary__fact" title={`How many times each layer asks again after giving up on an answer (a retry), front to back: ${retriesDetail(draft)}`}>
-          asks again: <b>{retriesSummary(draft)}</b>
+        <li className="csl-summary__fact" title={`How many times each layer retries after giving up on an answer, front to back: ${retriesDetail(draft)}`}>
+          retries: <b>{retriesSummary(draft)}</b>
         </li>
       </ul>
       <button type="button" className="csl-btn csl-btn--small csl-summary__change" aria-expanded={editing} onClick={onToggle}>

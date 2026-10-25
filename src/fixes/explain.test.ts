@@ -80,7 +80,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const long = buildRunConfig(webChain, retryStorm, { outageMs: 10_000 });
     const e = explain(long, 'longer-timeout');
     expect(e.helped).toBe(false);
-    expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up and asked again\. Users' apps/);
+    expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up and retried\. Users' apps/);
     // A slow Load balancer is not what the app server waits for: no such comparison.
     expect(explain(buildRunConfig(webChain, loadBalancerSlow), 'longer-timeout').text).not.toMatch(/The failure lasted/);
   });

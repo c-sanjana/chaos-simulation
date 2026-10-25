@@ -55,7 +55,7 @@ describe('per-call retries with branches', () => {
   it('the cascade sentence names each caller once', () => {
     const d = branchedDraft();
     expect(cascadeSentence(retryCalls(d.topology), labelsOf(d.topology))).toBe(
-      'Every layer asks again when it gives up (client 2×, lb 1×, s1: 1×, s2: 1×, s3: 1× / 2×, queue 1×), so one failed answer can come back as many requests.',
+      'Every layer retries when it gives up (client 2×, lb 1×, s1: 1×, s2: 1×, s3: 1× / 2×, queue 1×), so one failed answer can come back as many requests.',
     );
   });
 

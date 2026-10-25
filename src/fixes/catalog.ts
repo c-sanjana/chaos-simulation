@@ -106,7 +106,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'retryBudgetEveryLayer',
     title: 'Retry budget of 10% at every layer',
     short: 'Budget, all layers',
-    how: 'Every layer that asks again stops once its repeats reach 10% of its first tries. Each layer then adds at most a tenth more calls, so even multiplied across the stack the repeats stay small.',
+    how: 'Every layer that retries stops once its retries reach 10% of its first tries. Each layer then adds at most a tenth more calls, so even multiplied across the stack the repeats stay small.',
     pros: [
       'Repeats cannot multiply from layer to layer into a storm',
       'Retries still happen as normal while things are healthy',
@@ -141,7 +141,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'jitterBackoff',
     title: 'Exponential backoff with full jitter',
     short: 'Backoff + jitter',
-    how: '{Caller} waits a random, growing pause before asking again, so its repeats arrive spread out instead of together. Every repeat is still sent.',
+    how: '{Caller} waits a random, growing pause before retrying, so its repeats arrive spread out instead of together. Every repeat is still sent.',
     pros: [
       'Spreads retries out so they stop arriving in synchronised waves',
       'Cheap: a client library setting',
@@ -244,7 +244,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'longerTimeout',
     title: 'Longer timeout (×3)',
     short: 'Longer timeout ×3',
-    how: '{Caller} waits three times longer before giving up and asking again, so an answer slower than before but within the new wait causes no repeat.',
+    how: '{Caller} waits three times longer before giving up and retrying, so an answer slower than before but within the new wait causes no repeat.',
     pros: [
       'Fewer requests are given up on during a short slowdown',
       'One setting to change',

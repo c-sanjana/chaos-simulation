@@ -53,7 +53,7 @@ function yourPart(tip: TippingPoint, current: { x: number; y: number }, verdict:
 }
 
 /**
- * Who asks again, using the same every/several rule as the story: "Every layer asks again when it
+ * Who retries, using the same every/several rule as the story: "Every layer retries when it
  * gives up (Client 5×, Load balancer 3×, App server 1×), so one failed answer can come back as many
  * requests." With one retrying caller it names that caller; with none it says nothing.
  */
@@ -65,8 +65,8 @@ export function cascadeSentence(calls: RetryCall[], labels: Record<string, strin
   const list = retrying.map((g) => withCounts(name(g.caller), g.counts)).join(', ');
   if (retrying.length === 1) {
     const g = retrying[0];
-    return `${name(g.caller)} asks again when it gives up (${countsText(g.counts)}), so one failed answer can come back as more requests.`;
+    return `${name(g.caller)} retries when it gives up (${countsText(g.counts)}), so one failed answer can come back as more requests.`;
   }
   const every = retrying.length === retriesByCaller(calls).length;
-  return `${every ? 'Every layer asks again when it gives' : 'Several layers ask again when they give'} up (${list}), so one failed answer can come back as many requests.`;
+  return `${every ? 'Every layer retries when it gives' : 'Several layers retry when they give'} up (${list}), so one failed answer can come back as many requests.`;
 }

@@ -187,7 +187,7 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
       const { story } = storyOf(webWithSearch(fanOut));
       const cause = step(story, 'giveup');
       expect(cause.text).toBe(
-        "The app server gives up on a database answer after 1 s. Every layer asks again when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many requests.",
+        "The app server gives up on a database answer after 1 s. Every layer retries when it gives up: users' apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many requests.",
       );
       expect(cause.cascade).toEqual([
         { who: "users' apps", retries: 5 },
@@ -202,7 +202,7 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
   it('a split pool going down: the load balancer says what share it sends there', () => {
     const { story, analysis } = storyOf(splitPools());
     expect(step(story, 'giveup').text).toBe(
-      'The load balancer gets an error from the Green pool straight away and asks again, up to 2 more times. The load balancer sends 50% of its requests to the Green pool.',
+      'The load balancer gets an error from the Green pool straight away and retries up to 2 times. The load balancer sends 50% of its requests to the Green pool.',
     );
     // The load balancer's own retries go to the Blue pool, so no user saw an error.
     expect(analysis.recovery.failedRequests).toBe(0);
@@ -213,7 +213,7 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
     const { story } = storyOf(splitPools({ shareBlue: 3, clientRetries: 2 }));
     const cause = step(story, 'giveup');
     expect(cause.text).toContain('The load balancer sends 25% of its requests to the Green pool.');
-    expect(cause.text).toContain("Every layer asks again when it gives up: users' apps up to twice, the load balancer twice.");
+    expect(cause.text).toContain("Every layer retries when it gives up: users' apps up to twice, the load balancer twice.");
     expect(step(story, 'overload').text).toContain('the Blue pool got more requests than it can handle');
     expect(step(story, 'stuck').text).toMatch(/with the Blue pool getting up to \d\.\d× the work it can handle\.$/);
   });
@@ -221,8 +221,8 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
   it('fan-in: the caller that gives up first tells the story, and the timeline names it', () => {
     const { story, analysis } = storyOf(fanIn());
     const cause = step(story, 'giveup');
-    expect(cause.text).toMatch(/^The Reports service gives up on a database answer after 800 ms\. Several layers ask again when they give up: the Orders service once, the Reports service once\./);
-    expect(cause.headline).toBe('The Reports service gives up, others ask again');
+    expect(cause.text).toMatch(/^The Reports service gives up on a database answer after 800 ms\. Several layers retry when they give up: the Orders service once, the Reports service once\./);
+    expect(cause.headline).toBe('The Reports service gives up, others retry');
     // (The analysis is labelled with the web app's names: ids elsewhere.)
     const texts = analysis.timeline.map((e) => e.text);
     expect(texts.some((t) => /^DB p99 .* exceeds the reports's 800 ms timeout$/.test(t))).toBe(true);
@@ -233,7 +233,7 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
   it('a queue shields the callers in front of it only on paths that go through it', () => {
     // Only through the queue: users' apps and the front never see the database fail.
     const shielded = step(storyOf(queueBranch(false)).story, 'giveup');
-    expect(shielded.text).toBe('The queue gets an error from the database straight away and asks again, up to 2 more times.');
+    expect(shielded.text).toBe('The queue gets an error from the database straight away and retries up to 2 times.');
     expect(shielded.cascade).toBeUndefined();
     // Also through the app server: they do, and ask again.
     const open = step(storyOf(queueBranch(true)).story, 'giveup');

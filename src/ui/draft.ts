@@ -84,7 +84,7 @@ export function describeFault(f: Fault, instances: number): string {
   }
 }
 
-/** A call that can retry: who calls whom, and how many times it asks again after giving up. */
+/** A call that can retry: who calls whom, and how many times it retries after giving up. */
 export interface RetryCall {
   /** 'client' or the calling tier's id. */
   caller: string;

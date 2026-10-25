@@ -399,9 +399,9 @@ export function wholeTierDown(config: RunConfig, run: RunResult, id: string, s: 
 }
 
 /**
- * Whether a failure reaches tier `id` without anyone asking again: it failed itself, or it is
+ * Whether a failure reaches tier `id` without anyone retrying: it failed itself, or it is
  * behind a failed part (called by it, directly or not, or read from when a failed cache misses).
- * Any other part gets more work from a failure only through repeats: callers asking again, which
+ * Any other part gets more work from a failure only through repeats: callers retrying, which
  * a load balancer splits afresh and a server sends through the parts it calls first.
  */
 export function failureReaches(config: RunConfig, id: string): boolean {

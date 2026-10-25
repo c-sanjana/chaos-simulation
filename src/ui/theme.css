@@ -2444,7 +2444,7 @@ button.csl-map__cell {
   flex-direction: column;
   gap: 6px;
 }
-/* The finding reads first; the reason (who asks again) is quieter. */
+/* The finding reads first; the reason (who retries) is quieter. */
 .csl-tipping__finding {
   margin: 0;
   font-size: 14px;
@@ -3241,4 +3241,29 @@ button.csl-map__cell {
    (it scrolls inside), so the chart can shrink with it. */
 .csl-player__chartrow--side.csl-player__chartrow--short .csl-player__timeline--side {
   min-height: 140px;
+}
+
+/*
+ * Step 2 and 3 replays: the story beside the chart is never cut off (user report, 2026-10-25: with a
+ * built system's shorter chart, the story was clipped mid-item and looked as if it ran out of its
+ * panel). The side column takes the story's own height instead of the chart's, so the row grows
+ * to fit it; the earlier steps, once shown, scroll inside a capped height.
+ */
+.csl-player__chartrow--side .csl-player__timeline--side {
+  position: static;
+  min-height: 0;
+}
+.csl-player__chartrow--side .csl-player__sidestack {
+  position: static;
+  overflow: visible;
+}
+.csl-player__sidestack > .csl-story {
+  flex: none;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+@container csl-player (max-width: 672px) {
+  .csl-player__chartrow--side .csl-player__timeline--side {
+    height: auto;
+  }
 }

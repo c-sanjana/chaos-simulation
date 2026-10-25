@@ -105,6 +105,6 @@ describe('explanations with branches', { timeout: 120_000 }, () => {
     const after = withCall(config, ref, { timeoutMs: 3000 });
     const [b, a] = [analyzed(config), analyzed(after)];
     const e = explainFix('longerTimeout', false, { config, result: b }, { config: after, result: a }, graphLabels);
-    expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up and asked again/);
+    expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up and retried/);
   });
 });

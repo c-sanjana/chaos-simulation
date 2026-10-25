@@ -144,7 +144,7 @@ function Meter({ value }: { value: number }) {
   );
 }
 
-/** How many times each layer asks again, as blocks: the cascade at a glance. */
+/** How many times each layer retries, as blocks: the cascade at a glance. */
 function Cascade({ layers }: { layers: Array<{ who: string; retries: number }> }) {
   return (
     <span className="csl-cascade" aria-hidden="true">

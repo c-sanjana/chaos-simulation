@@ -82,7 +82,7 @@ export function compareRuns(prev: RunSnapshot, next: RunSnapshot, labels: Record
 }
 
 /**
- * The takeaway after changing only how many times layers ask again, told as cause and effect from
+ * The takeaway after changing only how many times layers retry, told as cause and effect from
  * the two runs (REVIEW2 3.4), e.g. "Users retried less, so more failures reached them directly. It
  * was still stuck because the load balancer (3×) and the App server (1×) still multiply the load." Null
  * when something else changed too, or when there is no clear story (then `takeaway` speaks).

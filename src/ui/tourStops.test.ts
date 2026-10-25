@@ -31,7 +31,7 @@ describe('the demo tour matches the default retry storm', { timeout: 120_000 }, 
 
   it('each moment shows what its stop says', () => {
     expect(at('Normal traffic')).toBeLessThan(step('fault').tMs);
-    expect(step('giveup').tMs).toBeLessThanOrEqual(at('The database slows down')); // gave up and asked again
+    expect(step('giveup').tMs).toBeLessThanOrEqual(at('The database slows down')); // gave up and retried
     expect(step('overload').tMs).toBeLessThanOrEqual(at('Repeats pile up')); // past what the database can handle
     expect(step('back').tMs).toBe(35_000);
     expect(step('back').tMs).toBeLessThanOrEqual(at('The failure is over…'));

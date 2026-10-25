@@ -83,7 +83,7 @@ export interface BuilderNode {
   settings: NodeSettings;
 }
 
-/** How the caller calls: give up after `timeoutMs`, then ask again up to `retries` times. */
+/** How the caller calls: give up after `timeoutMs`, then retry up to `retries` times. */
 export interface CallSettings {
   timeoutMs: number | null;
   retries: number;

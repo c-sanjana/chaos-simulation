@@ -2,7 +2,7 @@
 export const GLOSSARY: Array<{ term: string; meaning: string }> = [
   { term: 'req/s, rps', meaning: 'Requests per second: how many requests arrive (or are handled) each second.' },
   { term: 'Timeout', meaning: 'How long a caller waits for an answer before giving up on it.' },
-  { term: 'Retry', meaning: 'Asking again after giving up or getting an error. Each layer can retry, so repeats multiply.' },
+  { term: 'Retry', meaning: 'Sending a request again after giving up on it or getting an error. Each layer can retry, so retries multiply.' },
   { term: 'Capacity', meaning: 'The most requests a part can finish per second. More than that and work piles up.' },
   { term: 'Queue', meaning: 'Requests waiting for a free worker. A message queue instead stores work to be done later.' },
   { term: 'Workers', meaning: 'The slots a server handles requests in, one at a time. Waiting for another part still holds one.' },

@@ -150,7 +150,7 @@ describe('a chain with a small cache and the database down', { timeout: 60_000 }
     // The texts the story told at 0a999dd, before branching (review 3, F2).
     expect(story.map((s) => `${s.kind}: ${s.text}`)).toEqual([
       'fault: At 30 s the database went down for 10 seconds.',
-      "giveup: The API gets an error from the database straight away. Every layer asks again when it gives up: users' apps up to 3 times, the API twice. One failed answer can come back as many requests.",
+      "giveup: The API gets an error from the database straight away. Every layer retries when it gives up: users' apps up to 3 times, the API twice. One failed answer can come back as many requests.",
       "cache: Cache entries ran out and weren't refilled, sending even more requests to the database.",
       'back: At 40 s the database was back up — but the pile of repeated requests was still there.',
       'stuck: It never recovered: still failing at the end of the run.',
@@ -241,7 +241,7 @@ describe('who sent what into a shared part', { timeout: 60_000 }, () => {
     const { run, analysis } = analyzed(config);
     expect(sumRange(run.tiers.orders.retriesSent, 0, 120)).toBe(0);
     const cause = step(buildStory(run, config, analysis, graphLabels), 'giveup')!;
-    expect(cause.text).toBe('The Reports service gives up on a database answer after 800 ms and asks again once.');
+    expect(cause.text).toBe('The Reports service gives up on a database answer after 800 ms and retries once.');
     expect(cause.cascade).toBeUndefined();
   });
 });

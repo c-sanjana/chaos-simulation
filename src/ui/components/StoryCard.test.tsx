@@ -5,10 +5,10 @@ const steps: StoryStepView[] = [
   { tMs: 30_000, text: 'At 30 s the database became 8× slower.', tone: 'fault', kind: 'fault', headline: 'Database 8× slower', figure: '5 s' },
   {
     tMs: 31_000,
-    text: 'The app server gives up after 1 s and everyone asks again.',
+    text: 'The app server gives up after 1 s and everyone retries.',
     tone: 'info',
     kind: 'giveup',
-    headline: 'The app server gives up, everyone asks again',
+    headline: 'The app server gives up, everyone retries',
     figure: '1 s',
     cascade: [
       { who: "users' apps", retries: 5 },

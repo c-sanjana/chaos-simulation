@@ -89,7 +89,7 @@ describe('App', { timeout: 60_000 }, () => {
       { tier: 'db', kind: 'slow', factor: 4, startMs: 20_000, endMs: 30_000 },
       { tier: 'cache', kind: 'dead', flushAtEnd: true, startMs: 20_000, endMs: 30_000 },
     ]);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*asks again: users' apps 2× · Load balancer 3× · App server 0×/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/\(\+1 more\).*retries: users' apps 2× · Load balancer 3× · App server 0×/);
     // Extra failures can be removed; the first stays.
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     expect(screen.queryByRole('button', { name: 'Remove failure 1' })).toBeNull();
@@ -156,7 +156,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
     expect(screen.getByText(/With a 5 s failure, the system tips at 120 req\/s/)).toBeTruthy();
-    expect(screen.getByText(/Every layer asks again when it gives up \(Client 5×, Load balancer 3×, App server 1×\)/)).toBeTruthy();
+    expect(screen.getByText(/Every layer retries when it gives up \(Client 5×, Load balancer 3×, App server 1×\)/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /80 requests per second, 1s failure length: recovers in 2 s/ })).toBeTruthy();
     await screen.findByRole('heading', { name: /Replaying 200 req\/s · 5s failure length/ }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
@@ -178,7 +178,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(within(summary).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
       '⚡DB slows 8× for 5 s at 30 s',
       '200 req/s',
-      "asks again: users' apps 5× · Load balancer 3× · App server 1×",
+      "retries: users' apps 5× · Load balancer 3× · App server 1×",
     ]);
     const toggle = within(summary).getByRole('button', { name: 'Change failure' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -462,7 +462,7 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(position()).toBeLessThan(60_000));
     expect(pool.analyzed).toHaveLength(1); // the same run, replayed: nothing re-simulated
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).not.toMatch(/\(edited\)/);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/asks again: users' apps 5× · Load balancer 3× · App server 1×/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/retries: users' apps 5× · Load balancer 3× · App server 1×/);
 
     fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
     const add = screen.getByRole('button', { name: '+ Add another failure' }) as HTMLButtonElement;
@@ -577,13 +577,13 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     unmount();
 
-    // A reload: the built system, its failure and the edit are back; so is the kept drawing.
+    // A reload: the built system and the edit are back, on its default failure (the database slowing down); so is the kept drawing.
     const again = new FakePool();
     render(<App pool={again} />);
     await waitFor(() => expect(again.analyzed).toHaveLength(1), SLOW);
     expect(again.analyzed[0].tiers.map((t) => t.id)).toEqual(['loadBalancer-1', 'server-1', 'cache-1', 'database-1']);
     expect(again.analyzed[0].tiers[1].instances).toBe(7);
-    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Cache restarts empty/);
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*Database slows down/);
     fireEvent.click(screen.getByRole('button', { name: '✎ Edit your system' }));
     expect(screen.getByRole('button', { name: /^Queue, a queue/ })).toBeTruthy();
     // It says this is the kept drawing; a second Cancel without changes keeps it still (code review 3).

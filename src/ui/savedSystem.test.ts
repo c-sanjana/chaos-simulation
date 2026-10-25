@@ -1,6 +1,6 @@
 import { chainGraph } from '../builder/testGraphs';
 import { forgetSaved, isGraph, loadSaved, SAVED_SYSTEM_KEY, saveState } from './savedSystem';
-import { customSystem, PRESET_SYSTEM, systemDraft } from './system';
+import { customSystem, exampleGraph, PRESET_SYSTEM, systemDraft } from './system';
 
 /** An in-memory storage, optionally broken. */
 function memory(broken = false) {
@@ -25,16 +25,18 @@ describe('saved system', () => {
   const graph = chainGraph(['client', 'server', 'database'], 1);
   const system = customSystem(graph);
 
-  it('saves a built system with what runs on it, and restores it', () => {
+  it('saves a built system with its settings edits and restores it, on its default failure (the database slowing down)', () => {
     const store = memory();
     const applied = systemDraft(system, 'custom-cache-restart:c');
     applied.topology.tiers[0].instances = 9;
     saveState({ system, scenarioId: 'custom-cache-restart:c', applied, canvas: graph, canvasOpen: false }, store);
     const back = loadSaved(store)!;
     expect(back.system).toEqual(system);
-    expect(back.scenarioId).toBe('custom-cache-restart:c');
+    expect(back.scenarioId).toBe('custom-db-slow:n2');
     expect(back.notice).toBeUndefined();
-    expect(back.applied).toEqual(applied);
+    const expected = systemDraft(system, 'custom-db-slow:n2');
+    expected.topology.tiers[0].instances = 9;
+    expect(back.applied).toEqual(expected);
     expect(back.canvas).toEqual(graph);
     expect(back.canvasOpen).toBe(false);
   });
@@ -104,14 +106,14 @@ describe('saved system', () => {
     expect(() => saveState({ system, scenarioId: '', applied: systemDraft(system, ''), canvas: null, canvasOpen: false }, store)).not.toThrow();
   });
 
-  it("restores an older save's scenario id as the same failure, under today's id", () => {
+  it("an older save's scenario id is no longer restored either: the default failure", () => {
     const store = memory();
     const old = systemDraft(system, 'custom-cache-restart:c');
     old.scenario.id = 'custom-cache-restart';
     store.data.set(SAVED_SYSTEM_KEY, JSON.stringify({ system: graph, scenarioId: 'custom-cache-restart', applied: old, canvas: null, canvasOpen: false }));
     const back = loadSaved(store)!;
-    expect(back.scenarioId).toBe('custom-cache-restart:c');
-    expect(back.applied).toEqual(systemDraft(system, 'custom-cache-restart:c'));
+    expect(back.scenarioId).toBe('custom-db-slow:n2');
+    expect(back.applied).toEqual(systemDraft(system, 'custom-db-slow:n2'));
   });
 
   it('leaves out a drawing the page could not show, with a notice, and keeps the rest', () => {
@@ -181,5 +183,26 @@ describe('saved system', () => {
     expect(isGraph(queue)).toBe(true);
     delete (queue.nodes[1].settings as Partial<{ consumers: number }>).consumers;
     expect(isGraph(queue)).toBe(false);
+  });
+
+  it('a built system saved before the rename ("Gateway", last failure "Gateway slows down") opens as today\'s: Load balancer, on the database slowing down (user report)', () => {
+    const store = memory();
+    // The example drawn on the canvas and used, as saved back then: its load balancer named "Gateway".
+    const old = exampleGraph();
+    old.nodes = old.nodes.map((n) => (n.settings.kind === 'loadBalancer' ? { ...n, label: 'Gateway' } : n));
+    const system = customSystem(old) as Extract<ReturnType<typeof customSystem>, { kind: 'custom' }>;
+    const front = system.scenarios.find((x) => x.id.startsWith('custom-front-slow'))!;
+    const applied = systemDraft(system, front.id);
+    expect(applied.scenario.title).toBe('Gateway slows down');
+    applied.topology.tiers[1] = { ...applied.topology.tiers[1], instances: 7 }; // a settings edit, kept
+    store.data.set(SAVED_SYSTEM_KEY, JSON.stringify({ system: old, scenarioId: front.id, applied: { ...applied, scenario: { ...applied.scenario, rps: 150 } }, canvas: null, canvasOpen: false }));
+    const back = loadSaved(store)!;
+    expect(back.system.kind).toBe('custom');
+    expect(JSON.stringify(back)).not.toMatch(/Gateway/);
+    expect(back.applied.scenario.title).toBe('DB slows down');
+    expect(back.applied.scenario.faults[0]).toMatchObject({ kind: 'slow', factor: 8 });
+    expect(Object.values(back.applied.topology.layout).map((l) => l.label)).toContain('Load balancer');
+    expect(back.applied.topology.tiers[1].instances).toBe(7);
+    expect(back.applied.scenario.rps).toBe(150);
   });
 });

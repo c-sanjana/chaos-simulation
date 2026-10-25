@@ -45,7 +45,7 @@ describe('FIX_CATALOG', () => {
       expect(sentences.length).toBeLessThanOrEqual(2);
       expect(d.how).toMatch(/\.$/);
       expect(d.how.replace(/\{(caller|target|Caller|Target)\}/g, '')).not.toMatch(/[{}]/); // only known placeholders
-      expect(d.how).not.toMatch(/p99|rps|tier|timeout|retr|latency/i);
+      expect(d.how).not.toMatch(/p99|rps|tier|timeout|latency/i);
       // The mechanism only: whether it worked is measured per run (fixes/explain.ts), so `how`
       // never promises or denies an outcome next to a result that might say otherwise.
       expect(d.how).not.toMatch(/drain|usually|goes on|recover|enough|stuck|keeps growing|the loop/i);

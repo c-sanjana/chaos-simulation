@@ -13,7 +13,7 @@ traffic, whether it actually helps and whether it moves the tipping point.
 
 The page opens on a **retry storm**. A database slows down 8× for just 5 seconds, at a traffic
 level it normally handles easily. Every layer retries, differently, as real systems often do:
-users' apps ask again up to 5 times, the load balancer retries the app server 3 times and the app server retries the
+users' apps retry up to 5 times, the load balancer retries the app server 3 times and the app server retries the
 DB once (all editable per layer). Two other presets fail elsewhere in the stack: **Cache restarts
 empty** (the cache goes down for 5 s and comes back cold, so every lookup stampedes the DB) and
 **Load balancer slows down** (the front door slows 50× for 20 s and users' retries pile onto it). Any

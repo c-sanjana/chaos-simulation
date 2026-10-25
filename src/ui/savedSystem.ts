@@ -5,7 +5,7 @@ import { validateGraph } from '../builder/validate';
 import { validateConfig } from '../engine/validate';
 import { draftProblems, type Draft } from './draft';
 import { inGrid } from '../builder/edit';
-import { customSystem, PRESET_SYSTEM, resolveScenarioId, systemDraft, type System } from './system';
+import { customSystem, PRESET_SYSTEM, resolveScenarioId, systemDraft, withTrafficAxis, type System } from './system';
 
 /**
  * Remembering a built system in this browser (user decision, 2026-10-24: "save it in that session,
@@ -175,12 +175,14 @@ export function loadSaved(storage?: SystemStorage): Restored | null {
   const saved = parse(raw) ?? { system: {} as BuilderGraph };
   const built = saved.system == null ? null : restoreSystem(saved.system);
   const system: System = built ?? PRESET_SYSTEM;
-  // An older save's scenario id still names the same failure (see findScenario). The example system
-  // always starts on its default failure, the database slowing down (user decision, 2026-10-25: a
-  // remembered "load balancer slows down" greeted returning visitors instead).
-  const scenarioId = resolveScenarioId(system, built && typeof saved.scenarioId === 'string' ? saved.scenarioId : '');
+  // Every system starts on its default failure, the database slowing down where there is one (user
+  // decision, 2026-10-25: a remembered "load balancer slows down" greeted returning visitors). A
+  // built system keeps the settings edits and traffic simulated on it; its names always come from
+  // the drawing as loaded (a save from before a rename carried the old ones in its copy).
+  const scenarioId = resolveScenarioId(system, '');
+  const fresh = systemDraft(system, scenarioId);
   const kept = fits(saved.applied ?? null, system) ? saved.applied! : null;
-  const applied = kept === null ? systemDraft(system, scenarioId) : resolveScenarioId(system, kept.scenario.id) === scenarioId ? { ...kept, scenario: { ...kept.scenario, id: scenarioId } } : kept;
+  const applied = kept === null ? fresh : withTrafficAxis({ topology: { ...kept.topology, layout: fresh.topology.layout }, scenario: { ...fresh.scenario, rps: kept.scenario.rps } });
   const canvas = isGraph(saved.canvas) ? upgraded(saved.canvas) : null;
   const notice = leftOut(saved.system != null && built === null, saved.canvas != null && canvas === null);
   return { system, scenarioId, applied, canvas, canvasOpen: canvas !== null && saved.canvasOpen === true, ...(notice ? { notice } : {}) };
