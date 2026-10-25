@@ -11,7 +11,7 @@ import { explainFix } from './explain';
 import { fixHelped } from './rank';
 
 const def = (kind: FixKind) => FIX_CATALOG.find((d) => d.kind === kind)!;
-const noSignals: Signals = { retryShare: null, wastedShare: null, queueWaitOverTimeout: null, idleSaturation: null, cacheHitDrop: null, queueBacklog: null };
+const noSignals: Signals = { overloaded: null, retryShare: null, wastedShare: null, queueWaitOverTimeout: null, idleSaturation: null, cacheHitDrop: null, queueBacklog: null };
 
 describe('addressing calls', () => {
   const config = webWithSearch('parallel');

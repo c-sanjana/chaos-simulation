@@ -30,8 +30,10 @@ export function mix32(x: number): number {
 const GOLDEN = 0x9e3779b9;
 
 /**
- * Hash of a child attempt path: the parent path's hash extended by the attempt number at this layer
- * (0 = first try, 1 = first retry, ...). Returns an unsigned 32-bit integer.
+ * Hash of a child attempt path: the parent path's hash extended by a number for this step.
+ * callWithRetries numbers a call's tries from 1 (1 = first try, 2 = first retry, ...); a queue's
+ * consumer call uses 0, and a tier's further calls use −1, −2, ... (see Tier.makeCall), so the
+ * three never coincide. Returns an unsigned 32-bit integer.
  *
  * For a fixed parent, distinct attempt numbers (mod 2^32) always give distinct results, and for a
  * fixed attempt number, distinct parents always give distinct results, because every step is a

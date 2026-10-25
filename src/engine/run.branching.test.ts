@@ -123,6 +123,33 @@ describe('split', { timeout: 60_000 }, () => {
     const retried = runSimulation(fanOutConfig({ fanOut: 'split', rps: 100, durationMs: 100_000, calls: [call('a'), call('b')], leaves, faults, clientCall: { retries: 3 } }));
     expect(Math.abs(count(retried, STATUS_FAILED) / sent - 0.5 ** 4)).toBeLessThan(0.01);
   });
+
+  it("the split's own retry goes to another pool, so with one pool down almost every user gets an answer", () => {
+    // Like nginx's proxy_next_upstream: a try that fails on the dead pool is retried elsewhere.
+    const faults: Fault[] = [{ tier: 'b', kind: 'dead', startMs: 0, endMs: 1e9 }];
+    const leaves = [roomy('a', { kind: 'fixed', ms: 1 }), roomy('b', { kind: 'fixed', ms: 1 }), roomy('c', { kind: 'fixed', ms: 1 })];
+    for (const calls of [[call('a', { retries: 1 }), call('b', { retries: 1 })], [call('a', { retries: 2 }), call('b', { retries: 2 }), call('c', { retries: 2 })]]) {
+      const r = runSimulation(fanOutConfig({ fanOut: 'split', rps: 100, durationMs: 100_000, calls, leaves: leaves.slice(0, calls.length), faults }));
+      expectConservation(r);
+      expect(count(r, STATUS_FAILED)).toBe(0);
+      // Every try that went to b failed and was retried once, on another pool.
+      expect(r.tiers.a.totals.arrivals + (r.tiers.c?.totals.arrivals ?? 0)).toBe(r.tiers.front.totals.arrivals);
+      expect(sum(r.tiers.front.retriesSent)).toBe(r.tiers.b.totals.arrivals);
+      // The per-call counts tell where each try went: the retries all went to the live pools.
+      const sentTo = (id: string) => r.tiers.front.calls!.find((c) => c.target === id)!;
+      expect(sum(sentTo('b').retries)).toBe(0);
+      expect(sum(sentTo('a').retries) + (calls.length > 2 ? sum(sentTo('c').retries) : 0)).toBe(r.tiers.b.totals.arrivals);
+    }
+    // With shares, the retry picks again by share among the others: 1 : 3 for a and c here.
+    const shared = runSimulation(
+      fanOutConfig({ fanOut: 'split', rps: 200, durationMs: 200_000, calls: [call('a', { retries: 1, share: 1 }), call('b', { retries: 1, share: 4 }), call('c', { retries: 1, share: 3 })], leaves, faults }),
+    );
+    const retriesTo = (id: string) => sum(shared.tiers.front.calls!.find((c) => c.target === id)!.retries);
+    expect(Math.abs(retriesTo('a') / (retriesTo('a') + retriesTo('c')) - 0.25)).toBeLessThan(0.02);
+    // Only one call: nowhere else to go, so the retry goes back to it (a chain is unchanged).
+    const single = runSimulation(fanOutConfig({ fanOut: 'split', rps: 100, durationMs: 20_000, calls: [call('b', { retries: 2 })], leaves: [leaves[1]], faults }));
+    expect(single.tiers.b.totals.arrivals).toBe(3 * single.tiers.front.totals.arrivals);
+  });
 });
 
 describe('sequence and parallel latency', { timeout: 60_000 }, () => {
@@ -295,6 +322,60 @@ describe('fan-in and cache-aside', () => {
       }
       expect(count(r, STATUS_FAILED)).toBe(0);
     }
+  });
+
+  it('a diamond with no queue: the next call of a sequence finds the worker its previous call just freed', () => {
+    // client → W, which calls X then DB; X calls DB too. DB has one worker and turns away anything
+    // it cannot start at once (queueLimit 0). Requests come every 2 s on average and take ~11 ms,
+    // so they never overlap and DB is idle every time it is called (review 3, F1: W's call to DB
+    // used to arrive while DB was still answering X, and was rejected).
+    const diamond = (queueLimit: number | null): RunConfig => ({
+      seed: 1,
+      durationMs: 60_000,
+      client: { rps: 0.5, call: call('w') },
+      tiers: [
+        fixed('w', 1, { downstream: call('x'), moreDownstream: [call('db')], fanOut: 'sequence' }),
+        fixed('x', 1, { downstream: call('db') }),
+        tier('db', { kind: 'fixed', ms: 5 }, { workersPerInstance: 1, queueLimit }),
+      ],
+    });
+    for (const queueLimit of [0, null]) {
+      const r = runSimulation(diamond(queueLimit));
+      expectConservation(r);
+      expect(sum(r.client.sent)).toBeGreaterThan(20);
+      expect(count(r, STATUS_FAILED)).toBe(0);
+      expect(r.tiers.db.totals.rejected).toBe(0);
+      expect(r.tiers.db.peaks.queuePerInstance).toBe(0);
+      expect(arrivals(r, 'db')).toBe(2 * arrivals(r, 'w'));
+    }
+  });
+
+  it('counts what each call sent, so a shared database knows who sent what', () => {
+    // a never asks the database again; b asks 3 more times; the database answers after the 10 ms both wait.
+    const shared = fanOutConfig({
+      fanOut: 'parallel',
+      rps: 20,
+      durationMs: 50_000,
+      calls: [call('a'), call('b')],
+      leaves: [fixed('a', 1, { downstream: call('db', { timeoutMs: 10 }) }), fixed('b', 1, { downstream: call('db', { timeoutMs: 10, retries: 3 }) }), fixed('db', 50)],
+    });
+    const r = runSimulation(shared);
+    const sent = (from: string, to: string) => r.tiers[from].calls!.find((c) => c.target === to)!;
+    expect(r.tiers.front.calls!.map((c) => c.target)).toEqual(['a', 'b']);
+    expect(sum(sent('a', 'db').retries)).toBe(0);
+    nearly(sum(sent('b', 'db').retries), 3 * sum(sent('b', 'db').first)); // but for retries the run ended before
+    // Together they are exactly what the database got, second by second.
+    r.tiers.db.arrivalsFirst.forEach((n, s) => {
+      expect(sent('a', 'db').first[s] + sent('b', 'db').first[s]).toBe(n);
+      expect(sent('b', 'db').retries[s]).toBe(r.tiers.db.arrivalsRetry[s]);
+    });
+    expect(sum(sent('front', 'a').first)).toBe(arrivals(r, 'front'));
+    expect(r.tiers.db.calls).toEqual([]);
+    // Cache lookups are a call too, listed first.
+    const c = runSimulation(cached('sequence'));
+    expect(c.tiers.front.calls!.map((x) => x.target)).toEqual(['cache', 'a', 'b']);
+    expect(sum(c.tiers.front.calls![0].first) + sum(c.tiers.front.calls![0].retries)).toBe(arrivals(c, 'cache'));
+    expect(sum(c.tiers.front.calls![1].first)).toBe(arrivals(c, 'a'));
   });
 
   it('with coalesced misses, a shared read is the whole fan-out', () => {

@@ -53,8 +53,12 @@ export class TierMetrics implements CallStats {
   private readonly ageHist: Uint32Array;
   private inFlight = 0;
   private computeTotal = 0;
+  /** Per call this tier makes (see TierSeries.calls), in the order of `targets`. */
+  private readonly calls: Array<{ target: string; first: number[]; retries: number[] }>;
 
-  constructor(private readonly buckets: Buckets) {
+  /** `targets`: the tiers this tier calls, in the order it makes its calls (see TierSeries.calls). */
+  constructor(private readonly buckets: Buckets, targets: string[] = []) {
+    this.calls = targets.map((target) => ({ target, first: buckets.zeros(), retries: buckets.zeros() }));
     const n = buckets.count;
     this.queue = new Level(n, buckets.bucketMs);
     this.busyWorkers = new Level(n, buckets.bucketMs);
@@ -124,6 +128,12 @@ export class TierMetrics implements CallStats {
     if (attempt.abandoned) this.wasted[b] += attempt.computeMs;
   }
 
+  /** One try sent along this tier's call to `target` (a first try, or a retry). Counting only: it changes nothing in the run. */
+  callSent(target: string, timeMs: number, isRetry: boolean): void {
+    const call = this.calls.find((c) => c.target === target)!;
+    (isRetry ? call.retries : call.first)[this.buckets.of(timeMs)]++;
+  }
+
   timeout(timeMs: number): void {
     this.timeouts[this.buckets.of(timeMs)]++;
   }
@@ -191,6 +201,7 @@ export class TierMetrics implements CallStats {
         inProcessingAtEnd: this.busyConsumers.value,
       },
       peaks: { ...peaks, backlog: this.backlog.peak },
+      calls: this.calls,
     };
   }
 }

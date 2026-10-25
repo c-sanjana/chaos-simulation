@@ -1,4 +1,4 @@
-import { callsOf, type CallPolicy, type RunConfig, type ServiceTime, type TierConfig } from './config';
+import { callsOf, MAX_RETRIES, type CallPolicy, type RunConfig, type ServiceTime, type TierConfig } from './config';
 
 /** Throws a descriptive error if the config cannot be simulated. */
 export function validateConfig(config: RunConfig): void {
@@ -27,7 +27,7 @@ export function validateConfig(config: RunConfig): void {
   const checkCall = (call: CallPolicy, owner: string) => {
     if (!byId.has(call.target)) fail(`${owner} calls unknown tier "${call.target}"`);
     if (call.timeoutMs !== null) positive(call.timeoutMs, `${owner} timeoutMs`);
-    if (!(Number.isInteger(call.retries) && call.retries >= 0)) fail(`${owner} retries must be a non-negative integer`);
+    if (!(Number.isInteger(call.retries) && call.retries >= 0 && call.retries <= MAX_RETRIES)) fail(`${owner} retries must be a whole number from 0 to ${MAX_RETRIES} (got ${call.retries})`);
     if (!(call.backoffBaseMs >= 0)) fail(`${owner} backoffBaseMs must be >= 0`);
     if (call.retryBudget !== undefined) positive(call.retryBudget, `${owner} retryBudget`);
     if (call.share !== undefined) positive(call.share, `${owner} share`);
@@ -51,6 +51,10 @@ export function validateConfig(config: RunConfig): void {
       fail(`${tier.id} queueLimit must be null or a non-negative integer`);
     }
     checkService(tier.service, tier.id);
+    // Checked before callsOf reads them: a malformed list (e.g. from a hand-edited saved system)
+    // must say so, not throw a TypeError (review 3, F12).
+    const more = tier.moreDownstream as unknown;
+    if (more !== undefined && !(Array.isArray(more) && more.every((c) => typeof c === 'object' && c !== null))) fail(`${tier.id} moreDownstream must be a list of calls`);
     const calls = callsOf(tier);
     if (!tier.downstream && (tier.moreDownstream?.length ?? 0) > 0) fail(`${tier.id} has further calls (moreDownstream) but no first call (downstream)`);
     if (tier.fanOut !== undefined && !['sequence', 'parallel', 'split'].includes(tier.fanOut)) fail(`${tier.id} fanOut must be sequence, parallel or split (got ${tier.fanOut})`);
@@ -62,6 +66,9 @@ export function validateConfig(config: RunConfig): void {
       // (A queue's own message, below, explains its case better.)
       if (byId.get(call.target)!.cache && !tier.cache && !tier.queue) fail(`${tier.id} calls cache tier "${call.target}" as a downstream; use cacheAside`);
     }
+    // Shares are normalised by their sum, which must be a finite number (two shares of 1e308 add
+    // up to Infinity, and every split then took the last call).
+    if (calls.length > 1 && !Number.isFinite(calls.reduce((n, c) => n + (c.share ?? 1), 0))) fail(`${tier.id} shares are too large (their sum must be a finite number)`);
     // ASSUMPTION: fanOut 'split' with a single call is simply that call (a chain), not an error:
     // a load balancer whose other arrows were deleted still works.
     if (tier.cache) {

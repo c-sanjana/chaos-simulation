@@ -85,6 +85,15 @@ export interface TierSeries {
   };
   /** `backlog` is the queue tier's highest number of messages waiting (0 for other tiers). */
   peaks: { busyWorkersPerInstance: number; busyCoresPerInstance: number; queuePerInstance: number; backlog: number };
+  /**
+   * As a caller: what each of its calls sent, one entry per call in the order it makes them (its
+   * cache lookups first, then its downstream calls, `downstream` then `moreDownstream`): the tier
+   * called, first tries and retries per bucket. A queue tier's entry counts its consumers' calls.
+   * With fan-in (two parts calling one database) this tells which caller sent what; `arrivals*`
+   * at the database only tell the sum. Empty for a tier that calls nothing. Optional so that
+   * hand-made results in tests may leave it out; a run always fills it.
+   */
+  calls?: Array<{ target: string; first: number[]; retries: number[] }>;
 }
 
 /** Outcome of each user request, by request id. Used to compare a run against its no-failure control. */

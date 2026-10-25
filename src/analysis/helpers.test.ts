@@ -1,6 +1,7 @@
 import { call, tier } from '../engine/testConfigs';
 import type { RunConfig } from '../engine/config';
-import { callPolicyInto, callerOf, formatMs, formatSeconds, leafCapacityRps, nameOf, percent, spokenName, sumRange } from './helpers';
+import { KIND_LABELS } from '../builder/graph';
+import { formatMs, formatSeconds, leafCapacityRps, nameOf, percent, spokenName, sumRange } from './helpers';
 
 const config: RunConfig = {
   seed: 1,
@@ -14,16 +15,6 @@ const config: RunConfig = {
 };
 
 describe('analysis helpers', () => {
-  it('finds each tier\'s caller and timeout', () => {
-    expect(callerOf(config, 'api')).toEqual({ id: 'client', timeoutMs: 3000 });
-    expect(callerOf(config, 'cache')).toEqual({ id: 'api', timeoutMs: 50 });
-    expect(callerOf(config, 'db')).toEqual({ id: 'api', timeoutMs: 1000 });
-    expect(callerOf(config, 'nobody')).toBeNull();
-    expect(callPolicyInto(config, 'db')).toEqual({ id: 'api', policy: config.tiers[0].downstream });
-    expect(callPolicyInto(config, 'api')).toEqual({ id: 'client', policy: config.client.call });
-    expect(callPolicyInto(config, 'nobody')).toBeNull();
-  });
-
   it('says names the way a newcomer would', () => {
     const labels = { db: 'DB', api: 'API', gateway: 'Load balancer', cache: 'Cache', client: 'Client' };
     expect(spokenName('db', labels)).toBe('the database');
@@ -32,6 +23,13 @@ describe('analysis helpers', () => {
     expect(spokenName('cache', labels)).toBe('the cache');
     expect(spokenName('client', labels)).toBe('the client');
     expect(spokenName('svc', {})).toBe('the svc');
+    // The builder's kind names are common nouns; numbered copies and typed names keep their spelling (review 3).
+    for (const kind of Object.values(KIND_LABELS)) expect(spokenName('x', { x: kind })).toBe(`the ${kind.toLowerCase()}`);
+    expect(spokenName('x', { x: 'App server 2' })).toBe('App server 2');
+    expect(spokenName('x', { x: 'Database 12' })).toBe('Database 12');
+    expect(spokenName('x', { x: 'Ledger DB' })).toBe('the Ledger DB');
+    expect(spokenName('x', { x: 'redis' })).toBe('the redis');
+    expect(spokenName('x', { x: 'Orders service' })).toBe('the Orders service');
   });
 
   it('computes leaf capacity from the binding resource', () => {

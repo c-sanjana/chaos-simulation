@@ -111,8 +111,8 @@ steps on the system, keeping the current failure if its parts are still there.
   keep the straight arrows' look (thickness, retry stripes, red when failing, the rate and retries
   beside them, on the side away from the bend). With three or more rows of boxes the boxes get
   slimmer and the chart gives up some height, so a nine-part system fits 1440×900 on steps 1 and 2.
-  A shared part's arrivals are divided between its arrows by what each caller sent (the engine
-  counts arrivals per part, not per call).
+  A shared part's arrivals are divided between its arrows by what each caller sent, retries
+  included (the engine counts what every call sends).
 - **Every call is editable** in the settings drawer (timeout, retries and backoff per call, the
   share on a load balancer's arrows, one after another / all at once) and in the failure editor
   (retries per call). The header says who asks again in one line: "users' apps 2× · App server
@@ -126,7 +126,9 @@ steps on the system, keeping the current failure if its parts are still there.
   client's traffic to about twice it, widened to take in the capacity estimate (without cache help)
   when it is nearby, stopping at 1.25× that estimate for a system without a cache (further right
   is plain overload), never above 5,000 req/s. The example system at 200 req/s gets 50–400.
-  A run of more than 3 million requests (5,000 req/s × 600 s) is refused in plain words.
+  A run of more than 3 million requests (5,000 req/s × 600 s), or of more than 30 million calls
+  between parts (a diagram where every part calls every part of the next column multiplies its
+  calls), is refused in plain words. A call may retry at most 10 times.
 - **The queue is an asynchronous message queue.** The sender is answered as soon as the message is
   stored. Consumers take messages in order and call the next part with its timeout and retries; a
   message that still fails is dropped ("dead-lettered"). Users never see a backlog, so the story,
@@ -276,7 +278,11 @@ about 4 s on a laptop.
   stuck states *worse*, so this model is optimistic
 - network latency and packet loss
 - autoscaling
-- load-balancer algorithms beyond round-robin, and load balancers' own capacity and timeouts
+- load-balancer algorithms other than random by weight (a load balancer part splits its requests
+  over its pools at random by the arrows' shares; the instances inside a part take turns), and
+  health checks: a load balancer keeps sending a pool that is down its share of first tries. Its
+  own retries do go to another pool, as nginx's `proxy_next_upstream` or Envoy's retry predicates
+  do. A load balancer part has its own copies, workers, cores, service time, timeouts and retries
 - connection setup costs
 - users abandoning or refreshing
 - database writes and replicas
