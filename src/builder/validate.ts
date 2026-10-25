@@ -1,4 +1,4 @@
-import { FIELD_LIMITS } from '../ui/fieldLimits';
+import { MAX_RETRIES } from '../engine/config';
 import { connectRefusal } from './edit';
 import { aKind, KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode } from './graph';
 
@@ -157,18 +157,17 @@ const positive = (v: number) => Number.isFinite(v) && v > 0;
 
 /**
  * A call's settings that can't be simulated (the forms prevent these; a loaded graph might not).
- * The same rules as the engine's `validateConfig` checks for every call, so a graph without
- * problems always compiles to a config the engine runs; plus the forms' cap on retries.
- * ASSUMPTION: the engine sets no cap on retries yet; FIELD_LIMITS.maxRetries is the one place the
- * cap is defined, for the forms and this check alike.
+ * The same rules (and the engine's own cap on retries, MAX_RETRIES) as the engine's
+ * `validateConfig` checks for every call, so a graph without problems always compiles to a config
+ * the engine runs.
  */
 function callProblems(e: BuilderEdge, from: string, to: string): string[] {
   const c = e.call;
   const bad: string[] = [];
   const fix = `Select the arrow from ${from} to ${to} and change it in its settings.`;
   if (!(c.timeoutMs === null || positive(c.timeoutMs))) bad.push(`The call from ${from} to ${to}: "Timeout" must be above 0 ms (or switched off) to be simulated. ${fix}`);
-  if (!(Number.isInteger(c.retries) && c.retries >= 0 && c.retries <= FIELD_LIMITS.maxRetries)) {
-    bad.push(`The call from ${from} to ${to}: "Retries" must be a whole number from 0 to ${FIELD_LIMITS.maxRetries} to be simulated. ${fix}`);
+  if (!(Number.isInteger(c.retries) && c.retries >= 0 && c.retries <= MAX_RETRIES)) {
+    bad.push(`The call from ${from} to ${to}: "Retries" must be a whole number from 0 to ${MAX_RETRIES} to be simulated. ${fix}`);
   }
   if (!(Number.isFinite(c.backoffBaseMs) && c.backoffBaseMs >= 0)) bad.push(`The call from ${from} to ${to}: "Wait before retrying" must be 0 ms or more to be simulated. ${fix}`);
   return bad;

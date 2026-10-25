@@ -119,6 +119,13 @@ describe('editing every call in the settings drawer', () => {
     expect(latest.topology.tiers.find((t) => t.id === 's3')!.fanOut).toBe('sequence');
   });
 
+  it('the failure editor lists what keeps a run from being simulated, in words', () => {
+    const d = branchedDraft();
+    const twice = { ...d, scenario: { ...d.scenario, faults: [d.scenario.faults[0], { ...d.scenario.faults[0] }] } };
+    render(<Harness initial={twice} form="failure" />);
+    expect(screen.getByRole('alert').textContent).toMatch(/^Failures 1 and 2 both hit db1 at the same time/);
+  });
+
   it('the failure editor has one retries field per call', () => {
     render(<Harness initial={branchedDraft()} form="failure" />);
     fireEvent.change(screen.getByLabelText(/^s3 → db1/), { target: { value: '5' } });

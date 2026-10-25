@@ -92,6 +92,15 @@ describe('geometry', () => {
     expect(edgeLines(walled).find((l) => l.edge.id === 'lb--c')!.line.points).toHaveLength(2);
   });
 
+  it('puts a label on the other side of its arrow when a box is in the way', () => {
+    const at = (id: string, kind: 'server' | 'cache' | 'database', col: number, row: number) => ({ id, label: id, col, row, settings: defaultSettings(kind) });
+    const g: BuilderGraph = {
+      nodes: [at('s', 'server', 5, 3), at('c', 'cache', 5, 1), at('d', 'database', 6, 2)],
+      edges: [{ id: 's--c', from: 's', to: 'c', call: defaultCall('server', 'cache') }],
+    };
+    expect(edgeLines(g, () => '100 ms · no retries')[0].line.labelSide).toBe('left');
+  });
+
   it('tells whether a segment crosses a rectangle', () => {
     const r = { left: 0, right: 10, top: 0, bottom: 10 };
     expect(segmentHitsRect({ x: -5, y: 5 }, { x: 15, y: 5 }, r)).toBe(true);

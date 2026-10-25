@@ -176,6 +176,18 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     vi.unstubAllGlobals();
   });
 
+  it('plays forward to the demo’s moment and stops there', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} demoAtMs={20_000} />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+    seek(21_000); // the replay gets past the moment: it stops on it
+    expect(Number((screen.getByLabelText('Playback position') as HTMLInputElement).value)).toBe(20_000);
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
   it('does not pause on a viewer who scrubbed past the moment', async () => {
     vi.stubGlobal('requestAnimationFrame', () => 1);
     vi.stubGlobal('cancelAnimationFrame', () => {});

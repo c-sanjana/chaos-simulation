@@ -151,6 +151,12 @@ describe('scenario ids name their part, so changed shares never swap the failure
     // "Reset to how you built it" gives the same failure, so the summary doesn't say "(edited)".
     expect(faultsOn(systemDraft(next, kept.scenarioId))).toEqual(['db1']);
     expect(JSON.stringify(kept.draft)).toBe(JSON.stringify(systemDraft(next, kept.scenarioId))); // as App compares them
+    // An older save's id ("the busiest database") still files the failure under its own part…
+    expect(carryOver(applied, 'custom-db-slow', next).scenarioId).toBe('custom-db-slow:db1');
+    // …and, when the failure was changed into one no scenario has, under what the old id names.
+    const dead = updateFault(applied, { kind: 'dead' });
+    expect(carryOver(dead, 'custom-db-slow', next).scenarioId).toBe('custom-db-slow:db2');
+    expect(carryOver(dead, 'nope', next).scenarioId).toBe(next.scenarios[0].id);
   });
 
   it('a failure the changed system no longer offers (only the busiest three of a kind are) still runs on its part', () => {

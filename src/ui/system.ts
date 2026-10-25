@@ -98,8 +98,10 @@ export interface CarriedOver {
  */
 export function carryOver(applied: Draft, scenarioId: string, next: Extract<System, { kind: 'custom' }>): CarriedOver {
   const catalog = next.scenarios;
-  // Ids name their part, so this is the same part's scenario on the new system.
-  const base = findScenario(catalog, scenarioId) ?? catalog[0];
+  // Ids name their part, so this is the same part's scenario on the new system; an id that isn't
+  // one of them (an older save's) falls back to the scenario failing the same parts the same way.
+  const shape = (faults: ScenarioPreset['faults']) => JSON.stringify(faults.map((f) => [f.tier, faultKindOf(f)]));
+  const base = catalog.find((s) => s.id === scenarioId) ?? catalog.find((s) => shape(s.faults) === shape(applied.scenario.faults)) ?? findScenario(catalog, scenarioId) ?? catalog[0];
   const label = (id: string) => applied.topology.layout[id]?.label ?? id;
   // A failure from the example names the example's part, not one of yours that may share its name.
   const fromExample = applied.scenario.topology !== CUSTOM_TOPOLOGY_ID;

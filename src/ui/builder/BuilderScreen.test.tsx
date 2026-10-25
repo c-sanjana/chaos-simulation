@@ -90,6 +90,16 @@ describe('BuilderScreen: problems and "Use this topology"', () => {
     expect(document.activeElement).toBe(list);
   });
 
+  it('says the canvas scrolls sideways when the window is too narrow for all of it', () => {
+    const spies = [vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(1064), vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(904)];
+    try {
+      render(<Harness initial={starterGraph()} />);
+      expect(screen.getByText(/^Scroll sideways to see the whole canvas/).textContent).toMatch(/→$/);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+  });
+
   it('lists the first two problems whole, and the rest on "Show all"', () => {
     render(<Harness problems={['First.', 'Second.', 'Third.']} />);
     const listed = () => within(screen.getByLabelText(/things to fix before simulating/)).getAllByRole('listitem').map((li) => li.textContent);

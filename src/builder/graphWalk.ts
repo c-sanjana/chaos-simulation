@@ -8,6 +8,17 @@ import type { BuilderEdge, BuilderGraph, BuilderNode } from './graph';
 const isCache = (n: BuilderNode | undefined) => n?.settings.kind === 'cache';
 
 /**
+ * The graph's nodes by id, built once per list of nodes (edits make a new list), so walking every
+ * node's calls stays linear (code review 3). A list that grew or shrank in place is read afresh.
+ */
+const nodeMaps = new WeakMap<BuilderNode[], Map<string, BuilderNode>>();
+function nodesById(graph: BuilderGraph): Map<string, BuilderNode> {
+  let byId = nodeMaps.get(graph.nodes);
+  if (!byId || byId.size !== graph.nodes.length) nodeMaps.set(graph.nodes, (byId = new Map(graph.nodes.map((n) => [n.id, n]))));
+  return byId;
+}
+
+/**
  * Canvas order: top to bottom, then left to right (then by id, so equal positions still sort the
  * same way every time). The order a component makes its calls in, and the order branches are laid
  * out in.
@@ -20,7 +31,7 @@ export function canvasOrder(a: BuilderNode, b: BuilderNode): number {
 
 /** The calls from `id` that pass requests on (everything but cache lookups), in call order (canvas order of their targets). */
 export function flowCalls(graph: BuilderGraph, id: string): BuilderEdge[] {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const byId = nodesById(graph);
   return graph.edges
     .filter((e) => e.from === id && byId.has(e.to) && !isCache(byId.get(e.to)))
     .sort((a, b) => canvasOrder(byId.get(a.to)!, byId.get(b.to)!));
@@ -28,13 +39,13 @@ export function flowCalls(graph: BuilderGraph, id: string): BuilderEdge[] {
 
 /** The cache `id` looks things up in (its first, in canvas order), if any. */
 export function cacheCall(graph: BuilderGraph, id: string): BuilderEdge | undefined {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const byId = nodesById(graph);
   return graph.edges.filter((e) => e.from === id && isCache(byId.get(e.to))).sort((a, b) => canvasOrder(byId.get(a.to)!, byId.get(b.to)!))[0];
 }
 
 /** Ids of the components that pass requests to `id` (cache lookups excluded). */
 export function flowCallers(graph: BuilderGraph, id: string): string[] {
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const byId = nodesById(graph);
   return isCache(byId.get(id)) ? [] : graph.edges.filter((e) => e.to === id && byId.has(e.from)).map((e) => e.from);
 }
 

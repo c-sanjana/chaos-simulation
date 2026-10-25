@@ -197,7 +197,7 @@ function NodeSettings({ graph, node, onChange, onSelect, onConnect, onDelete }: 
             <span className="csl-bpanel__radios-title">Calls its parts</span>
             <label className="csl-bpanel__radio">
               <input type="radio" name={`fan-${node.id}`} checked={s.fanOut === 'sequence' || s.fanOut === undefined} onChange={() => onChange(setFanOut(graph, node.id, 'sequence'))} />
-              One after another <span className="csl-bpanel__muted">(top to bottom on the canvas; if one fails, the request fails and the rest aren't called)</span>
+              One after another <span className="csl-bpanel__muted">(top to bottom on the canvas, left to right on one row; if one fails, the request fails and the rest aren't called)</span>
             </label>
             <label className="csl-bpanel__radio">
               <input type="radio" name={`fan-${node.id}`} checked={s.fanOut === 'parallel'} onChange={() => onChange(setFanOut(graph, node.id, 'parallel'))} />

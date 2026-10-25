@@ -1,5 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
-import { boxRowCount, gridStyle, isDense, routePoints, TopologyDiagram, TRUNK_AFTER_SOURCE, TRUNK_BEFORE_TARGET, edgeAriaLabel } from './TopologyDiagram';
+import { badgeRoomPx, boxRowCount, gridStyle, isDense, routePoints, TopologyDiagram, TRUNK_AFTER_SOURCE, TRUNK_BEFORE_TARGET, edgeAriaLabel } from './TopologyDiagram';
 import type { TopologyEdgeView, TopologyNodeView } from './types';
 
 const node = (id: string, col: number, row: number, instances = 4): TopologyNodeView => ({
@@ -43,6 +43,38 @@ describe('routed arrows on the diagram', () => {
     const merged = screen.getByTestId('edge-s2-db');
     expect(within(merged).getByText(/retry budget 10%/)).toBeTruthy();
     expect(merged.getAttribute('aria-label')).toBe('S2 to DB: 60 requests a second; changed by the fix: retry budget 10%');
+  });
+
+  it('makes room for routed arrows’ text that reaches past the top or bottom row, so the frame never cuts it off (review 3)', () => {
+    // jsdom has no layout: the grid spans 0..300; text above the line reaches 20 px above it, text below 30 px below.
+    const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+      if (this.classList.contains('csl-topology-grid')) return rect(0, 300);
+      if (this.classList.contains('csl-edge__rtext--above')) return rect(-20, 10);
+      if (this.classList.contains('csl-edge__rtext--below')) return rect(290, 330);
+      return rect(0, 0);
+    });
+    try {
+      render(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} />);
+      const grid = document.querySelector<HTMLElement>('.csl-topology-grid')!;
+      expect([grid.style.marginTop, grid.style.marginBottom]).toEqual(['20px', '30px']);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('takes room for badges only between boxes straight above one another (not a cache above its server)', () => {
+    expect(badgeRoomPx(nodes, new Set(['cache']))).toBe(32); // S1 over S2 over S3: two gaps, 16 px more each
+    expect(badgeRoomPx(nodes, new Set(['cache']), true)).toBe(40);
+    expect(badgeRoomPx([{ id: 'a', col: 1, row: 3 }], new Set())).toBe(0);
+  });
+
+  it('writes a long straight routed arrow’s numbers above and below its line', () => {
+    const straight: TopologyEdgeView = { ...edges[0], id: 'far', route: { trunk: 'none', text: 'straight' }, change: 'no retries (was 1)' };
+    render(<TopologyDiagram nodes={nodes} edges={[straight]} selectedId={null} onSelect={() => {}} />);
+    const edge = screen.getByTestId('edge-far');
+    expect(edge.querySelector('.csl-edge__rtext--above')!.textContent).toMatch(/^70 rps/);
+    expect(edge.querySelector('.csl-edge__rtext--below .csl-change')).not.toBeNull();
   });
 
   it('keeps a straight arrow’s text clear of a bend beside it', () => {
