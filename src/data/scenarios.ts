@@ -46,7 +46,7 @@ export const cacheRestart: ScenarioPreset = {
 export const loadBalancerSlow: ScenarioPreset = {
   id: 'load-balancer-slow',
   title: 'Load balancer slows down',
-  blurb: "The load balancer slows down; users' clients retry, and the repeats pile onto it.",
+  blurb: "The load balancer slows down; users' clients retry, and the retries pile onto it.",
   topology: 'web-chain',
   rps: 200,
   durationMs: 120_000,

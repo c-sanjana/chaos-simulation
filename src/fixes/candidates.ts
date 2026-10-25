@@ -180,14 +180,14 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       const makers = others.map(maker);
       const n = keep.policy.retries;
       const plural = others.length > 1 || !singular(others[0]) || callsMadeBy(config, others[0].owner) > 1;
-      const only = singular(keep) && callsMadeBy(config, keep.owner) === 1 ? `Only ${maker(keep)} asks` : `Only ${maker(keep)} ask`;
+      const only = singular(keep) && callsMadeBy(config, keep.owner) === 1 ? `Only ${maker(keep)} retries` : `Only ${maker(keep)} retry`;
       return {
         config: fixed,
         ...ends(keep),
         // The kept caller's other calls stop retrying too: the catalog's "every other layer" would leave them out.
-        how: callsMadeBy(config, keep.owner) > 1 ? '{Caller} asks {target} again and nothing else does: its other calls and every other layer pass errors straight back, so repeats no longer multiply from layer to layer.' : undefined,
+        how: callsMadeBy(config, keep.owner) > 1 ? '{Caller} retries {target} and nothing else does: its other calls and every other layer pass errors straight back, so retries no longer multiply from layer to layer.' : undefined,
         where: callName(keep),
-        what: `${only} the ${target(keep)} again (${n === 1 ? 'once' : `up to ${n} times`}); ${listed(makers)} no longer ${plural ? 'retry' : 'retries'}.`,
+        what: `${only} the ${target(keep)} (${n === 1 ? 'once' : `up to ${n} times`}); ${listed(makers)} no longer ${plural ? 'retry' : 'retries'}.`,
       };
     }
     case 'boundQueue': {

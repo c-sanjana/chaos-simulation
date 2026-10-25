@@ -28,7 +28,7 @@ describe('routed arrows on the diagram', () => {
     render(<TopologyDiagram nodes={nodes} edges={edges} selectedId={null} onSelect={() => {}} />);
     const up = screen.getByTestId('edge-lb-s1');
     expect(up.getAttribute('role')).toBe('img');
-    expect(up.getAttribute('aria-label')).toBe('LB to S1: 70 requests a second, including 21 repeats (retries)');
+    expect(up.getAttribute('aria-label')).toBe('LB to S1: 70 requests a second, including 21 retries');
     expect(up.className).toContain('csl-edge--routed');
     expect(up.className).toContain('csl-edge--text-above');
     expect(up.style.gridColumn).toBe('4');

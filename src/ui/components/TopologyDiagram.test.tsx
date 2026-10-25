@@ -75,9 +75,9 @@ describe('edgeEnds and edgeAriaLabel', () => {
 
   it('names source and target, the rate, the repeats, failures and the fix change', () => {
     const storm: TopologyEdgeView = { ...edges[2], rps: 264.4, retryShare: 191 / 264.4, errorShare: 1 };
-    expect(edgeAriaLabel(storm, tiers)).toBe('API to DB: 264 requests a second, including 191 repeats (retries); 100% failing');
+    expect(edgeAriaLabel(storm, tiers)).toBe('API to DB: 264 requests a second, including 191 retries; 100% failing');
     expect(edgeAriaLabel({ ...edges[2], change: '🔧 retry budget 10%' }, tiers)).toBe('API to DB: 60 requests a second; changed by the fix: retry budget 10%');
-    expect(edgeAriaLabel({ ...edges[2], rps: 1, retryShare: 1, errorShare: 0.04 }, tiers)).toBe('API to DB: 1 request a second, including 1 repeat (retries)');
+    expect(edgeAriaLabel({ ...edges[2], rps: 1, retryShare: 1, errorShare: 0.04 }, tiers)).toBe('API to DB: 1 request a second, including 1 retry');
     expect(edgeAriaLabel({ ...edges[2], rps: 0 }, tiers)).toBe('API to DB: 0 requests a second');
     expect(edgeAriaLabel({ ...edges[1], cache: true }, tiers)).toBe('API to Cache: 480 lookups a second, 70% hits');
     expect(edgeAriaLabel({ ...edges[1], cache: true, rps: 1 }, tiers)).toBe('API to Cache: 1 lookup a second, 70% hits');
@@ -169,7 +169,7 @@ describe('TopologyDiagram', () => {
     expect(Array.from(key.children).map((c) => c.textContent)).toEqual([
       'Key:',
       'arrow width = requests/s',
-      'stripes, ↻ = retries (repeats)',
+      'stripes, ↻ = retries',
       '✕red = failing',
       '⚠ = overloaded',
       '⚡ = injected failure',
@@ -245,7 +245,7 @@ describe('TopologyDiagram', () => {
     const tiers: TopologyNodeView[] = [...nodes, { ...nodes[2], id: 'db', label: 'DB', col: 7, row: 3 }];
     const storm: TopologyEdgeView = { ...edges[2], label: '264 rps', detail: 'incl. 191 retries', rps: 264, retryShare: 191 / 264, errorShare: 1, health: 'bad' };
     render(<TopologyDiagram nodes={tiers} edges={[storm, { ...edges[1], cache: true }]} selectedId={null} onSelect={() => {}} />);
-    const arrow = screen.getByRole('img', { name: 'API to DB: 264 requests a second, including 191 repeats (retries); 100% failing' });
+    const arrow = screen.getByRole('img', { name: 'API to DB: 264 requests a second, including 191 retries; 100% failing' });
     expect(arrow).toBe(screen.getByTestId('edge-a-d'));
     expect(screen.getByRole('img', { name: 'API to Cache: 480 lookups a second, 70% hits' })).toBe(screen.getByTestId('edge-a-c'));
     // The visible text is hidden from assistive tech, which gets the name instead.

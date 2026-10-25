@@ -415,7 +415,7 @@ export function chartView(
       const other = after ? (shownAfter ? run : after) : null;
       series = [
         { label: "Users' new requests", values: load.fresh, color: COLORS.primary, area: true },
-        { label: 'Repeats (from any layer)', values: load.repeats, color: COLORS.bad, area: true },
+        { label: 'Retries (from any layer)', values: load.repeats, color: COLORS.bad, area: true },
       ];
       if (other) series.push({ label: shownAfter ? 'Total before the fix' : 'Total after the fix', values: loadSplit(other, id).admitted, color: COLORS.before, dashed: true });
       if (capacity !== null) series.push(ref(`${name(id)} capacity`, flat(capacity)));

@@ -27,7 +27,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     expect(c.rows[3]).toMatchObject({ before: expect.stringMatching(/%$/), tone: 'worse' });
     expect(c.rows[3].change).toMatch(/^\+\d+ pts$/);
     // Only retries changed: the takeaway says why, from the run.
-    expect(c.takeaway).toBe("The App server retried more, adding repeats. It was stuck either way because users' apps (5×), the Load balancer (3×) and the App server (5×) multiply the load.");
+    expect(c.takeaway).toBe("The App server retried more, adding retries. It was stuck either way because users' apps (5×), the Load balancer (3×) and the App server (5×) multiply the load.");
   });
 
   it('says why cutting users\' retries made things worse: the other layers still multiply the load', () => {
@@ -37,7 +37,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     if (c.rows[0].tone === 'worse') {
       expect(c.takeaway).toBe('Users retried less, so more failures reached them directly. It was still stuck because users\' apps (1×), the Load balancer (3×) and the App server (1×) still multiply the load.');
     } else {
-      expect(c.takeaway).toMatch(/^Users retried less(, so fewer repeats piled up and fewer requests failed)?\. It was still stuck because/);
+      expect(c.takeaway).toMatch(/^Users retried less(, so fewer retries piled up and fewer requests failed)?\. It was still stuck because/);
     }
   });
 
@@ -47,10 +47,10 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     const better = compareRuns(stuck, recovers, labels);
     expect(better.rows[0]).toMatchObject({ label: 'Outcome', before: 'Stuck', now: expect.stringMatching(/^Recovers in \d+ s$/), tone: 'better' });
     expect(better.rows[1].change).toMatch(/^-\d+%$/);
-    expect(better.takeaway).toBe('With fewer repeats from the App server, the load fell enough for the system to recover.');
+    expect(better.takeaway).toBe('With fewer retries from the App server, the load fell enough for the system to recover.');
     const worse = compareRuns(recovers, stuck, labels);
     expect(worse.rows[0].tone).toBe('worse');
-    expect(worse.takeaway).toBe('The App server retried more, and the extra repeats kept the system from recovering.');
+    expect(worse.takeaway).toBe('The App server retried more, and the extra retries kept the system from recovering.');
     // A change other than retries keeps the plain takeaway.
     const slower = compareRuns(recovers, snapshot(updateFault(singleLayer(1), { endMs: 45_000 })), labels);
     expect(slower.takeaway).toMatch(/^This change (stopped the system from recovering|made the system recover)\.$|^(Little changed|Users see|Fewer|More|A lot)/);
@@ -60,7 +60,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     const same = compareRuns(base, snapshot(updateTier(base.draft, 'cache', (t) => ({ ...t, cache: { ...t.cache!, skew: 1.01 } }))), labels);
     expect(same.takeaway).toMatch(/^(Little changed|Users see about the same)/);
     const fewer = compareRuns(snapshot(singleLayer(5)), snapshot(singleLayer(3)), labels);
-    expect(fewer.takeaway).toMatch(/^The App server retried less(, so fewer repeats piled up and fewer requests failed|, so more failures reached users directly)?\. It was still stuck because the App server \(3×\) still multiplies the load\.$/);
+    expect(fewer.takeaway).toMatch(/^The App server retried less(, so fewer retries piled up and fewer requests failed|, so more failures reached users directly)?\. It was still stuck because the App server \(3×\) still multiplies the load\.$/);
   });
 });
 
@@ -99,7 +99,7 @@ describe('retryTakeaway', () => {
     expect(retryTakeaway(d, gw, changes(gw), 'recovered', 'recovered', rows('worse'))).toBe('The Load balancer retried less, so more failures reached users directly. It recovered either way.');
     expect(retryTakeaway(d, gw, changes(gw), 'stuck', 'stuck', rows('same'))).toBe("The Load balancer retried less. It was still stuck because users' apps (5×), the Load balancer (1×) and the App server (1×) still multiply the load.");
     const users = updateRetries(d, 'client', 8);
-    expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('better'))).toBe('Users retried more, adding repeats, yet fewer requests failed. It recovered either way.');
+    expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('better'))).toBe('Users retried more, adding retries, yet fewer requests failed. It recovered either way.');
     const none = updateRetries(updateRetries(updateRetries(d, 'client', 0), 'lb', 0), 'api', 0);
     expect(retryTakeaway(d, none, changes(none), 'stuck', 'stuck', rows('worse'))).toBe("Users' apps, the Load balancer and the App server retried less, so more failures reached users directly. It was still stuck.");
     // Up at one layer and down at another, or another setting changed: no clear story.

@@ -103,17 +103,17 @@ export function retryTakeaway(prev: Draft, next: Draft, changes: string[], befor
   const multiply = still.length === 0 ? '' : ` because ${listed(still)} still ${still.length === 1 && !still[0].startsWith("users'") ? 'multiplies' : 'multiply'} the load`;
   const order = VERDICT_ORDER[now] - VERDICT_ORDER[before];
   const failed = rows.find((r) => r.label === 'Failed requests')!.tone;
-  if (order < 0) return fewer.length > 0 ? `With fewer repeats from ${names(fewer)}, the load fell enough for the system to recover.` : null;
-  if (order > 0) return more.length > 0 ? `${who(more)} retried more, and the extra repeats kept the system from recovering.` : null;
+  if (order < 0) return fewer.length > 0 ? `With fewer retries from ${names(fewer)}, the load fell enough for the system to recover.` : null;
+  if (order > 0) return more.length > 0 ? `${who(more)} retried more, and the extra retries kept the system from recovering.` : null;
   const stuck = now === 'stuck' || now === 'overloaded';
   if (fewer.length > 0) {
     const first = users(fewer)
-      ? failed === 'worse' ? 'Users retried less, so more failures reached them directly' : failed === 'better' ? 'Users retried less, so fewer repeats piled up and fewer requests failed' : 'Users retried less'
-      : `${who(fewer)} retried less${failed === 'worse' ? ', so more failures reached users directly' : failed === 'better' ? ', so fewer repeats piled up and fewer requests failed' : ''}`;
+      ? failed === 'worse' ? 'Users retried less, so more failures reached them directly' : failed === 'better' ? 'Users retried less, so fewer retries piled up and fewer requests failed' : 'Users retried less'
+      : `${who(fewer)} retried less${failed === 'worse' ? ', so more failures reached users directly' : failed === 'better' ? ', so fewer retries piled up and fewer requests failed' : ''}`;
     return stuck ? `${first}. It was still stuck${multiply}.` : `${first}. It recovered either way.`;
   }
   if (more.length > 0) {
-    const first = `${users(more) ? 'Users' : who(more)} retried more, adding repeats${failed === 'worse' ? ', and more requests failed' : failed === 'better' ? ', yet fewer requests failed' : ''}`;
+    const first = `${users(more) ? 'Users' : who(more)} retried more, adding retries${failed === 'worse' ? ', and more requests failed' : failed === 'better' ? ', yet fewer requests failed' : ''}`;
     return stuck ? `${first}. It was stuck either way${multiply.replace(' still ', ' ')}.` : `${first}. It recovered either way.`;
   }
   return null;

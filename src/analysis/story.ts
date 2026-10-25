@@ -230,7 +230,7 @@ function afterTheFailure(f: Fault, ctx: Context, retries: number, hadPile: boole
     const stillBacked = backlog && backlog.value.atEnd >= 1 ? backlog.tier : null;
     const queue = ctx.config.tiers.find((t) => t.id === stillBacked && ctx.run.tiers[t.id].backlogAvg[Math.floor(f.endMs / ctx.bucketMs)] >= 1);
     if (queue) return ` — ${but} the pile of messages in ${ctx.say(queue.id)} was still there.`;
-    return ` — ${but} the pile of ${retries > 0 ? 'repeated' : 'waiting'} requests was still there.`;
+    return ` — ${but} the pile of ${retries > 0 ? 'retried' : 'waiting'} requests was still there.`;
   }
   return hadPile ? ' and started on the requests that had piled up.' : '.';
 }
@@ -250,7 +250,7 @@ function askAgain(policy: CallPolicy, callerId: string, ctx: Context): string {
   if (policy.retries === 0) return `${verb('does', 'do')} not retry, so those users ${callerId === 'client' ? 'saw' : 'got'} an error`;
   const ask = verb('retries', 'retry');
   const again = policy.retries === 1 ? `${ask} once` : `${ask} up to ${policy.retries} times`;
-  return policy.retryBudget === undefined ? again : `${again}, as long as repeats stay under ${percent(policy.retryBudget)} of ${verb('its', 'their')} requests`;
+  return policy.retryBudget === undefined ? again : `${again}, as long as retries stay under ${percent(policy.retryBudget)} of ${verb('its', 'their')} requests`;
 }
 
 /**
@@ -500,7 +500,7 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
     if (load(s) > capacity && !down(s) && (!viaRepeats || overByRepeats(ctx.config, ctx.run, id, s))) {
       const full = `even at full speed (${about(capacity)} a second)`;
       // Another part than the failed one: say how the trouble reached it.
-      const landed = viaRepeats ? ` Repeats land on it too, not only on ${ctx.say(main.tier)}.` : '';
+      const landed = viaRepeats ? ` Retries land on it too, not only on ${ctx.say(main.tier)}.` : '';
       const text = s < failureEndS
         ? `So ${name} got more requests than it can handle, ${full}.${landed}`
         : passedOn

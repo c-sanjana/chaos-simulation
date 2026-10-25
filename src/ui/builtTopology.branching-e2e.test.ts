@@ -77,7 +77,7 @@ describe('a server calling a database and then a second server (user report)', {
     expect(config.faults).toEqual([expect.objectContaining({ tier: 'database-2', kind: 'slow' })]);
     const overload = story.find((s) => s.kind === 'overload');
     expect(overload?.headline).toBe('Database overloaded');
-    expect(overload?.text).toMatch(/Repeats land on it too, not only on Database 2\.$/);
+    expect(overload?.text).toMatch(/Retries land on it too, not only on Database 2\.$/);
     const verdict = story.find((s) => s.kind === 'stuck')!;
     expect(verdict.text).not.toMatch(/Database 2 getting/);
   });

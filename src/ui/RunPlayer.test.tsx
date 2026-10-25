@@ -339,7 +339,7 @@ describe('RunPlayer accessibility', { timeout: 60_000 }, () => {
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
     const chart = screen.getByRole('img', { name: /^Load & retries/ });
     const summary = document.getElementById(chart.getAttribute('aria-describedby')!)!;
-    expect(summary.textContent).toMatch(/^Users' new requests \+ Repeats \(from any layer\) \(total\): about \d+ rps until 0 s \(so far\)/);
+    expect(summary.textContent).toMatch(/^Users' new requests \+ Retries \(from any layer\) \(total\): about \d+ rps until 0 s \(so far\)/);
     seek(60_000);
     expect(summary.textContent).toMatch(/Above DB capacity/);
     fireEvent.click(screen.getByRole('button', { name: 'Show as table' }));

@@ -177,7 +177,7 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
   const cause = still && loadPart ? `${still}, so ${loadPart}` : loadPart ? capitalise(loadPart) : still;
   const text = (main: string) => main + cacheEmptied(after.result, say);
 
-  if (kind === 'jitterBackoff' && cause) return text(`Every repeat is still sent, only later: ${uncap(cause)}.`);
+  if (kind === 'jitterBackoff' && cause) return text(`Every retry is still sent, only later: ${uncap(cause)}.`);
   if (kind === 'longerTimeout') {
     const changed = changedTimeout(before.config, after.config);
     // Compared only with a failure of the part that call waits for: another part's failure says nothing about this wait.

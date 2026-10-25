@@ -139,7 +139,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     const s = chartView('load', config, run, labels, 'db').spec.series;
     expect(s.map((x) => [x.label, !!x.area, !!x.dashed])).toEqual([
       ["Users' new requests", true, false],
-      ['Repeats (from any layer)', true, false],
+      ['Retries (from any layer)', true, false],
       ['DB capacity', false, true],
     ]);
     expect(s[1].color).toBe(COLORS.bad);
@@ -197,7 +197,7 @@ describe('chartView', { timeout: 60_000 }, () => {
     const before = retryStormRun({ retries: 3 });
     const after = retryStormRun({ retries: 0 });
     const shownAfter = chartView('load', before.config, before.run, labels, null, after.run).spec.series;
-    expect(shownAfter.map((x) => x.label)).toEqual(["Users' new requests", 'Repeats (from any layer)', 'Total before the fix', 'DB capacity']);
+    expect(shownAfter.map((x) => x.label)).toEqual(["Users' new requests", 'Retries (from any layer)', 'Total before the fix', 'DB capacity']);
     expect(shownAfter[1].values.every((v) => v === 0)).toBe(true); // no retries after the fix (users' apps 0 here too)
     const shownBefore = chartView('load', before.config, before.run, labels, null, after.run, undefined, false).spec.series;
     expect(shownBefore[2].label).toBe('Total after the fix');

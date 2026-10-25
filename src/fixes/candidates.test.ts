@@ -56,7 +56,7 @@ describe('FIX_CATALOG', () => {
     for (const d of FIX_CATALOG) {
       for (const claim of Object.keys(d.refutable ?? {})) expect([...d.pros, ...d.cons]).toContain(claim);
     }
-    expect(FIX_CATALOG.find((d) => d.id === 'cap-retries')!.refutable).toEqual({ 'Repeats from this layer can at most double its calls to the struggling service': 'loadOverDouble' });
+    expect(FIX_CATALOG.find((d) => d.id === 'cap-retries')!.refutable).toEqual({ 'Retries from this layer can at most double its calls to the struggling service': 'loadOverDouble' });
   });
 
   it('keeps its pros and cons true to what was measured', () => {
@@ -144,7 +144,7 @@ describe('on the stuck retry storm, retrying at one layer (3 App server → DB r
     expect(how['bound-queue']).toBe(
       'The database turns requests away when its short queue is full instead of letting them wait, so it spends its time on requests it can answer before the caller gives up.',
     );
-    expect(how['retry-budget']).toMatch(/^Once repeats reach 10% of first tries, the app server stops asking the database again/);
+    expect(how['retry-budget']).toMatch(/^Once retries reach 10% of first tries, the app server stops retrying the database/);
     expect(how['coalesce-misses']).toMatch(/one goes to the database and the rest share its answer/);
     expect(how['add-instances']).toBe('The app server gets more servers; the database can handle no more than before.');
     for (const c of candidates) expect(c.how).not.toMatch(/[{}]/);
@@ -183,9 +183,9 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Load
 
   it('retrying at one layer keeps the app server → DB retry and turns off users\' and the load balancer\'s', () => {
     const fix = byId['retry-one-layer'];
-    expect(fix.what).toBe("Only the App server asks the DB again (once); users' apps and the Load balancer no longer retry.");
+    expect(fix.what).toBe("Only the App server retries the DB (once); users' apps and the Load balancer no longer retry.");
     expect(fix.how).toBe(
-      'The app server is the only one that asks the database again; every other layer passes errors straight back, so repeats no longer multiply from layer to layer.',
+      'The app server is the only one that retries the database; every other layer passes errors straight back, so retries no longer multiply from layer to layer.',
     );
     // A fix on every layer quotes the highest share anywhere: the load balancer's.
     expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Load balancer's load`);
@@ -300,8 +300,8 @@ describe('applyFix: where it applies', () => {
     expect(diffPaths(c, fix).sort()).toEqual(['client.call.retries', 'tiers.0.cacheAside.retries']);
     expect([fix.client.call.retries, fix.tiers[0].cacheAside!.retries, fix.tiers[0].downstream!.retries]).toEqual([0, 0, 3]);
     const candidate = candidateFixes(c, signalsWith({ retryShare: at('db') }), {}).find((x) => x.id === 'retry-one-layer')!;
-    expect(candidate.what).toBe("Only the api asks the db again (up to 3 times); users' apps and the api's cache lookups no longer retry.");
-    expect(candidate.how).toMatch(/^The api is the only one that asks the db again;/);
+    expect(candidate.what).toBe("Only the api retries the db (up to 3 times); users' apps and the api's cache lookups no longer retry.");
+    expect(candidate.how).toMatch(/^The api is the only one that retries the db;/);
   });
 
   it('retrying at one layer: the nearest retrying call in front of the bottleneck, else the innermost one', () => {
@@ -309,7 +309,7 @@ describe('applyFix: where it applies', () => {
     const toApi = applyFix(def('retryOneLayer'), chain(), signalsWith({ retryShare: at('api') }))!;
     expect(diffPaths(chain(), toApi)).toEqual(['tiers.0.downstream.retries']);
     const what = candidateFixes(chain(), signalsWith({ retryShare: at('api') }), {}).find((x) => x.id === 'retry-one-layer')!.what;
-    expect(what).toBe("Only users' apps ask the api again (up to 2 times); the api no longer retries.");
+    expect(what).toBe("Only users' apps retry the api (up to 2 times); the api no longer retries.");
     // The bottleneck is the cache: the app server's lookups don't retry, so the nearest retrying call in front is the client's.
     expect(diffPaths(chain(), applyFix(def('retryOneLayer'), chain(), signalsWith({ queueWaitOverTimeout: at('cache') }))!)).toEqual(['tiers.0.downstream.retries']);
     // Nothing on the way to the bottleneck retries: the innermost retrying call (App server → DB) stays.
@@ -317,7 +317,7 @@ describe('applyFix: where it applies', () => {
     const kept = applyFix(def('retryOneLayer'), orphan, signalsWith({ queueWaitOverTimeout: at('spare') }))!;
     expect(diffPaths(orphan, kept)).toEqual(['client.call.retries']);
     expect(candidateFixes(orphan, signalsWith({ retryShare: at('spare') }), {}).find((x) => x.id === 'retry-one-layer')!.what).toBe(
-      "Only the api asks the db again (up to 3 times); users' apps no longer retry.",
+      "Only the api retries the db (up to 3 times); users' apps no longer retry.",
     );
   });
 
@@ -325,7 +325,7 @@ describe('applyFix: where it applies', () => {
     const c = chain();
     c.tiers[0].cacheAside = { ...c.tiers[0].cacheAside!, retries: 2 };
     const what = candidateFixes(c, signalsWith({ retryShare: at('cache') }), {}).find((x) => x.id === 'retry-one-layer')!.what;
-    expect(what).toBe("Only the api's cache lookups ask the cache again (up to 2 times); users' apps and the api no longer retry.");
+    expect(what).toBe("Only the api's cache lookups retry the cache (up to 2 times); users' apps and the api no longer retry.");
   });
 
   it('retrying at one layer needs at least two retrying calls and something overloaded', () => {
@@ -336,7 +336,7 @@ describe('applyFix: where it applies', () => {
     const onceEach = chain();
     onceEach.tiers[0].downstream!.retries = 1;
     expect(candidateFixes(onceEach, signalsWith({ retryShare: at('db') }), {}).find((x) => x.id === 'retry-one-layer')!.what).toBe(
-      "Only the api asks the db again (once); users' apps no longer retry.",
+      "Only the api retries the db (once); users' apps no longer retry.",
     );
   });
 

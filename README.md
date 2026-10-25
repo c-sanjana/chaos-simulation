@@ -20,7 +20,7 @@ empty** (the cache goes down for 5 s and comes back cold, so every lookup stampe
 part can fail (slow down, go down, lose one server, or for the cache restart empty), and several
 failures can be combined. On a first visit a one-minute guided demo follows the retry storm on
 the default system: it plays the replay forward and pauses at each moment that matters (calm
-traffic, the database slowing down, repeats piling up, the failure ending, stuck for good), then
+traffic, the database slowing down, retries piling up, the failure ending, stuck for good), then
 shows the tipping point and a fix that holds up, introducing each part of the page as it goes
 (stops about results say "Getting results…" until they are on screen). Finishing it leaves the
 replay paused at its end with the verdict. Skip it, or replay it any time with the **?** button at

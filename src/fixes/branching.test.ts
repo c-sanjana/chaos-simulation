@@ -48,8 +48,8 @@ describe('fix candidates with branches', { timeout: 120_000 }, () => {
     const { run, analysis } = analyzed(config);
     const candidates = candidateFixes(config, analysis.signals, graphLabels, run);
     const one = candidates.find((c) => c.id === 'retry-one-layer')!;
-    expect(one.what).toBe("Only the App server's calls to DB ask the DB again (once); users' apps, the Load balancer and the App server's calls to Search service no longer retry.");
-    expect(one.how).toBe('The app server asks the database again and nothing else does: its other calls and every other layer pass errors straight back, so repeats no longer multiply from layer to layer.');
+    expect(one.what).toBe("Only the App server's calls to DB retry the DB (once); users' apps, the Load balancer and the App server's calls to Search service no longer retry.");
+    expect(one.how).toBe('The app server retries the database and nothing else does: its other calls and every other layer pass errors straight back, so retries no longer multiply from layer to layer.');
     expect(allCalls(one.config).filter((r) => r.policy.retries > 0).map((r) => `${r.owner}→${r.policy.target}`)).toEqual(['api→db']);
     const coalesce = candidates.find((c) => c.id === 'coalesce-misses')!;
     expect(coalesce.how).toBe('When requests miss the cache for the same entry at once, one of them makes the reads behind it and the rest share its answer.');
@@ -96,7 +96,7 @@ describe('explanations with branches', { timeout: 120_000 }, () => {
     const helped = fixHelped(before.analysis.recovery, after.analysis.recovery);
     const e = explainFix('jitterBackoff', helped, { config, result: before }, { config: candidate.config, result: after }, graphLabels);
     expect(helped).toBe(false);
-    expect(e.text).toMatch(/^Every repeat is still sent, only later: users' apps \(5×\), the load balancer \(3×\) and the app server \(1–3×\) still retry/);
+    expect(e.text).toMatch(/^Every retry is still sent, only later: users' apps \(5×\), the load balancer \(3×\) and the app server \(1–3×\) still retry/);
   });
 
   it('a longer timeout on a further call is compared with the failure of the part it waits for', () => {

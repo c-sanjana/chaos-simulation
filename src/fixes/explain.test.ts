@@ -43,7 +43,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
 
   it('says every repeat is still sent for backoff with jitter, and names an emptied cache', () => {
     const e = explain(storm, 'jitter-backoff');
-    expect(e.text).toMatch(/^Every repeat is still sent, only later: users' apps \(5×\)/);
+    expect(e.text).toMatch(/^Every retry is still sent, only later: users' apps \(5×\)/);
     expect(e.text).toMatch(/The cache emptied too \(hit rate \d+%, normally 75%\), so more requests went past it\.$/);
   });
 

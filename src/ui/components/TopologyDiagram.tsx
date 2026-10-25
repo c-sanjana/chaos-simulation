@@ -220,14 +220,14 @@ export function edgeEnds(edge: TopologyEdgeView, nodes: TopologyNodeView[]): { f
     : { from: at(edge.col, edge.row + 1), to: at(edge.col, edge.row - 1) };
 }
 
-/** e.g. "API to DB: 264 requests a second, including 191 repeats (retries); 100% failing". */
+/** e.g. "API to DB: 264 requests a second, including 191 retries; 100% failing". */
 export function edgeAriaLabel(edge: TopologyEdgeView, nodes: TopologyNodeView[]): string {
   const { from, to } = edgeEnds(edge, nodes);
   const ends = from && to ? `${from.label} to ${to.label}: ` : '';
   const rps = Math.round(edge.rps);
   const rate = edge.cache ? `${plural(rps, 'lookup', 'lookups')} a second, ${edge.detail}` : `${plural(rps, 'request', 'requests')} a second`;
   const retries = Math.round(edge.rps * (edge.retryShare ?? 0));
-  const repeats = retries > 0 ? `, including ${plural(retries, 'repeat', 'repeats')} (retries)` : '';
+  const repeats = retries > 0 ? `, including ${plural(retries, 'retry', 'retries')}` : '';
   const failing = isFailing(edge.errorShare) ? `; ${percent(edge.errorShare as number)} failing` : '';
   return `${ends}${rate}${repeats}${failing}${changeWords(edge.change)}`;
 }
@@ -452,7 +452,7 @@ function Key({ showChange, note }: { showChange: boolean; note?: string }) {
       </span>
       <span className="csl-topology-legend__item">
         <span className="csl-key-arrow csl-key-arrow--retry" aria-hidden="true" />
-        stripes, ↻ = retries (repeats)
+        stripes, ↻ = retries
       </span>
       <span className="csl-topology-legend__item">
         <span className="csl-key-fail" aria-hidden="true">

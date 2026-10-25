@@ -76,7 +76,7 @@ export const FIX_SETTINGS = {
   consumerFactor: 2,
 } as const;
 
-const AT_MOST_DOUBLE = 'Repeats from this layer can at most double its calls to the struggling service';
+const AT_MOST_DOUBLE = 'Retries from this layer can at most double its calls to the struggling service';
 const ONE_LAYER_HIDES = 'One layer still retries, so brief errors stay hidden from users';
 const USERS_STILL_ERRORS = 'The caller may now wait longer than its own caller waits for it, so users still get errors while it keeps working for nobody';
 
@@ -87,7 +87,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'retryBudget',
     title: 'Retry budget of 10%',
     short: 'Budget, one layer',
-    how: 'Once repeats reach 10% of first tries, {caller} stops asking {target} again, so its repeats add at most a tenth more work.',
+    how: 'Once retries reach 10% of first tries, {caller} stops retrying {target}, so its retries add at most a tenth more work.',
     pros: [
       "Stops this caller's retries from multiplying load while a dependency is struggling",
       'Retries still happen as normal while things are healthy',
@@ -106,9 +106,9 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'retryBudgetEveryLayer',
     title: 'Retry budget of 10% at every layer',
     short: 'Budget, all layers',
-    how: 'Every layer that retries stops once its retries reach 10% of its first tries. Each layer then adds at most a tenth more calls, so even multiplied across the stack the repeats stay small.',
+    how: 'Every layer that retries stops once its retries reach 10% of its first tries. Each layer then adds at most a tenth more calls, so even multiplied across the stack the retries stay small.',
     pros: [
-      'Repeats cannot multiply from layer to layer into a storm',
+      'Retries cannot multiply from layer to layer into a storm',
       'Retries still happen as normal while things are healthy',
       'Cheap: a client setting on each caller, no new servers',
     ],
@@ -141,14 +141,14 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'jitterBackoff',
     title: 'Exponential backoff with full jitter',
     short: 'Backoff + jitter',
-    how: '{Caller} waits a random, growing pause before retrying, so its repeats arrive spread out instead of together. Every repeat is still sent.',
+    how: '{Caller} waits a random, growing pause before retrying, so its retries arrive spread out instead of together. Every retry is still sent.',
     pros: [
       'Spreads retries out so they stop arriving in synchronised waves',
       'Cheap: a client library setting',
     ],
     cons: [
       'Every retry is still sent; only their timing changes',
-      'Helps only when repeats arrive in bursts, not when they pile up steadily',
+      'Helps only when retries arrive in bursts, not when they pile up steadily',
     ],
     signal: 'retryShare',
     scope: 'layer',
@@ -158,9 +158,9 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'retryOneLayer',
     title: 'Retry at one layer only',
     short: 'Retry at one layer',
-    how: '{Caller} is the only one that asks {target} again; every other layer passes errors straight back, so repeats no longer multiply from layer to layer.',
+    how: '{Caller} is the only one that retries {target}; every other layer passes errors straight back, so retries no longer multiply from layer to layer.',
     pros: [
-      'Repeats no longer multiply from layer to layer',
+      'Retries no longer multiply from layer to layer',
       ONE_LAYER_HIDES,
       'Cheap: a setting on each caller, no new servers',
     ],
@@ -244,7 +244,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'longerTimeout',
     title: 'Longer timeout (×3)',
     short: 'Longer timeout ×3',
-    how: '{Caller} waits three times longer before giving up and retrying, so an answer slower than before but within the new wait causes no repeat.',
+    how: '{Caller} waits three times longer before giving up and retrying, so an answer slower than before but within the new wait causes no retry.',
     pros: [
       'Fewer requests are given up on during a short slowdown',
       'One setting to change',

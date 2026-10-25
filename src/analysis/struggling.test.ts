@@ -64,7 +64,7 @@ describe('the part that struggled', { timeout: 60_000 }, () => {
 
   it('is the database a failed server’s repeats overload, though it is not behind that server', () => {
     const { story } = built(reported, [['c', 's1'], ['s1', 'd1'], ['s1', 's2'], ['s2', 'd2']], { faults: [{ tier: 's2', kind: 'dead', startMs: 30_000, endMs: 35_000 }] });
-    expect(step(story, 'overload')).toMatchObject({ headline: 'Database overloaded', text: expect.stringMatching(/Repeats land on it too, not only on App server 2\.$/) });
+    expect(step(story, 'overload')).toMatchObject({ headline: 'Database overloaded', text: expect.stringMatching(/Retries land on it too, not only on App server 2\.$/) });
     expect(step(story, 'stuck')!.text).toMatch(/with the database getting up to/);
   });
 
@@ -125,7 +125,7 @@ describe('a busy part on another branch', { timeout: 60_000 }, () => {
     const { run, analysis } = analyzed(config);
     const overload = step(buildStory(run, config, analysis, graphLabels), 'overload')!;
     expect(overload.headline).toBe('Blue pool overloaded');
-    expect(overload.text).toMatch(/Repeats land on it too, not only on the Green pool\.$/);
+    expect(overload.text).toMatch(/Retries land on it too, not only on the Green pool\.$/);
     const s = overload.tMs / 1000;
     expect(run.tiers.blue.arrivalsRetry[s] + run.tiers.blue.arrivalsFromRepeats[s]).toBeGreaterThan(0);
   });
@@ -152,7 +152,7 @@ describe('a chain with a small cache and the database down', { timeout: 60_000 }
       'fault: At 30 s the database went down for 10 seconds.',
       "giveup: The API gets an error from the database straight away. Every layer retries when it gives up: users' apps up to 3 times, the API twice. One failed answer can come back as many requests.",
       "cache: Cache entries ran out and weren't refilled, sending even more requests to the database.",
-      'back: At 40 s the database was back up — but the pile of repeated requests was still there.',
+      'back: At 40 s the database was back up — but the pile of retried requests was still there.',
       'stuck: It never recovered: still failing at the end of the run.',
     ]);
     // An outage is noticed at once: no timeout as the give-up step's figure (review 3).

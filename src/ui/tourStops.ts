@@ -35,7 +35,7 @@ export const tourStops: TourStop[] = [
   {
     target: 'topology',
     screen: 0,
-    // By 34 s users' apps have started retrying too (their first repeats arrive at 33 s).
+    // By 34 s users' apps have started retrying too (their first retries arrive at 33 s).
     atMs: 34_000,
     title: 'The database slows down',
     body: 'Answers take longer than the app server waits (1 s), so it retries. So do the load balancer and users’ apps (striped arrows).',
@@ -44,15 +44,15 @@ export const tourStops: TourStop[] = [
     target: 'charts',
     screen: 0,
     atMs: 34_500,
-    title: 'Repeats pile up',
-    body: 'The “Retries (repeats)” band piles up and pushes the database past what it can handle: the dashed capacity line.',
+    title: 'Retries pile up',
+    body: 'The “Retries” band piles up and pushes the database past what it can handle: the dashed capacity line.',
   },
   {
     target: 'story',
     screen: 0,
     atMs: 37_000,
     title: 'The failure is over…',
-    body: 'At 35 s the database is back to full speed. But the pile of repeats is still there, keeping it overloaded.',
+    body: 'At 35 s the database is back to full speed. But the pile of retries is still there, keeping it overloaded.',
   },
   {
     target: 'story',
