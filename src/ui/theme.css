@@ -2207,10 +2207,10 @@ button.csl-map__cell {
   height: auto;
   min-height: 0;
 }
-/* The story never hides the details: it takes at most about half the height and scrolls inside. */
-.csl-player__sidestack > .csl-story--compact {
-  flex: 0 1 auto;
-  max-height: 55%;
+/* The story is the side column's one panel: it takes the room and scrolls inside if it needs more. */
+.csl-player__sidestack > .csl-story {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 .csl-story--compact {

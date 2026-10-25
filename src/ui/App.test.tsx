@@ -37,8 +37,8 @@ describe('App', { timeout: 60_000 }, () => {
     // The verdict isn't given away up front: the replay reveals it when it gets there.
     expect(screen.queryByText('Stuck: did not recover after the failure ended')).toBeNull();
     expect(screen.getByText('A short failure, replayed')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Details: what was measured' })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: "What's happening" })).toBeNull(); // one panel, not two
+    expect(screen.getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Details: what was measured/ })).toBeNull(); // one panel, not two
     expect(pool.analyzed).toHaveLength(1);
     expect(pool.analyzed[0].client.rps).toBe(200);
   });
@@ -147,10 +147,10 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
     await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
-    // Side by side: map on the left; the replay on the right, with its details (story included) beside the chart.
-    const timeline = screen.getByRole('region', { name: 'Details: what was measured' });
-    expect(timeline.closest('.csl-player__timeline--side')).not.toBeNull();
-    expect(screen.getByRole('region', { name: 'Tipping point' }).contains(timeline)).toBe(false);
+    // Side by side: map on the left; the replay on the right, with its story beside the chart.
+    const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
+    expect(story.closest('.csl-player__timeline--side')).not.toBeNull();
+    expect(screen.getByRole('region', { name: 'Tipping point' }).contains(story)).toBe(false);
   });
 
   it('summarises the scenario in one line on every step, and opens the editor to change it', async () => {

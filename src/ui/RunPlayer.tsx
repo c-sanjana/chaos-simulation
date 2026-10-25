@@ -11,13 +11,12 @@ import { chartSummary, ChartTable } from './components/ChartText';
 import { MetricTabs } from './components/MetricTabs';
 import { PlaybackBar } from './components/PlaybackBar';
 import { CHART_HEIGHT, TimeSeriesChart } from './components/TimeSeriesChart';
-import { RunDetails } from './components/RunDetails';
 import { StepActiveContext } from './components/StepPanel';
-import type { StoryStepView } from './components/StoryCard';
+import { StoryCard, type StoryStepView } from './components/StoryCard';
 import { badgeRoomPx, boxRowCount, TopologyDiagram } from './components/TopologyDiagram';
 import { usePlayback } from './components/usePlayback';
 import { usePrefersReducedMotion } from './useMediaQuery';
-import { chartView, labelsOf, METRIC_TABS, shortVerdict, timelineView, topologyView, verdictView, type ChangeLabel, type MetricTab } from './viewModels';
+import { chartView, labelsOf, METRIC_TABS, shortVerdict, topologyView, verdictView, type ChangeLabel, type MetricTab } from './viewModels';
 
 export interface RunPlayerProps {
   title: string;
@@ -251,18 +250,13 @@ export function RunPlayer({
   const steps = story ?? builtStory ?? [];
   useAnnouncements(steps, playback.tMs, chip.tone === 'neutral' ? null : after ? compareWords(result, after.result) : chip.text, guide === 'paused' ? `Paused: the failure is over: ${failureOverText(faults, labels)}. Watch whether the system recovers.` : null);
   const failureWindowsMs = (config.faults ?? []).map((f) => [f.startMs, f.endMs] as [number, number]);
-  // One panel tells what happened: the story's steps, each with what was measured (user decision,
-  // 2026-10-25: the separate "What's happening" card repeated the details). One name on every step (REVIEW2 3.8).
+  // One panel tells what happened: "What's happening" (user decision, 2026-10-25: the separate
+  // "Details: what was measured" panel repeated it). Step 1 tells every step; the narrower step 2
+  // and 3 replays the newest, with the earlier ones a click away.
   const timeline = (
     <>
       {ended && endPanel}
-      <RunDetails
-        steps={steps}
-        entries={timelineView(shown.result.analysis)}
-        nowMs={playback.tMs}
-        failureWindows={failureWindowsMs}
-        titleSuffix={after ? (showAfter ? ' (after the fix)' : ' (before the fix)') : ''}
-      />
+      <StoryCard steps={steps} nowMs={playback.tMs} compact={!story} />
     </>
   );
 

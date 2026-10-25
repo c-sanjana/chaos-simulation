@@ -12,27 +12,25 @@ const result = (r: typeof stuck) => ({ run: r.run, control: r.control, analysis:
 const seek = (ms: number) => fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: String(ms) } });
 
 describe('RunPlayer', { timeout: 60_000 }, () => {
-  it('shows the topology and charts, a timeline that plays along, and the verdict only once the replay reaches it', () => {
+  it('shows the topology and charts, a story that plays along, and the verdict only once the replay reaches it', () => {
     render(<RunPlayer title="What happened" subtitle="Retry storm" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
     expect(screen.getByRole('heading', { name: 'What happened' })).toBeTruthy();
     expect(screen.queryByText('Stuck: did not recover after the failure ended')).toBeNull();
     expect(screen.getByText(/^Replaying… the verdict comes/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /^DB \(/ })).toBeTruthy();
     expect(screen.getByText(/All normal so far/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Details: what was measured/ })).toBeNull(); // one panel only
     seek(32_000);
-    // The track has a marker for each story step reached, and spells out the newest.
-    expect(screen.getByRole('list', { name: 'Selected event' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^30 s: Database 8× slower/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'List' }));
-    expect(screen.getByText('Database 8× slower')).toBeTruthy();
-    expect(screen.queryByText(/Point of no return/)).toBeNull();
+    // The newest step reached, spelled out (the replay's own story is compact here: no `story` given).
+    const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
+    expect(within(story).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(story).getByRole('button', { name: /^Show the \d+ earlier steps?$/ })).toBeTruthy();
     expect(screen.getByText(/^\d+ more as the replay continues…$/)).toBeTruthy();
     seek(120_000);
     expect(screen.getByText('Stuck: did not recover after the failure ended')).toBeTruthy();
-    // What was measured sits with the step it belongs to.
-    expect(screen.getByText(/Point of no return: the failure is over/).closest('.csl-details__measured')).not.toBeNull();
+    expect(screen.getByText('Still stuck')).toBeTruthy();
     expect(screen.queryByText(/more as the replay continues/)).toBeNull();
-    expect(document.querySelectorAll('.csl-details__list .csl-flow__step--latest')).toHaveLength(1);
+    expect(document.querySelectorAll('.csl-flow__step--latest')).toHaveLength(1);
   });
 
   it('starts on Load & retries, names the tier each tab really shows, and scopes charts with the Showing dropdown', () => {
@@ -73,7 +71,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     expect(screen.getByText(/Snapshot at t = 60 s/)).toBeTruthy();
   });
 
-  it('compares before and after, switching topology and timeline between them', () => {
+  it('compares before and after, switching topology and story between them', () => {
     render(
       <RunPlayer
         title="Before vs after"
@@ -86,13 +84,10 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
       />,
     );
     seek(120_000);
-    fireEvent.click(screen.getByRole('button', { name: 'List' }));
     expect(screen.getByText(/^Stuck → recovers in \d+ s$/)).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Details: what was measured (after the fix)' })).toBeTruthy();
-    expect(screen.getByText(/back to normal \d+ s after the failure ended/i, { selector: '.csl-flow__text' })).toBeTruthy(); // the step says it; the measured verdict isn't repeated
+    expect(screen.getByText(/back to normal/i, { selector: '.csl-flow__headline' })).toBeTruthy();
     fireEvent.click(within(screen.getByRole('group', { name: 'Show run' })).getByRole('button', { name: 'Before' }));
-    expect(screen.getByRole('heading', { name: 'Details: what was measured (before the fix)' })).toBeTruthy();
-    expect(screen.getByText(/Point of no return/)).toBeTruthy();
+    expect(screen.getByText('Still stuck')).toBeTruthy();
     expect(screen.getByText(/before the fix\./)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'After' }));
     expect(screen.getByText(/after the fix\./)).toBeTruthy();
@@ -128,19 +123,19 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     vi.unstubAllGlobals();
   });
 
-  it('tells the run shown in its one details panel (step 2 and 3 replays), story included', () => {
+  it('tells the run shown in a compact story beside the chart (step 2 and 3 replays), its one panel', () => {
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} after={{ config: recovered.config, result: result(recovered) }} autoPlay={false} sideTimeline />);
-    const details = screen.getByRole('region', { name: 'Details: what was measured' });
-    expect(details.closest('.csl-player__sidestack')).not.toBeNull();
-    expect(screen.queryByRole('heading', { name: "What's happening" })).toBeNull(); // no second card
+    const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
+    expect(story.className).toContain('csl-story--compact');
+    expect(story.closest('.csl-player__sidestack')).not.toBeNull();
+    expect(screen.queryByRole('region', { name: 'Details: what was measured' })).toBeNull();
     seek(120_000);
     // The "after" run (shown by default) recovered: its newest step, spelled out, says so.
-    const focus = within(details).getByRole('list', { name: 'Selected event' });
-    expect(within(focus).getByText(/back to normal/i, { selector: '.csl-flow__headline' })).toBeTruthy();
-    expect(within(focus).getByText(/back to normal/i, { selector: '.csl-flow__text' })).toBeTruthy();
+    expect(within(story).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(story).getByText(/back to normal/i, { selector: '.csl-flow__headline' })).toBeTruthy();
+    expect(within(story).getByText(/back to normal/i, { selector: '.csl-flow__text' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Before' }));
-    expect(within(screen.getByRole('list', { name: 'Selected event' })).getByText('Still stuck')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Details: what was measured (before the fix)' })).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'What is happening, in plain words' })).getByText('Still stuck')).toBeTruthy();
   });
 
   it('waits while held (e.g. under the guided tour) and plays from the start when released', async () => {
@@ -201,17 +196,17 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     vi.unstubAllGlobals();
   });
 
-  it('tells the given story in plain words inside the measured details, as the replay reaches it', () => {
+  it('tells the given story in plain words, as the replay reaches it, with no second panel', () => {
     const story = [
       { tMs: 30_000, text: 'At 30 s the database became 8× slower for 5 seconds.', tone: 'fault' as const },
       { tMs: 117_000, text: 'It never recovered.', tone: 'bad' as const },
     ];
     render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} story={story} />);
-    expect(screen.getByRole('heading', { name: 'Details: what was measured' })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: "What's happening" })).toBeNull();
+    expect(screen.getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Details: what was measured/ })).toBeNull();
     seek(31_000);
-    expect(screen.getByTitle(`30 s: ${story[0].text}`)).toBeTruthy();
-    expect(screen.queryByTitle(/It never recovered/)).toBeNull();
+    expect(screen.getByTitle(story[0].text)).toBeTruthy();
+    expect(screen.queryByTitle(story[1].text)).toBeNull();
   });
 
   it('shows the end panel only once the replay reaches the end, and hides it again for a new run', () => {
@@ -334,10 +329,10 @@ describe('RunPlayer accessibility', { timeout: 60_000 }, () => {
     expect(heading.id).toBe('step-heading');
     expect(heading.tabIndex).toBe(-1);
     const above = container.querySelector('.csl-player__story')!;
-    expect(within(above as HTMLElement).getByRole('heading', { name: 'Details: what was measured' })).toBeTruthy();
-    // The details come before the charts in reading order, and aren't repeated below them.
+    expect(within(above as HTMLElement).getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    // The story comes before the charts in reading order, and isn't repeated below them.
     expect(above.compareDocumentPosition(container.querySelector('.csl-player__charts')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getAllByRole('heading', { name: 'Details: what was measured' })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { name: "What's happening" })).toHaveLength(1);
   });
 
   it('describes the chart in words and can show it as a table of what has been revealed', () => {
