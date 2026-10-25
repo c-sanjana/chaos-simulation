@@ -16,7 +16,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     render(<RunPlayer title="What happened" subtitle="Retry storm" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
     expect(screen.getByRole('heading', { name: 'What happened' })).toBeTruthy();
     expect(screen.queryByText('Stuck: did not recover after the failure ended')).toBeNull();
-    expect(screen.getByText(/^Replaying… the verdict comes/)).toBeTruthy();
+    expect(screen.getByText(/^Replaying…$/)).toBeTruthy(); // the verdict isn't given away up front
     expect(screen.getByRole('button', { name: /^DB \(/ })).toBeTruthy();
     expect(screen.getByText(/All normal so far/)).toBeTruthy();
     expect(screen.queryByRole('heading', { name: /Details: what was measured/ })).toBeNull(); // one panel only

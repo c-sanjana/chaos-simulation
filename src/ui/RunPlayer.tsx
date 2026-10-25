@@ -241,7 +241,7 @@ export function RunPlayer({
     ? { text: `${capitalise(shortVerdict(summary(result)))} → ${shortVerdict(summary(after.result))}`, tone: verdictView(after.result.analysis.recovery).tone }
     : playback.tMs >= verdictAtMs
       ? verdictView(recovery)
-      : { text: 'Replaying… the verdict comes when the replay gets there', tone: 'neutral' as const };
+      : { text: 'Replaying…', tone: 'neutral' as const };
   // The run shown (before or after the fix) told in plain words: given for step 1, built here otherwise.
   const builtStory = useMemo(
     () => (story ? null : buildStory(shown.result.run, shown.config, shown.result.analysis, labels)),

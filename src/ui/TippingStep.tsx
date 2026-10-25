@@ -51,7 +51,7 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             Each cell is one run of the same failure, at other traffic and {yAxis.label}. The <b>tipping point</b> is the lowest traffic that leaves the system stuck for good. Select a cell to replay it<span className="csl-sr-only"> (arrow keys move, Enter replays)</span>.
           </p>
           <MapLegend showPending={!finished} compact />
-          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} tips={tips} fill="both" />
+          <TippingMap map={map} selected={selected} onSelect={(c) => setSelected({ x: c.x, y: c.y })} tips={tips} />
           <div className="csl-tipping__result">
             <div className="csl-selected-line" aria-label="Selected cell">
               <span className="csl-mono">{cellTitle}</span>
