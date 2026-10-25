@@ -209,8 +209,12 @@ function verdictEntry(r: RecoveryResult, signals: Signals, name: (id: string) =>
       }
       // Wasted work after the failure ended, not over the whole incident (review 2: a share from
       // the failure itself was quoted as what kept the system stuck afterwards).
-      const wasted = signals.wastedShare;
-      const wastedAfter = wasted ? wastedShareBetween(run, wasted.tier, Math.ceil(r.lastFaultEndMs / run.bucketMs), Math.floor(r.judgedUntilMs / run.bucketMs)) : 0;
+      // About the part that struggled (signals.overloaded, the story's part) when most of its work
+      // was wasted, so the two never name different parts (review 3); else where the most work was wasted.
+      const after = (id: string) => wastedShareBetween(run, id, Math.ceil(r.lastFaultEndMs / run.bucketMs), Math.floor(r.judgedUntilMs / run.bucketMs));
+      const struggling = signals.overloaded && after(signals.overloaded.tier) >= 0.5 ? signals.overloaded : null;
+      const wasted = struggling ?? signals.wastedShare;
+      const wastedAfter = wasted ? after(wasted.tier) : 0;
       const backlog = signals.queueBacklog;
       // The text says which period the share covers. "end of run" is the label, so the text doesn't repeat it.
       const detail =

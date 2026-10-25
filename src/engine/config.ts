@@ -19,6 +19,14 @@ export function callsOf(tier: Pick<TierConfig, 'downstream' | 'moreDownstream'>)
   return tier.downstream ? [tier.downstream, ...(tier.moreDownstream ?? [])] : [];
 }
 
+/**
+ * The most retries one call may make (validation refuses more). Each retry is one more attempt,
+ * and with no backoff all of a dead target's retries happen at the same instant: a million
+ * retries ran 27 million events (review 3, F6). Ten is already far more than real clients use
+ * (two or three are common); the input forms stop at the same number (ui/fieldLimits.ts).
+ */
+export const MAX_RETRIES = 10;
+
 /** How a caller calls a downstream tier: timeout, retries and backoff. */
 export interface CallPolicy {
   /** Target tier id. */

@@ -47,7 +47,9 @@ describe('a branched built system, simulated and drawn', { timeout: 60_000 }, ()
       { from: 's1', to: 'db1', cache: false },
       { from: 's2', to: 'db1', cache: false },
     ];
-    const empty = { ...run, tiers: Object.fromEntries(Object.entries(run.tiers).map(([id, t]) => [id, { ...t, arrivalsFirst: t.arrivalsFirst.map(() => 0), arrivalsRetry: t.arrivalsRetry.map(() => 0), ok: t.ok.map(() => 0) }])) };
+    const zero = (xs: number[]) => xs.map(() => 0);
+    const calls0 = (t: (typeof run.tiers)[string]) => t.calls?.map((c) => ({ ...c, first: zero(c.first), retries: zero(c.retries) }));
+    const empty = { ...run, tiers: Object.fromEntries(Object.entries(run.tiers).map(([id, t]) => [id, { ...t, arrivalsFirst: zero(t.arrivalsFirst), arrivalsRetry: zero(t.arrivalsRetry), ok: zero(t.ok), calls: calls0(t) }])) };
     expect(callWeights(config, empty, 5, calls)).toEqual([0.5, 0.5]);
   });
 });
@@ -74,8 +76,8 @@ describe('a server calling a database and then a second server (user report)', {
     expect(config.faults).toEqual([expect.objectContaining({ tier: 'database-2', kind: 'slow' })]);
     const overload = story.find((s) => s.kind === 'overload');
     expect(overload?.headline).toBe('Database overloaded');
-    expect(overload?.text).toMatch(/Repeats land on it too, not only on the database 2\.$/);
+    expect(overload?.text).toMatch(/Repeats land on it too, not only on Database 2\.$/);
     const verdict = story.find((s) => s.kind === 'stuck')!;
-    expect(verdict.text).not.toMatch(/database 2 getting/);
+    expect(verdict.text).not.toMatch(/Database 2 getting/);
   });
 });

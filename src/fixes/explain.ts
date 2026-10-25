@@ -5,10 +5,12 @@
  * text never contradicts the measured result next to it (REVIEW2 1.5).
  *
  * Every number quoted is measured. "What it can handle" is a tier's capacity (leafCapacityRps);
- * its load is every request sent to it in a second, repeats included.
+ * its load is every request sent to it in a second, repeats included, less those its full queue
+ * turned away at once (a bounded queue turns most of a flood away; counting those as work made the
+ * fix look like it multiplied the load, REVIEW2 1.6). See analysis/helpers' peakLoad.
  */
 import type { Analysis } from '../analysis/analyze';
-import { formatMs, leafCapacityRps, spokenName } from '../analysis/helpers';
+import { capitalise, formatMs, incidentWindow, listed, peakLoad as peakLoadIn, spokenName, strugglingPart } from '../analysis/helpers';
 import { callsOf, type CallPolicy, type RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { FixKind, Refutation } from './catalog';
@@ -71,42 +73,19 @@ function rps(run: RunResult, id: string, s: number): number {
   return ((t.arrivalsFirst[s] + t.arrivalsRetry[s]) * 1000) / run.bucketMs;
 }
 
-/**
- * Work per second a tier took on in second s: requests sent to it minus those it turned away at
- * once because its queue was full. A bounded queue turns most of a flood away; counting those as
- * work would make the fix look like it multiplied the load (REVIEW2 1.6).
- */
-function work(run: RunResult, id: string, s: number): number {
-  return Math.max(0, rps(run, id, s) - (run.tiers[id].rejected[s] * 1000) / run.bucketMs);
-}
-
 /** Most work a tier took on in a second over seconds [from, to), as a multiple of its capacity in `config`. */
 function peakLoad(config: RunConfig, run: RunResult, id: string, [from, to]: [number, number]): number {
-  const tier = config.tiers.find((t) => t.id === id);
-  const capacity = tier ? leafCapacityRps(tier) : null;
-  if (!capacity || !run.tiers[id]) return 0;
-  let peak = 0;
-  for (let s = from; s < Math.min(to, run.tiers[id].arrivalsFirst.length); s++) peak = Math.max(peak, work(run, id, s) / capacity);
-  return peak;
+  return peakLoadIn(config, run, id, from, to);
 }
 
 /**
  * The part whose load explains the trouble, chosen in the run without the fix so both runs are
- * measured on the same part: the tier that does the work itself (calls nothing) with the highest
- * load against its capacity after the failure ended, or failing that during the incident. Null
- * when no such tier ever went over.
+ * measured on the same part: the part that struggled (analysis/helpers' strugglingPart, the rule
+ * the story, the fixes and the load chart share: highest average load after the failure ended,
+ * else highest peak during it, only parts that do the work themselves). Null when none went over.
  */
 function pressureTier(config: RunConfig, r: MeasuredRun): string | null {
-  let best: { id: string; load: number } | null = null;
-  for (const window of [afterFailure(r), incident(config, r)]) {
-    for (const t of config.tiers) {
-      if (leafCapacityRps(t) === null) continue;
-      const load = peakLoad(config, r.run, t.id, window);
-      if (load > 1 && (best === null || load > best.load)) best = { id: t.id, load };
-    }
-    if (best) return best.id;
-  }
-  return null;
+  return strugglingPart(config, r.run, incidentWindow(config, r.analysis.recovery))?.id ?? null;
 }
 
 function sum(xs: number[], [from, to]: [number, number] = [0, xs.length]): number {
@@ -150,8 +129,8 @@ function refutations(pressure: string | null, before: { result: MeasuredRun }, a
 
 // ---------- the sentences ----------
 
-const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const times = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
+/** A load as a multiple of capacity: "2.3×", "14×". */
+const multiple = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 const count = (n: number) => {
   try {
     return Math.round(n).toLocaleString('en-US');
@@ -159,8 +138,6 @@ const count = (n: number) => {
     return String(Math.round(n));
   }
 };
-/** "a", "a and b", "a, b and c". */
-const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 /**
  * "Users' apps (5×) and the load balancer (3×) still retry", or null when no layer retries. A layer whose
@@ -195,7 +172,7 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
     return `It recovers in ${t(a.recoveryMs, a.verdict)}, against ${t(b.recoveryMs, b.verdict)} without it, and ${failed}: no improvement.`;
   }
   const load = pressure === null ? 0 : peakLoad(after.config, after.result.run, pressure, afterFailure(after.result));
-  const loadPart = pressure !== null && load > 1 ? `${say(pressure)} still had up to ${times(load)} the work it can handle after the failure ended` : null;
+  const loadPart = pressure !== null && load > 1 ? `${say(pressure)} still had up to ${multiple(load)} the work it can handle after the failure ended` : null;
   const still = stillRetrying(after.config, say);
   const cause = still && loadPart ? `${still}, so ${loadPart}` : loadPart ? capitalise(loadPart) : still;
   const text = (main: string) => main + cacheEmptied(after.result, say);
@@ -210,7 +187,7 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
     }
   }
   if (kind === 'addInstances' && pressure !== null && grew(before.config, after.config) === pressure && loadPart) {
-    return text(`Even with more servers, ${say(pressure)} had up to ${times(load)} the work it can now handle after the failure ended${still ? `: ${uncap(still)}` : ''}.`);
+    return text(`Even with more servers, ${say(pressure)} had up to ${multiple(load)} the work it can now handle after the failure ended${still ? `: ${uncap(still)}` : ''}.`);
   }
   if (kind === 'moreConsumers') {
     const q = after.result.analysis.signals.queueBacklog;
@@ -236,7 +213,7 @@ function workedText(kind: FixKind, pressure: string | null, before: { config: Ru
   if (pressure === null) return change ? `${change}.` : 'It got back to normal after the failure ended.';
   const now = peakLoad(after.config, after.result.run, pressure, afterFailure(after.result));
   const was = peakLoad(before.config, before.result.run, pressure, afterFailure(before.result));
-  const load = `${say(pressure)} had at most ${times(now)} the work it can handle, against ${times(was)} without the fix`;
+  const load = `${say(pressure)} had at most ${multiple(now)} the work it can handle, against ${multiple(was)} without the fix`;
   const drained = now <= 1 ? ', so the pile left by the failure could drain' : '';
   return change ? `${change}, so after the failure ended ${load}${drained}.` : `After the failure ended, ${load}${drained}.`;
 }

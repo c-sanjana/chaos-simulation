@@ -35,6 +35,11 @@ export interface CallOptions {
   prepare?: (attempt: Attempt) => void;
   /** The call is made on behalf of a repeat further up (see Attempt.fromRepeat). */
   fromRepeat?: boolean;
+  /**
+   * Where try number `attemptNo` (from 1) goes, when that can change from try to try (a load
+   * balancer retrying another pool); `target` otherwise. Asked before `prepare`.
+   */
+  targetFor?: (attemptNo: number) => CallTarget;
 }
 
 /**
@@ -58,7 +63,7 @@ export function callWithRetries(
   options: CallOptions,
   done: (ok: boolean, attempt: Attempt) => void,
 ): void {
-  const { stats, budget, prepare, fromRepeat = false } = options;
+  const { stats, budget, prepare, fromRepeat = false, targetFor } = options;
   let attemptNo = 0;
 
   const failed = (path: number, attempt: Attempt) => {
@@ -84,6 +89,7 @@ export function callWithRetries(
       else failed(path, attempt);
     });
     attempt.fromRepeat = fromRepeat;
+    const to = targetFor ? targetFor(attemptNo) : target;
     prepare?.(attempt);
     if (deadline !== Infinity) {
       sim.schedule(deadline, () => {
@@ -94,7 +100,7 @@ export function callWithRetries(
         failed(path, attempt);
       });
     }
-    target.accept(attempt);
+    to.accept(attempt);
   }
 
   tryOnce();

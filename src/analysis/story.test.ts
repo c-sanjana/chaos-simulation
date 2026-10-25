@@ -363,8 +363,13 @@ describe('buildStory on small systems', { timeout: 60_000 }, () => {
   it('says the load went over afterwards without blaming repeats when there were none', () => {
     const { config, run, analysis } = retryStormRun({ retries: 0 });
     const tweaked = structuredClone(run);
-    tweaked.tiers.db.arrivalsFirst[40] = 1000;
+    // The failure ends at 35 s and the run is back to normal at 38 s.
+    tweaked.tiers.db.arrivalsFirst[36] = 1000;
     expect(texts(buildStory(tweaked, config, analysis, labels))).toContain('Then the database got more requests than it can handle, even at full speed (about 160 a second).');
+    // After "back to normal", an overload is not told (review 3: it never happened as far as users could tell).
+    const late = structuredClone(run);
+    late.tiers.db.arrivalsFirst[40] = 1000;
+    expect(texts(buildStory(late, config, analysis, labels))).not.toContain('Then the database got more requests than it can handle, even at full speed (about 160 a second).');
   });
 
   it('quotes the share of wasted work when it is not almost all', () => {

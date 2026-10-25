@@ -117,7 +117,7 @@ export class MessageQueue {
       this.target,
       message.requestId,
       hashPath(message.pathHash, CONSUME_BRANCH),
-      { stats: metrics, budget: this.budget, fromRepeat: message.fromRepeat },
+      { stats: metrics, budget: this.budget, prepare: (sent) => metrics.callSent(this.policy.target, sim.now, sent.isRetry), fromRepeat: message.fromRepeat },
       (ok) => {
         this.busy--;
         metrics.busyConsumers.add(sim.now, -1);

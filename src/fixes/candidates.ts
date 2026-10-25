@@ -1,6 +1,6 @@
-import { allCallEdges, heaviestCallerInto, formatMs, leafCapacityRps, nameOf, percent, spokenName, strictestCallerInto, type CallEdge } from '../analysis/helpers';
-import type { Signals } from '../analysis/signals';
-import type { CallPolicy, RunConfig, TierConfig } from '../engine/config';
+import { allCallEdges, callersOf, capitalise, heaviestCallerInto, formatMs, leafCapacityRps, listed, nameOf, percent, spokenName, strictestCallerInto, tierOf, times, type CallEdge } from '../analysis/helpers';
+import type { SignalName, Signals } from '../analysis/signals';
+import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import { acrossTheStack } from './amplification';
 import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition, type Refutation } from './catalog';
@@ -60,7 +60,7 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
       short: def.short,
       what: plan.what,
       how: fillNames(plan.how ?? def.how, plan.caller, plan.target, labels),
-      why: def.signal === null ? COMMON_INSTINCT : describeSignal(def.signal, signals, config, name),
+      why: def.signal === null ? COMMON_INSTINCT : describeSignal(def.signal, def.scope === 'layer' ? aimedAt(def.signal, signals, plan.target) : signals, config, name),
       pros: def.pros,
       cons: def.cons,
       ...(def.refutable ? { refutable: def.refutable } : {}),
@@ -198,34 +198,50 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       const strictest = id === undefined ? null : strictestCallInto(config, id);
       const timeoutMs = strictest?.policy.timeoutMs ?? null;
       if (id === undefined || strictest === null || timeoutMs === null) return null;
-      const tier = tierById(config, id);
+      const tier = tierOf(config, id);
       const limit = queueLimitFor(tier, timeoutMs);
       if (tier.queueLimit !== null && tier.queueLimit <= limit) return null;
       return {
         config: withTier(config, id, { queueLimit: limit }),
         ...ends(strictest),
-        where: `${name(id)}, at most ${limit} queued per instance`,
-        what: `${name(id)} lets at most ${limit} requests wait per instance and turns the rest away immediately.`,
+        // A limit of 0 (a caller too impatient for any wait) means no queue at all.
+        where: limit === 0 ? `${name(id)}, no queue` : `${name(id)}, at most ${limit} queued per instance`,
+        what: limit === 0 ? `${name(id)} turns away every request it can't start at once, instead of letting it wait.` : `${name(id)} lets at most ${limit} requests wait per instance and turns the rest away immediately.`,
       };
     }
     case 'dropExpired': {
       const id = signals.wastedShare?.tier;
       const ref = id === undefined ? null : callInto(id);
       // A tier nothing calls has no caller to give up on it.
-      if (id === undefined || ref === null || tierById(config, id).dropExpired) return null;
+      if (id === undefined || ref === null || tierOf(config, id).dropExpired) return null;
       return {
         config: withTier(config, id, { dropExpired: true }),
         ...ends(ref),
         // With several callers it skips work for any of them that gave up, not just one.
-        how: callersOfTier(config, id) > 1 ? '{Target} skips requests whose caller has already given up on them, so its time goes to requests someone is still waiting for.' : undefined,
+        how: callersOf(config, id).length > 1 ? '{Target} skips requests whose caller has already given up on them, so its time goes to requests someone is still waiting for.' : undefined,
         where: name(id),
         what: `${name(id)} skips requests whose caller has already timed out, instead of doing work nobody will use.`,
       };
     }
     case 'coalesceMisses': {
       const cacheId = signals.cacheHitDrop?.tier;
-      const tier = config.tiers.find((t) => t.cacheAside !== undefined && t.cacheAside.target === cacheId);
-      if (tier === undefined || tier.coalesceMisses) return null;
+      const users = config.tiers.filter((t) => t.cacheAside !== undefined && t.cacheAside.target === cacheId && !t.coalesceMisses);
+      const tier = users[0];
+      if (tier === undefined) return null;
+      if (users.length > 1) {
+        // Every part that looks things up in the cache coalesces (review 3: only the first one did).
+        let fixed = config;
+        for (const u of users) fixed = withTier(fixed, u.id, { coalesceMisses: true });
+        const names = listed(users.map((u) => name(u.id)));
+        return {
+          config: fixed,
+          caller: tier.id,
+          target: tier.downstream!.target,
+          how: 'When requests miss the cache for the same entry at once, one of them makes the reads behind it and the rest share its answer.',
+          where: names,
+          what: `When several requests miss the cache for the same key at once, ${names} each make one read and share the result.`,
+        };
+      }
       return {
         config: withTier(config, tier.id, { coalesceMisses: true }),
         caller: tier.id,
@@ -238,7 +254,7 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
     }
     case 'moreConsumers': {
       const id = signals.queueBacklog?.tier;
-      const tier = id === undefined ? undefined : tierById(config, id);
+      const tier = id === undefined ? undefined : tierOf(config, id);
       if (!tier?.queue || !tier.downstream) return null;
       const consumers = tier.queue.consumers * FIX_SETTINGS.consumerFactor;
       return {
@@ -263,13 +279,15 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
     }
     case 'addInstances': {
       // The instinct is to scale the tier calling the bottleneck (its threads are the ones seen
-      // exhausted). When the bottleneck is the entry tier, the caller is the client, so scale the
-      // bottleneck itself.
+      // exhausted). Scale the bottleneck itself when that caller is the client, a load balancer
+      // splitting over pools, or a part that was barely busy (review 3: a load balancer at 7%
+      // workers was scaled while the app server pool behind it was the one overloaded).
       const id = bottleneck(signals);
       if (id === null) return null;
       const caller = callInto(id);
-      const target = caller === null || caller.owner === 'client' ? id : caller.owner;
-      const before = tierById(config, target).instances;
+      const scaleCaller = caller !== null && caller.owner !== 'client' && tierOf(config, caller.owner).fanOut !== 'split' && !(run && barelyBusy(run, caller.owner));
+      const target = scaleCaller ? caller.owner : id;
+      const before = tierOf(config, target).instances;
       const instances = Math.ceil(before * FIX_SETTINGS.instanceFactor);
       return {
         config: withTier(config, target, { instances }),
@@ -306,17 +324,36 @@ export function queueLimitFor(tier: TierConfig, callerTimeoutMs: number): number
 }
 
 /**
- * The most overloaded tier, where the common instincts are aimed: where queued work most outlasted
- * its caller's patience; failing that, where the most work was wasted, or where retries piled up.
- * Null when none of these showed up, i.e. nothing was overloaded.
+ * The most overloaded tier, where the common instincts are aimed: the part still over what it can
+ * handle after the failure ended (the story's and the explanations' part, see analysis/helpers'
+ * strugglingPart); failing that, where queued work most outlasted its caller's patience, where
+ * the most work was wasted, or where retries piled up. Null when none of these showed up, i.e.
+ * nothing was overloaded.
+ * (Review 3: a short timeout on the failing part's call inflated its queue-wait ratio, so every
+ * fix aimed at a part that sat idle while the database before it drowned.)
  */
 function bottleneck(signals: Signals): string | null {
-  return (signals.queueWaitOverTimeout ?? signals.wastedShare ?? signals.retryShare)?.tier ?? null;
+  const sustained = signals.overloaded?.value.sustained ? signals.overloaded : null;
+  return (sustained ?? signals.queueWaitOverTimeout ?? signals.wastedShare ?? signals.retryShare)?.tier ?? null;
+}
+
+/**
+ * The signals as a one-call fix's "why" should quote them: the retry share of the part the fix's
+ * call goes to, when retries reached it, rather than of whichever part had the highest share
+ * (review 3: a fix on the database call quoted the load balancer's share). Fixes on every layer
+ * keep quoting the highest share anywhere: they change all the calls.
+ */
+function aimedAt(signal: SignalName, signals: Signals, target: string): Signals {
+  const share = signals.retryShareOf?.[target];
+  if (signal !== 'retryShare' || share === undefined || !(share > 0)) return signals;
+  return { ...signals, retryShare: { tier: target, value: share } };
 }
 
 /** One line quoting a signal and its number, e.g. "retries made up 74% of DB's load". */
-export function describeSignal(signal: keyof Signals, s: Signals, config: RunConfig, name: (id: string) => string): string {
+export function describeSignal(signal: SignalName, s: Signals, config: RunConfig, name: (id: string) => string): string {
   switch (signal) {
+    case 'overloaded':
+      return `${name(s.overloaded!.tier)} got ${s.overloaded!.value.sustained ? 'on average' : 'up to'} ${formatRatio(s.overloaded!.value.load)} the work it can handle${s.overloaded!.value.sustained ? ' after the failure ended' : ''}`;
     case 'retryShare':
       return `retries made up ${percent(s.retryShare!.value)} of ${name(s.retryShare!.tier)}'s load`;
     case 'wastedShare':
@@ -340,13 +377,6 @@ export function describeSignal(signal: keyof Signals, s: Signals, config: RunCon
     }
   }
 }
-
-/** "a", "a and b", "a, b and c". */
-const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
-
-const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
-
-const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 
@@ -375,15 +405,19 @@ export function refOf(edge: CallEdge): CallRef {
 
 const sameCall = (a: CallRef, b: CallRef) => a.owner === b.owner && a.field === b.field && a.index === b.index;
 
-/** How many calls go into a tier (the client's and every tier's, cache lookups included). */
-function callersOfTier(config: RunConfig, id: string): number {
-  return allCallEdges(config).filter((e) => e.policy.target === id).length;
+/**
+ * Whether a tier's workers were barely busy in a run: never more than a quarter of them busy on
+ * average in any second. More servers for such a part change nothing.
+ */
+function barelyBusy(run: RunResult, id: string): boolean {
+  const t = run.tiers[id];
+  return t !== undefined && Math.max(0, ...t.busyWorkersAvg) < 0.25 * t.workers;
 }
 
-/** How many downstream calls a tier makes (cache lookups not counted). */
+/** How many downstream calls a tier makes (cache lookups not counted); 0 for users' apps ('client'). */
 function callsMadeBy(config: RunConfig, owner: string): number {
   const tier = config.tiers.find((t) => t.id === owner);
-  return tier?.downstream ? 1 + (tier.moreDownstream?.length ?? 0) : 0;
+  return tier ? callsOf(tier).length : 0;
 }
 
 /**
@@ -409,12 +443,16 @@ const ends = (ref: CallRef) => ({ caller: ref.owner, target: ref.policy.target }
  * The calls that lead to `tierId`: the call into it, then the call into that caller, and so on
  * out to the client's call (innermost first). With fan-in, each step follows the caller sending
  * the most (see heaviestCallInto). Empty when nothing calls it.
+ * It stops at a message queue: its consumers' call is the outermost one. The queue answers its
+ * senders as soon as it stores a message, so nobody in front of it retries because of what is
+ * behind it (review 3: "cap retries" was aimed at users' apps, and changed nothing).
  */
 function callsTowards(config: RunConfig, tierId: string, run?: RunResult): CallRef[] {
   const path: CallRef[] = [];
   const seen = new Set<string>();
+  const isQueue = (id: string) => config.tiers.some((t) => t.id === id && t.queue !== undefined);
   // Validation forbids loops; `seen` makes sure a bad config cannot hang this.
-  for (let ref = heaviestCallInto(config, tierId, run); ref !== null && !seen.has(ref.owner); ref = ref.owner === 'client' ? null : heaviestCallInto(config, ref.owner, run)) {
+  for (let ref = heaviestCallInto(config, tierId, run); ref !== null && !seen.has(ref.owner); ref = ref.owner === 'client' || isQueue(ref.owner) ? null : heaviestCallInto(config, ref.owner, run)) {
     seen.add(ref.owner);
     path.push(ref);
   }
@@ -450,10 +488,6 @@ export function allCalls(config: RunConfig): CallRef[] {
   return allCallEdges(config).map(refOf);
 }
 
-function tierById(config: RunConfig, id: string): TierConfig {
-  return config.tiers.find((t) => t.id === id)!;
-}
-
 /** Copies of the config with one change; everything untouched is shared, nothing is mutated. */
 function withTier(config: RunConfig, id: string, patch: Partial<TierConfig>): RunConfig {
   return { ...config, tiers: config.tiers.map((t) => (t.id === id ? { ...t, ...patch } : t)) };
@@ -464,7 +498,7 @@ export function withCall(config: RunConfig, ref: CallRef, patch: Partial<CallPol
   const policy = { ...ref.policy, ...patch };
   if (ref.field === 'call') return { ...config, client: { ...config.client, call: policy } };
   if (ref.field === 'more') {
-    const more = tierById(config, ref.owner).moreDownstream ?? [];
+    const more = tierOf(config, ref.owner).moreDownstream ?? [];
     return withTier(config, ref.owner, { moreDownstream: more.map((c, i) => (i === ref.index ? policy : c)) });
   }
   return withTier(config, ref.owner, { [ref.field]: policy });

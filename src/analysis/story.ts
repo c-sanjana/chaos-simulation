@@ -7,16 +7,28 @@ import {
   callersOf,
   callFraction,
   callsFrom,
+  callsLeadingTo,
+  capitalise,
+  doesWork,
+  failureReaches,
+  incidentWindow,
   formatMs,
   formatSeconds,
   leafCapacityRps,
-  pathsTo,
+  listed,
+  overByRepeats,
+  peakLoad as peakLoadIn,
   percent,
   reachableFrom,
-  reachableLeaves,
   spokenName,
+  sentAlong,
+  strugglingPart,
   sumRange,
+  tierOf,
+  tiersLeadingTo,
+  times,
   topologicalOrder,
+  wholeTierDown,
   type CallEdge,
 } from './helpers';
 
@@ -139,49 +151,36 @@ interface Context {
   bucketMs: number;
 }
 
-const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-/** "a", "a and b", "a, b and c" (or "a or b"). */
-const listed = (items: string[], and = 'and') => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} ${and} ${items[items.length - 1]}`);
 const noun = (spoken: string) => spoken.replace(/^the /, '');
-const tierOf = (config: RunConfig, id: string): TierConfig => config.tiers.find((t) => t.id === id)!;
+/** Whether a name ends in a number ("Database 2"). */
+const numbered = (name: string) => /\s\d+$/.test(name);
 /** "about 160", "about 20": round to two significant figures, which is all a newcomer needs. */
 const about = (x: number) => `about ${x >= 100 ? Math.round(x / 10) * 10 : Math.round(x)}`;
 
 /**
- * The tier whose load explains the trouble: the failed tier if it does the work itself (it calls
- * nothing), or, when a cache fails, the tier that cache protects (with several, e.g. a cache in
- * front of a fan-out, the one that got the most work for what it can handle). When a tier that
- * calls others fails (the load balancer, say), the tier it relies on that got the most work for what it
- * can handle, if that ever went over. Null otherwise.
+ * The tier whose load explains the trouble: the part that struggled (see strugglingPart, the rule
+ * the fix explanations, the fixes and the load chart share), and when no part went over what it can
+ * handle, the failed tier if it does the work itself (the story can then still tell that, slowed
+ * down, it could not keep up), or, when a cache failed, the tier it protects (with several, the one
+ * that got the most work for what it can handle). Null otherwise.
+ *
+ * The part that struggled need not be the failed one. Repeats sent because of the failed part go
+ * back through whatever their senders call: a load balancer splits them afresh over the other
+ * pools, and a server that calls a database before the failed part sends every repeat to that
+ * database first (measured: Database 2 slowing overloaded Database, which the app server calls
+ * first, while Database 2 itself then got nothing).
  */
 function pressureTier(ctx: Context, fault: Fault): string | null {
-  const { config } = ctx;
+  const { config, run } = ctx;
+  const struggling = strugglingPart(config, run, incidentWindow(config, ctx.analysis.recovery));
+  if (struggling) return struggling.id;
   const tier = tierOf(config, fault.tier);
   if (tier.cache) {
-    const behind = behindCache(config, fault.tier).filter((id) => leafCapacityRps(tierOf(config, id)) !== null);
+    const behind = behindCache(config, fault.tier).filter((id) => doesWork(tierOf(config, id)));
     if (behind.length <= 1) return behind[0] ?? null;
     return behind.map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) })).sort((a, b) => b.peak - a.peak)[0].id;
   }
-  if (leafCapacityRps(tier) !== null) {
-    // Repeats sent because of the failed part go back through whatever their senders call: a load
-    // balancer splits them afresh over the other pools, and a server that calls a database before
-    // the failed part sends every repeat to that database first. Either can overload another part
-    // instead (measured: Database 2 slowing overloaded Database, which the app server calls first,
-    // while Database 2 itself then got nothing). Tell the one that got the most work for what it
-    // can handle, if it got more than the failed part and more than it can handle.
-    const own = peakLoad(ctx, fault.tier, fault.startMs);
-    const others = otherWorkers(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
-    const worst = others.sort((a, b) => b.peak - a.peak)[0];
-    return worst !== undefined && worst.peak > 1 && worst.peak > own ? worst.id : fault.tier;
-  }
-  const peaks = reachableLeaves(config, fault.tier).map((id) => ({ id, peak: peakLoad(ctx, id, fault.startMs) }));
-  const worst = peaks.sort((a, b) => b.peak - a.peak)[0];
-  return worst !== undefined && worst.peak > 1 ? worst.id : null;
-}
-
-/** Every other tier users' requests reach that does the work itself (calls nothing), not `id`. Empty in a chain. */
-function otherWorkers(config: RunConfig, id: string): string[] {
-  return reachableFrom(config, 'client').filter((leaf) => leaf !== id && leafCapacityRps(tierOf(config, leaf)) !== null);
+  return doesWork(tier) ? fault.tier : null;
 }
 
 /** The tiers a miss in `cacheId` is read from: every downstream call of every tier that looks things up in it. */
@@ -190,15 +189,12 @@ function behindCache(config: RunConfig, cacheId: string): string[] {
   return [...new Set(users.flatMap((t) => callsOf(t).map((c) => c.target)))];
 }
 
-/** Highest load on a tier that calls nothing, as a multiple of what it can handle, from `fromMs` to the end of the judged range. */
+/**
+ * Highest load on a tier that calls nothing, as a multiple of what it can handle, from the second
+ * `fromMs` falls in to the end of the judged range (see helpers' peakLoad).
+ */
 function peakLoad(ctx: Context, id: string, fromMs: number): number {
-  const capacity = leafCapacityRps(tierOf(ctx.config, id))!;
-  const t = ctx.run.tiers[id];
-  let peak = 0;
-  for (let s = Math.floor(fromMs / ctx.bucketMs); s < Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs); s++) {
-    peak = Math.max(peak, (admittedIn(t, s) * 1000) / ctx.bucketMs / capacity);
-  }
-  return peak;
+  return peakLoadIn(ctx.config, ctx.run, id, Math.floor(fromMs / ctx.bucketMs), Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs));
 }
 
 /** Who a fault hits: the tier, or "one of the 4 API instances". */
@@ -227,8 +223,12 @@ function faultEndText(f: Fault, ctx: Context): string {
 function afterTheFailure(f: Fault, ctx: Context, retries: number, hadPile: boolean): string {
   if (ctx.analysis.recovery.verdict === 'stuck') {
     const but = f.flushAtEnd ? 'and' : 'but'; // "back up, but empty" already has a "but"
-    // Behind a queue the pile is of messages, whatever retried in front of it.
-    const queue = ctx.config.tiers.find((t) => t.queue && ctx.run.tiers[t.id].backlogAvg[Math.floor(f.endMs / ctx.bucketMs)] >= 1);
+    // Behind a queue the pile is of messages, whatever retried in front of it; but only a queue
+    // still backed up when judging ended is what stayed stuck (review 3: a queue that drained
+    // soon after was blamed while a database on another branch kept the run stuck).
+    const backlog = ctx.analysis.signals.queueBacklog;
+    const stillBacked = backlog && backlog.value.atEnd >= 1 ? backlog.tier : null;
+    const queue = ctx.config.tiers.find((t) => t.id === stillBacked && ctx.run.tiers[t.id].backlogAvg[Math.floor(f.endMs / ctx.bucketMs)] >= 1);
     if (queue) return ` — ${but} the pile of messages in ${ctx.say(queue.id)} was still there.`;
     return ` — ${but} the pile of ${retries > 0 ? 'repeated' : 'waiting'} requests was still there.`;
   }
@@ -243,8 +243,6 @@ function callerWords(id: string, ctx: Context): { name: string; verb: (singular:
   const users = id === 'client';
   return { name: users ? "users' apps" : ctx.say(id), verb: (singular, plural) => (users ? plural : singular) };
 }
-
-const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
 /** What a caller does after giving up: "asks again, up to 3 more times". */
 function askAgain(policy: CallPolicy, callerId: string, ctx: Context): string {
@@ -274,7 +272,7 @@ function pathCalls(config: RunConfig, faultTier: string): CallEdge[] {
     keep.add(all.get(key(e))!);
   };
   for (const anchor of anchors) {
-    for (const path of pathsTo(config, anchor)) path.forEach(add);
+    callsLeadingTo(config, anchor).forEach(add);
     for (const id of [anchor, ...reachableFrom(config, anchor)]) callsFrom(config, id).forEach(add);
   }
   const order = ['client', ...topologicalOrder(config)];
@@ -285,7 +283,9 @@ function pathCalls(config: RunConfig, faultTier: string): CallEdge[] {
  * Who asks again around this failure, one layer per caller, front to back: callers whose calls on
  * the paths through the failing part (see pathCalls) retry and sent at least one retry from the
  * failure's start to the end of the judged range (review 2: "everyone asks again" in runs where
- * nobody did). A layer's policy is its call with the most retries.
+ * nobody did), counted for that call itself (see helpers' sentAlong; review 3, F7: with fan-in, a
+ * caller that never retried was listed because another caller of the same part did). A layer's
+ * policy is its call with the most retries.
  *
  * A call in front of a message queue that sits between it and the failing part is left out: the
  * queue answered it as soon as it stored the message, so it never saw the failure (review 2: queue
@@ -295,7 +295,7 @@ function pathCalls(config: RunConfig, faultTier: string): CallEdge[] {
 function askingAgain(ctx: Context, faultTier: string): Array<{ id: string; policy: CallPolicy }> {
   const from = Math.floor(Math.min(...(ctx.config.faults ?? []).map((f) => f.startMs)) / ctx.bucketMs);
   const to = Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs);
-  const retriesSent = (c: CallEdge) => sumRange(ctx.run.tiers[c.policy.target].arrivalsRetry, from, to);
+  const retriesSent = (c: CallEdge) => sumRange(sentAlong(ctx.config, ctx.run, c, 'retries'), from, to);
   const behindQueue = queueShielded(ctx.config, faultTier);
   const layers: Array<{ id: string; policy: CallPolicy }> = [];
   for (const c of pathCalls(ctx.config, faultTier)) {
@@ -308,24 +308,34 @@ function askingAgain(ctx: Context, faultTier: string): Array<{ id: string; polic
 }
 
 /**
- * Whether a message queue shields a call from the failing part: on every path from the call to
- * it, a queue tier sits after the call and before the failing part (the queue's own consumer call
- * is not shielded). Calls not on any path to it are not shielded.
+ * Whether a message queue shields a call from the failing part: on every way from the call to it,
+ * a queue tier sits after the call and before the failing part (the queue's own consumer call is
+ * not shielded). Calls not on any way to it are not shielded. One pass over the tiers, without
+ * listing the ways (see helpers' tiersLeadingTo).
  */
 function queueShielded(config: RunConfig, faultTier: string): (c: CallEdge) => boolean {
-  const paths = pathsTo(config, faultTier);
-  const same = (a: CallEdge, b: CallEdge) => a.from === b.from && a.kind === b.kind && a.index === b.index;
-  return (c) => {
-    let onPath = false;
-    for (const path of paths) {
-      const j = path.findIndex((e) => same(e, c));
-      if (j < 0) continue;
-      onPath = true;
-      const between = path.slice(j, -1).map((e) => e.policy.target);
-      if (!between.some((id) => tierOf(config, id).queue !== undefined)) return false;
-    }
-    return onPath;
-  };
+  const key = (e: CallEdge) => `${e.from}|${e.kind}|${e.index}`;
+  const onWay = new Set(callsLeadingTo(config, faultTier).map(key));
+  // Where the failing part can be reached from without passing a queue (itself included).
+  const open = tiersLeadingTo(config, faultTier, (id) => tierOf(config, id).queue === undefined);
+  return (c) => onWay.has(key(c)) && !open.has(c.policy.target);
+}
+
+/**
+ * Retrying layers grouped where they are alternatives: pools one load balancer splits over (a
+ * request goes through one of them, not all), front to back. Every other layer is a group of its
+ * own (review 3: siblings read as seven multiplying layers).
+ */
+function alternatives<T extends { id: string }>(config: RunConfig, layers: T[]): T[][] {
+  const splitter = (id: string) => config.tiers.find((t) => t.fanOut === 'split' && callsOf(t).length > 1 && callsOf(t).some((c) => c.target === id))?.id;
+  const groups: T[][] = [];
+  for (const l of layers) {
+    const parent = splitter(l.id);
+    const group = parent === undefined ? undefined : groups.find((g) => splitter(g[0].id) === parent);
+    if (group) group.push(l);
+    else groups.push([l]);
+  }
+  return groups;
 }
 
 /** How many layers make calls on the paths through the failing part (see pathCalls). */
@@ -359,7 +369,12 @@ function cascadeText(f: Fault, callerId: string, ctx: Context): string {
     return ` ${capitalise(name)} ${verb('asks', 'ask')} again when ${verb('it gives', 'they give')} up, ${n === 1 ? 'once' : `up to ${n} times`}.${budgets}`;
   }
   const every = calls.length === layerCount(ctx.config, f.tier);
-  const list = calls.map(({ id, policy }, i) => `${callerWords(id, ctx).name} ${i === 0 && policy.retries > 1 ? 'up to ' : ''}${times(policy.retries)}`);
+  const list = alternatives(ctx.config, calls).map((group, i) => {
+    const each = group.map(({ id, policy }) => `${callerWords(id, ctx).name} ${i === 0 && policy.retries > 1 ? 'up to ' : ''}${times(policy.retries)}`);
+    // Pools a load balancer splits over are alternatives, not stacked layers: "the app server or App server 2 once".
+    const same = group.every((l) => l.policy.retries === group[0].policy.retries);
+    return same && group.length > 1 ? `${listed(group.map(({ id }) => callerWords(id, ctx).name), 'or')} ${i === 0 && group[0].policy.retries > 1 ? 'up to ' : ''}${times(group[0].policy.retries)}` : listed(each, 'or');
+  });
   const answer = f.kind === 'dead' && !tierOf(ctx.config, f.tier).cache ? 'failed' : 'slow';
   return ` ${every ? 'Every layer asks again when it gives' : 'Several layers ask again when they give'} up: ${list.join(', ')}.${budgets} One ${answer} answer can come back as many requests.`;
 }
@@ -391,12 +406,14 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
   const others = cascadeText(f, call.id, ctx);
   const cascade = share + others;
   const asking = askingAgain(ctx, f.tier);
-  const layers = others === '' ? undefined : asking.map(({ id, policy }) => ({ who: shortCaller(id, ctx), retries: policy.retries }));
+  const layers = others === '' ? undefined : alternatives(ctx.config, asking).map((group) => ({ who: listed(group.map(({ id }) => shortCaller(id, ctx)), 'or'), retries: Math.max(...group.map((l) => l.policy.retries)) }));
   const everyone = asking.length === layerCount(ctx.config, f.tier);
   const headline = `${capitalise(shortCaller(call.id, ctx))} ${verb('gives', 'give')} up`;
   const figure = call.policy.timeoutMs === null ? undefined : formatMs(call.policy.timeoutMs);
-  const step = (tMs: number | null, text: string, head = headline, fig = figure): StoryStep | null =>
-    tMs === null ? null : { tMs, text: text + cascade, tone: 'info', kind: 'giveup', headline: layers ? `${head}, ${everyone ? 'everyone asks' : 'others ask'} again` : head, figure: fig, ...(layers ? { cascade: layers } : {}) };
+  // `fig` null: no figure. (An outage or a cache going down is noticed at once, not after a
+  // timeout; review 3: passing undefined fell back to the timeout.)
+  const step = (tMs: number | null, text: string, head = headline, fig: string | null = figure ?? null): StoryStep | null =>
+    tMs === null ? null : { tMs, text: text + cascade, tone: 'info', kind: 'giveup', headline: layers ? `${head}, ${everyone ? 'everyone asks' : 'others ask'} again` : head, figure: fig ?? undefined, ...(layers ? { cascade: layers } : {}) };
 
   const callerTier = call.id === 'client' ? null : tierOf(ctx.config, call.id);
   if (tierOf(ctx.config, f.tier).cache && edge.kind === 'cacheAside' && callerTier?.downstream) {
@@ -406,7 +423,15 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
     const or = callerTier.fanOut === 'split' && targets.length > 1 ? 'or' : 'and';
     const behind = listed(targets.map(ctx.say), or);
     const toBehind = `Lookups go to ${listed(targets.map((id) => noun(ctx.say(id))), or)}`;
-    if (f.kind === 'dead') return step(f.startMs, `Without ${ctx.say(f.tier)}, ${caller} sent every lookup to ${behind} instead.`, toBehind, undefined);
+    // Every part that looks things up in it does the same (review 3: a second app server sharing
+    // the cache was left out); with several, the parts behind any of them.
+    const users = ctx.config.tiers.filter((t) => t.cacheAside?.target === f.tier);
+    if (f.kind === 'dead' && users.length > 1) {
+      const all = behindCache(ctx.config, f.tier);
+      const text = `Without ${ctx.say(f.tier)}, ${listed(users.map((t) => ctx.say(t.id)))} sent every lookup to ${listed(all.map(ctx.say))} instead.`;
+      return step(f.startMs, text, `Lookups go to ${listed(all.map((id) => noun(ctx.say(id))))}`, null);
+    }
+    if (f.kind === 'dead') return step(f.startMs, `Without ${ctx.say(f.tier)}, ${caller} sent every lookup to ${behind} instead.`, toBehind, null);
     return step(firstSlow(call.policy), `${capitalise(caller)} gives up on ${ctx.say(f.tier)} after ${formatMs(call.policy.timeoutMs!)} and asks ${behind} instead.`, toBehind);
   }
 
@@ -414,10 +439,12 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
   const again = others === '' ? ` and ${askAgain(call.policy, call.id, ctx)}` : '';
   if (f.kind === 'dead') {
     const from = f.instance === undefined ? `from ${ctx.say(f.tier)}` : 'for requests sent to that instance';
-    return step(f.startMs, `${capitalise(caller)} ${verb('gets', 'get')} an error ${from} straight away${again}.`, `${capitalise(shortCaller(call.id, ctx))} ${verb('gets', 'get')} errors`, undefined);
+    return step(f.startMs, `${capitalise(caller)} ${verb('gets', 'get')} an error ${from} straight away${again}.`, `${capitalise(shortCaller(call.id, ctx))} ${verb('gets', 'get')} errors`, null);
   }
   const article = /^[aeiou]/i.test(target) ? 'an' : 'a';
-  return step(firstSlow(call.policy), `${capitalise(caller)} ${verb('gives', 'give')} up on ${article} ${target} answer after ${formatMs(call.policy.timeoutMs!)}${again}.`);
+  // A numbered name reads badly as an adjective ("a database 2 answer"): "an answer from Database 2".
+  const answer = numbered(target) ? `an answer from ${target}` : `${article} ${target} answer`;
+  return step(firstSlow(call.policy), `${capitalise(caller)} ${verb('gives', 'give')} up on ${answer} after ${formatMs(call.policy.timeoutMs!)}${again}.`);
 }
 
 /**
@@ -454,20 +481,26 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
   const capacity = leafCapacityRps(tier)!;
   const t = ctx.run.tiers[id];
   const load = (s: number) => (admittedIn(t, s) * 1000) / ctx.bucketMs;
+  const r = ctx.analysis.recovery;
   const from = Math.floor(main.startMs / ctx.bucketMs);
-  const to = Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs);
+  // Nothing after the run was back to normal: an overload told after "back to normal" never
+  // happened as far as users could tell (review 3: a busy part's noise was told last).
+  const to = Math.floor((r.verdict === 'recovered' ? Math.min(r.recoveredAtMs!, r.judgedUntilMs) : r.judgedUntilMs) / ctx.bucketMs);
   const name = ctx.say(id);
   // While the whole tier is down it refuses everything at once, so its load says nothing.
-  const down = (s: number) => (ctx.config.faults ?? []).some((f) => f.tier === id && f.kind === 'dead' && f.instance === undefined && f.startMs < (s + 1) * ctx.bucketMs && f.endMs > s * ctx.bucketMs);
+  const down = (s: number) => wholeTierDown(ctx.config, ctx.run, id, s);
+  // A part the failure does not reach directly got more work only through repeats: it counts as
+  // overloaded only in a second when they pushed it over (see helpers' overByRepeats), and then
+  // the repeats did land on it.
+  const viaRepeats = !failureReaches(ctx.config, id);
   const failureEndS = Math.ceil(ctx.analysis.recovery.lastFaultEndMs / ctx.bucketMs);
   // A failed tier in front of this one (the load balancer, say) held a pile while it was slow or down.
   const passedOn = main.tier !== id && !tierOf(ctx.config, main.tier).cache && reachableFrom(ctx.config, main.tier).includes(id) && queueAtEnd(ctx, main.tier, main.endMs) >= 1;
   for (let s = from; s < to; s++) {
-    if (load(s) > capacity && !down(s)) {
+    if (load(s) > capacity && !down(s) && (!viaRepeats || overByRepeats(ctx.config, ctx.run, id, s))) {
       const full = `even at full speed (${about(capacity)} a second)`;
       // Another part than the failed one: say how the trouble reached it.
-      const failed = tierOf(ctx.config, main.tier);
-      const landed = main.tier !== id && !failed.cache && leafCapacityRps(failed) !== null && retries ? ` Repeats land on it too, not only on ${ctx.say(main.tier)}.` : '';
+      const landed = viaRepeats ? ` Repeats land on it too, not only on ${ctx.say(main.tier)}.` : '';
       const text = s < failureEndS
         ? `So ${name} got more requests than it can handle, ${full}.${landed}`
         : passedOn

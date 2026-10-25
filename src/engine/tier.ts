@@ -227,7 +227,15 @@ export class Tier implements CallTarget {
       cacheTier,
       attempt.requestId,
       attempt.pathHash,
-      { stats: this.metrics, budget: this.cacheBudget, prepare: (lookup) => (lookup.key = key), fromRepeat: attempt.isRetry || attempt.fromRepeat },
+      {
+        stats: this.metrics,
+        budget: this.cacheBudget,
+        prepare: (lookup) => {
+          lookup.key = key;
+          this.metrics.callSent(cacheTier.config.id, this.sim.now, lookup.isRetry);
+        },
+        fromRepeat: attempt.isRetry || attempt.fromRepeat,
+      },
       (ok, lookup) => {
         if (ok && lookup.hit) this.finish(attempt, instance, 'ok');
         else this.readMissedKey(attempt, key, (readOk) => this.finish(attempt, instance, readOk ? 'ok' : 'failed'));
@@ -260,7 +268,13 @@ export class Tier implements CallTarget {
    * Makes the tier's downstream calls for one attempt and calls `done` once with the outcome.
    * With one call, it is simply made. With several, `fanOut` decides:
    * - 'sequence': each call starts once the previous one succeeded; the first failure fails the
-   *   attempt and later calls are not made.
+   *   attempt and later calls are not made. The next call starts as a new event at the same
+   *   instant, never inside the previous call's response: that response runs while its target is
+   *   still finishing (it frees its worker only afterwards), and with fan-in the next call can go
+   *   to that same target (an app server calls Auth, then the database Auth just used). Made
+   *   synchronously, it found the worker still taken: queued, or rejected with no queue, in an
+   *   idle system (review 3, F1). Retries and a queue's consumers start as new events too.
+   *   A single call answers `done` directly, so chains are unchanged.
    * - 'parallel': all calls start at once; `done` runs once every call has answered (or given up),
    *   ok only if all succeeded. The worker is held until then.
    * - 'split': exactly one call is made, picked at random by the calls' shares (see `splitPick`).
@@ -272,7 +286,7 @@ export class Tier implements CallTarget {
     const n = this.calls.length;
     const fanOut = n === 1 ? 'sequence' : this.config.fanOut ?? 'sequence';
     if (fanOut === 'split') {
-      this.makeCall(attempt, this.splitPick(attempt), done);
+      this.makeCall(attempt, this.splitPick(attempt), done, true);
     } else if (fanOut === 'parallel') {
       let pending = n;
       let allOk = true;
@@ -283,7 +297,11 @@ export class Tier implements CallTarget {
         });
       }
     } else {
-      const next = (i: number) => this.makeCall(attempt, i, (ok) => (ok && i + 1 < n ? next(i + 1) : done(ok)));
+      const next = (i: number): void =>
+        this.makeCall(attempt, i, (ok) => {
+          if (!ok || i + 1 === n) done(ok);
+          else this.sim.schedule(this.sim.now, () => next(i + 1));
+        });
       next(0);
     }
   }
@@ -297,17 +315,48 @@ export class Tier implements CallTarget {
    * draws exactly the values it always has (chain configs give byte-identical results). Calls
    * 1, 2, … branch with hashPath(path, −i): retries use positive attempt numbers and a queue's
    * consumers use 0, so the branches never coincide with either.
+   *
+   * `elsewhere` (a split): each retry goes to another of the tier's calls (see retryPick).
    */
-  private makeCall(attempt: Attempt, i: number, done: (ok: boolean) => void): void {
+  private makeCall(attempt: Attempt, i: number, done: (ok: boolean) => void, elsewhere = false): void {
+    const path = i === 0 ? attempt.pathHash : hashPath(attempt.pathHash, -i);
+    let current = i; // the call this try goes along
     callWithRetries(
       this.sim,
       this.calls[i],
       this.targets[i],
       attempt.requestId,
-      i === 0 ? attempt.pathHash : hashPath(attempt.pathHash, -i),
-      { stats: this.metrics, budget: this.callBudgets[i], fromRepeat: attempt.isRetry || attempt.fromRepeat },
+      path,
+      {
+        stats: this.metrics,
+        budget: this.callBudgets[i],
+        ...(elsewhere && this.calls.length > 1
+          ? { targetFor: (attemptNo: number) => this.targets[(current = attemptNo === 1 ? i : this.retryPick(current, attempt.requestId, hashPath(path, attemptNo)))] }
+          : {}),
+        prepare: (sent) => this.metrics.callSent(this.calls[current].target, this.sim.now, sent.isRetry),
+        fromRepeat: attempt.isRetry || attempt.fromRepeat,
+      },
       done,
     );
+  }
+
+  /**
+   * With fanOut 'split': where the tier's own retry goes. Like a real load balancer (nginx's
+   * proxy_next_upstream, Envoy's retry host predicate), it picks again by the calls' shares among
+   * the calls other than the one that just failed (`previous`), keyed by the try's path.
+   * ASSUMPTION: every try keeps the first pick's policy (timeout, retries, backoff) and retry
+   * budget; only where it goes changes. There are no health checks: a pool that is down still
+   * gets its share of first tries.
+   */
+  private retryPick(previous: number, requestId: number, tryPath: number): number {
+    const others = this.calls.map((c, i) => ({ i, share: c.share ?? 1 })).filter((c) => c.i !== previous);
+    const total = others.reduce((a, c) => a + c.share, 0);
+    let u = uniform(this.sim.seed, Stream.Split, requestId, tryPath, this.index) * total;
+    for (const c of others.slice(0, -1)) {
+      u -= c.share;
+      if (u < 0) return c.i;
+    }
+    return others[others.length - 1].i;
   }
 
   /**
@@ -315,9 +364,10 @@ export class Tier implements CallTarget {
    * uniform keyed by (request, attempt path, tier) picks the call whose cumulative share covers it.
    * ASSUMPTION: the pick is random per attempt (independent thinning, like a load balancer choosing
    * a pool at random by weight), not round-robin across the pools.
-   * ASSUMPTION: the tier's own retries of the chosen call go to the same pool (each call keeps its
-   * own policy and budget); a retry by whoever calls this tier is a new attempt with its own path,
-   * so it is split afresh and may land on another pool.
+   * The tier's own retries go to another pool (see retryPick; review 3: sending them back to the
+   * same pool, as before 2026-10-25, failed a request three times over on a pool that was down). A
+   * retry by whoever calls this tier is a new attempt with its own path, so it is split afresh
+   * and may land on any pool.
    */
   private splitPick(attempt: Attempt): number {
     const shares = this.calls.map((c) => c.share ?? 1);

@@ -2,6 +2,8 @@ import { callsOf, type CallPolicy, type Fault, type TierConfig } from '../engine
 import { scenarios } from '../data/scenarios';
 import { topologies } from '../data/topologies';
 import { LIMITS, runSizeProblem } from '../data/limits';
+import { buildRunConfig } from '../data/buildConfig';
+import { callsPerRequest } from '../analysis/helpers';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 
 /** What the viewer can edit: a topology and a scenario, starting from the presets. Plain data. */
@@ -176,7 +178,7 @@ export function draftProblems(d: Draft): string[] {
     }
   }
   // The fields stop traffic and duration at their limits; this also covers a loaded or built system.
-  const tooBig = runSizeProblem(s.rps, s.durationMs);
+  const tooBig = runSizeProblem(s.rps, s.durationMs, callsPerRequest(buildRunConfig(d.topology, s)));
   if (tooBig) problems.push(tooBig);
   // ASSUMPTION: the engine doesn't combine two failures of one part at once (the latest change
   // wins, engine/tier.ts), so overlapping failures of the same part are refused rather than

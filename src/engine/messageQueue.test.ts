@@ -17,7 +17,7 @@ class Recorder implements CallTarget {
 
 function setUp(consumers: number, maxDepth = 100) {
   const sim = new Simulation(1);
-  const metrics = new TierMetrics(new Buckets(10_000, 1000));
+  const metrics = new TierMetrics(new Buckets(10_000, 1000), ['x']);
   const target = new Recorder(sim, 10);
   const queue = new MessageQueue(sim, { maxDepth, consumers }, call('x'), target, null, metrics);
   return { sim, metrics, target, queue };

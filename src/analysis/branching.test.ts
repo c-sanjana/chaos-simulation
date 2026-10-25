@@ -10,18 +10,20 @@ import {
   callersInFront,
   callersOf,
   callFraction,
-  callPolicyInto,
-  callerOf,
   callsFrom,
+  callsLeadingTo,
+  callsPerRequest,
+  doesWork,
   heaviestCallerInto,
+  heaviestPathTo,
   loadInto,
-  MAX_PATHS,
-  pathsTo,
   reachableFrom,
-  reachableLeaves,
+  sentAlong,
   strictestCallerInto,
+  tiersLeadingTo,
   topologicalOrder,
   trafficShares,
+  type CallEdge,
 } from './helpers';
 import { buildStory, type StoryStep } from './story';
 import { analyzed } from './testRuns';
@@ -64,12 +66,10 @@ describe('call-graph helpers', () => {
     expect(allCallEdges(graph).map((e) => `${e.from}→${e.policy.target}`)).toEqual(['client→lb', 'lb→a', 'lb→b', 'a→cache', 'a→db', 'a→search', 'b→db']);
   });
 
-  it('finds every caller of a tier (fan-in), the first, the least patient and the heaviest', () => {
+  it('finds every caller of a tier (fan-in), the least patient and the heaviest', () => {
     expect(callersOf(graph, 'db').map((e) => e.from)).toEqual(['a', 'b']);
     expect(callersOf(graph, 'lb').map((e) => e.from)).toEqual(['client']);
     expect(callersOf(graph, 'nobody')).toEqual([]);
-    expect(callPolicyInto(graph, 'db')).toEqual({ id: 'a', policy: a.downstream });
-    expect(callerOf(graph, 'search')).toEqual({ id: 'a', timeoutMs: 900 });
     expect(strictestCallerInto(graph, 'db')!.from).toBe('b');
     expect(strictestCallerInto(graph, 'nobody')).toBeNull();
     // No timeouts at all: the first caller.
@@ -94,6 +94,22 @@ describe('call-graph helpers', () => {
     expect(loadInto(graph, 'a', { ...run, tiers: { lb: series(100, 40) } } as unknown as RunResult)[0].load).toBe((100 + 40 / 2) * 0.75);
   });
 
+  it('reads what one call sent from the per-call counts, or estimates it without them', () => {
+    const series = (first: number, retry: number, sent: number, calls?: unknown) => ({ arrivalsFirst: [first], arrivalsRetry: [retry], retriesSent: [sent], ...(calls ? { calls } : {}) });
+    const [toDbFromA] = callsFrom(graph, 'a').slice(1);
+    const [toDbFromB] = callsFrom(graph, 'b');
+    const toLb = callsFrom(graph, 'client')[0];
+    // Without per-call counts: the target's arrivals for a single caller, else the caller's own retries or an even split.
+    const guessed = { client: { sent: [10] }, tiers: { lb: series(10, 2, 0), a: series(5, 0, 7), b: series(5, 0, 1), db: series(30, 8, 0) } } as unknown as RunResult;
+    expect(sentAlong(graph, guessed, toLb, 'all')).toEqual([12]);
+    expect(sentAlong(graph, guessed, toDbFromA, 'retries')).toEqual([7]);
+    expect(sentAlong(graph, guessed, toDbFromB, 'all')).toEqual([19]);
+    // With them: exactly what each call sent.
+    const counted = { ...guessed, tiers: { ...guessed.tiers, a: series(5, 0, 7, [{ target: 'db', first: [20], retries: [6] }]), b: series(5, 0, 1, [{ target: 'db', first: [10], retries: [2] }]) } } as unknown as RunResult;
+    expect(sentAlong(graph, counted, toDbFromA, 'all')).toEqual([26]);
+    expect(sentAlong(graph, counted, toDbFromB, 'retries')).toEqual([2]);
+  });
+
   it('gives each call its share of the caller’s attempts and each tier its share of user traffic', () => {
     const [toA, toB] = callsFrom(graph, 'lb');
     expect(callFraction(graph, toA)).toBe(0.75);
@@ -116,30 +132,44 @@ describe('call-graph helpers', () => {
     expect(topologicalOrder(cyclic)).toEqual(['x']);
   });
 
-  it('lists every path from users to a tier', () => {
-    const route = (path: ReturnType<typeof pathsTo>[number]) => path.map((e) => e.policy.target).join(' → ');
-    expect(pathsTo(graph, 'db').map(route)).toEqual(['lb → a → db', 'lb → b → db']);
-    expect(pathsTo(graph, 'cache').map(route)).toEqual(['lb → a → cache']);
-    expect(pathsTo(graph, 'cache')[0].at(-1)!.kind).toBe('cacheAside');
-    expect(pathsTo(graph, 'lb').map(route)).toEqual(['lb']);
-    expect(pathsTo(graph, 'client')).toEqual([]);
-    expect(pathsTo(graph, 'nobody')).toEqual([]);
-    // A ladder of 7 diamonds has 2^7 paths; only MAX_PATHS are listed.
+  it('answers questions about the ways to a tier without listing them', () => {
+    const route = (calls: CallEdge[]) => calls.map((e) => `${e.from}→${e.policy.target}`).join(' ');
+    // Tiers a request can reach the database from, and the calls on some way to it.
+    expect([...tiersLeadingTo(graph, 'db')].sort()).toEqual(['a', 'b', 'db', 'lb']);
+    expect([...tiersLeadingTo(graph, 'db', (id) => id !== 'a')].sort()).toEqual(['b', 'db', 'lb']);
+    expect(tiersLeadingTo(graph, 'nobody').size).toBe(0);
+    expect(route(callsLeadingTo(graph, 'db'))).toBe('client→lb lb→a lb→b a→db b→db');
+    expect(route(callsLeadingTo(graph, 'cache'))).toBe('client→lb lb→a a→cache');
+    expect(callsLeadingTo(graph, 'client')).toEqual([]);
+    // The heaviest way by a weight: by default ties go to the first found.
+    expect(route(heaviestPathTo(graph, 'db', () => 1)!.calls)).toBe('client→lb lb→a a→db');
+    expect(route(heaviestPathTo(graph, 'db', (e) => (e.from === 'b' ? 3 : 1))!.calls)).toBe('client→lb lb→b b→db');
+    expect(heaviestPathTo(graph, 'db', (e) => (e.from === 'b' ? 3 : 2))!.product).toBe(12);
+    expect(heaviestPathTo(graph, 'client', () => 1)).toBeNull();
+    // Starting afresh at a tier (a queue), and only ways through one call.
+    const restarted = heaviestPathTo(graph, 'db', () => 2, (id) => id === 'a')!;
+    expect([restarted.product, route(restarted.calls)]).toEqual([8, 'client→lb lb→b b→db']);
+    expect(route(heaviestPathTo(graph, 'db', () => 2, (id) => id === 'a', callsFrom(graph, 'a')[1])!.calls)).toBe('a→db');
+    expect(heaviestPathTo(graph, 'db', () => 2, (id) => id === 'b', callsFrom(graph, 'lb')[1])).toBeNull();
+    // A ladder of 30 diamonds has 2^30 ways; each answer still takes one pass.
     const tiers = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 30; i++) {
       tiers.push(tier(`n${i}`, fixed, { downstream: call(`l${i}`), moreDownstream: [call(`r${i}`)] }), tier(`l${i}`, fixed, { downstream: call(`n${i + 1}`) }), tier(`r${i}`, fixed, { downstream: call(`n${i + 1}`) }));
     }
-    const ladder: RunConfig = { ...graph, client: { rps: 1, call: call('n0') }, tiers: [...tiers, tier('n7', fixed)] };
-    expect(pathsTo(ladder, 'n7')).toHaveLength(MAX_PATHS);
-    // A cycle (rejected by validation) does not hang it.
-    const cyclic: RunConfig = { ...graph, client: { rps: 1, call: call('p') }, tiers: [tier('p', fixed, { downstream: call('q') }), tier('q', fixed, { downstream: call('p') }), tier('z', fixed)] };
-    expect(pathsTo(cyclic, 'z')).toEqual([]);
+    const ladder: RunConfig = { ...graph, client: { rps: 1, call: call('n0') }, tiers: [...tiers, tier('n30', fixed), tier('orphan', fixed)] };
+    const started = performance.now();
+    expect(heaviestPathTo(ladder, 'n30', () => 2)!.product).toBe(2 ** 61);
+    expect(callsLeadingTo(ladder, 'orphan')).toEqual([]);
+    expect(callsLeadingTo(ladder, 'n30')).toHaveLength(1 + 30 * 4);
+    // n_i, l_i and r_i each get 2^i of every request, n30 2^30: the calls multiply.
+    expect(callsPerRequest(ladder)).toBe(4 * 2 ** 30 - 3);
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 
   it('finds what a tier reaches and who is in front of it', () => {
     expect(reachableFrom(graph, 'lb')).toEqual(['a', 'cache', 'db', 'search', 'b']);
-    expect(reachableLeaves(graph, 'lb')).toEqual(['cache', 'db', 'search']);
-    expect(reachableLeaves(graph, 'db')).toEqual([]);
+    // The parts that do the work themselves: not the cache, which only answers lookups.
+    expect(graph.tiers.filter(doesWork).map((t) => t.id)).toEqual(['db', 'search']);
     expect(callersInFront(graph, 'db')).toEqual(['a', 'b', 'lb', 'client']);
     expect(callersInFront(graph, 'client')).toEqual([]);
   });
@@ -165,32 +195,34 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
         { who: 'the app server', retries: 1 },
       ]);
       // A miss reads from both: an emptied cache sends more requests to each.
-      expect(story.map((s) => s.text).join(' ')).toContain('sending even more requests to the database and the search service.');
+      expect(story.map((s) => s.text).join(' ')).toContain('sending even more requests to the database and the Search service.');
     }
   });
 
   it('a split pool going down: the load balancer says what share it sends there', () => {
-    const { story } = storyOf(splitPools());
+    const { story, analysis } = storyOf(splitPools());
     expect(step(story, 'giveup').text).toBe(
-      'The load balancer gets an error from the green pool straight away and asks again, up to 2 more times. The load balancer sends 50% of its requests to the green pool.',
+      'The load balancer gets an error from the Green pool straight away and asks again, up to 2 more times. The load balancer sends 50% of its requests to the Green pool.',
     );
-    expect(step(story, 'recovered').text).toBe('It was back to normal 1 s after the failure ended.');
+    // The load balancer's own retries go to the Blue pool, so no user saw an error.
+    expect(analysis.recovery.failedRequests).toBe(0);
+    expect(step(story, 'recovered').text).toMatch(/^It was back to normal \d s after the failure ended\.$/);
   });
 
   it('a split pool going down can overload the other pool, and the story says so', () => {
     const { story } = storyOf(splitPools({ shareBlue: 3, clientRetries: 2 }));
     const cause = step(story, 'giveup');
-    expect(cause.text).toContain('The load balancer sends 25% of its requests to the green pool.');
+    expect(cause.text).toContain('The load balancer sends 25% of its requests to the Green pool.');
     expect(cause.text).toContain("Every layer asks again when it gives up: users' apps up to twice, the load balancer twice.");
-    expect(step(story, 'overload').text).toContain('the blue pool got more requests than it can handle');
-    expect(step(story, 'stuck').text).toMatch(/with the blue pool getting up to \d\.\d× the work it can handle\.$/);
+    expect(step(story, 'overload').text).toContain('the Blue pool got more requests than it can handle');
+    expect(step(story, 'stuck').text).toMatch(/with the Blue pool getting up to \d\.\d× the work it can handle\.$/);
   });
 
   it('fan-in: the caller that gives up first tells the story, and the timeline names it', () => {
     const { story, analysis } = storyOf(fanIn());
     const cause = step(story, 'giveup');
-    expect(cause.text).toMatch(/^The reports service gives up on a database answer after 800 ms\. Several layers ask again when they give up: the orders service once, the reports service once\./);
-    expect(cause.headline).toBe('The reports service gives up, others ask again');
+    expect(cause.text).toMatch(/^The Reports service gives up on a database answer after 800 ms\. Several layers ask again when they give up: the Orders service once, the Reports service once\./);
+    expect(cause.headline).toBe('The Reports service gives up, others ask again');
     // (The analysis is labelled with the web app's names: ids elsewhere.)
     const texts = analysis.timeline.map((e) => e.text);
     expect(texts.some((t) => /^DB p99 .* exceeds the reports's 800 ms timeout$/.test(t))).toBe(true);
@@ -205,7 +237,7 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
     expect(shielded.cascade).toBeUndefined();
     // Also through the app server: they do, and ask again.
     const open = step(storyOf(queueBranch(true)).story, 'giveup');
-    expect(open.cascade?.map((c) => c.who)).toEqual(["users' apps", 'the front', 'the queue', 'the app server']);
+    expect(open.cascade?.map((c) => c.who)).toEqual(["users' apps", 'the Front', 'the queue', 'the app server']);
   });
 
   it('a cache in front of a split: lookups go to one or the other', () => {
@@ -215,8 +247,8 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
       tiers: [...base.tiers.map((t) => (t.id === 'lb' ? { ...t, cacheAside: call('cache', { timeoutMs: 100 }) } : t)), { ...cacheTier, cache: { capacity: 200, ttlMs: 60_000, keys: 1000, skew: 1 } }],
     };
     const cause = step(storyOf(config).story, 'giveup');
-    expect(cause.text).toMatch(/^Without the cache, the load balancer sent every lookup to the blue pool or the green pool instead\./);
-    expect(cause.headline).toMatch(/^Lookups go to blue pool or green pool/);
+    expect(cause.text).toMatch(/^Without the cache, the load balancer sent every lookup to the Blue pool or the Green pool instead\./);
+    expect(cause.headline).toMatch(/^Lookups go to Blue pool or Green pool/);
   });
 
   it('a cache in front of a fan-out: both calls behind it count, the layer by its call that asks most', () => {
@@ -229,7 +261,7 @@ describe('stories and timelines of branched systems', { timeout: 60_000 }, () =>
     };
     const { story } = storyOf(config);
     const cause = step(story, 'giveup');
-    expect(cause.text).toMatch(/^Without the cache, the app server sent every lookup to the database and the search service instead\./);
+    expect(cause.text).toMatch(/^Without the cache, the app server sent every lookup to the database and the Search service instead\./);
     expect(cause.cascade).toContainEqual({ who: 'the app server', retries: 3 });
   });
 });

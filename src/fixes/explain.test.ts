@@ -162,7 +162,7 @@ describe('explainFix', { timeout: 120_000 }, () => {
     const fix = candidateFixes(config, before.analysis.signals, queueLabels).find((c) => c.id === 'more-consumers')!;
     const after = analyzed(fix.config);
     const notHelped = explainFix('moreConsumers', false, { config, result: before }, { config: fix.config, result: after }, queueLabels);
-    if (after.analysis.recovery.verdict === 'stuck' && (after.analysis.signals.queueBacklog?.value.atEnd ?? 0) >= 1) expect(notHelped.text).toMatch(/^[\d,]+ messages were still waiting in the queue 2 at the end of the run/);
+    if (after.analysis.recovery.verdict === 'stuck' && (after.analysis.signals.queueBacklog?.value.atEnd ?? 0) >= 1) expect(notHelped.text).toMatch(/^[\d,]+ messages were still waiting in queue 2 at the end of the run/);
     const worked = explainFix('moreConsumers', true, { config, result: before }, { config: fix.config, result: after }, queueLabels);
     if ((after.analysis.signals.queueBacklog?.value.peak ?? 0) < (before.analysis.signals.queueBacklog?.value.peak ?? 0)) expect(worked.text).toMatch(/^At most [\d,]+ messages waited instead of [\d,]+/);
     expect(worked.title).toBe('Why it worked');

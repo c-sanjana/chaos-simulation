@@ -1,4 +1,4 @@
-import type { RunConfig } from './config';
+import { MAX_RETRIES, type RunConfig } from './config';
 import { validateConfig } from './validate';
 import { call, singleTier, tier } from './testConfigs';
 
@@ -7,6 +7,7 @@ const ok = () => singleTier(10, { kind: 'exponential', meanMs: 5 }, 1000);
 describe('validateConfig', () => {
   it('accepts a valid config', () => {
     expect(() => validateConfig(ok())).not.toThrow();
+    expect(() => validateConfig({ ...ok(), client: { ...ok().client, call: { ...ok().client.call, retries: MAX_RETRIES } } })).not.toThrow();
     expect(() => validateConfig({ ...ok(), bucketMs: 500 })).not.toThrow();
     expect(() => validateConfig(singleTier(10, { kind: 'lognormal', medianMs: 5, p99Ms: 20 }, 1000, { queueLimit: 3 }, { timeoutMs: 100 }))).not.toThrow();
   });
@@ -21,6 +22,8 @@ describe('validateConfig', () => {
     ['unknown target', (c) => (c.client.call.target = 'nope'), /unknown tier/],
     ['bad timeout', (c) => (c.client.call.timeoutMs = 0), /timeoutMs/],
     ['negative retries', (c) => (c.client.call.retries = -1), /retries/],
+    ['more retries than the most allowed', (c) => (c.client.call.retries = MAX_RETRIES + 1), /retries must be a whole number from 0 to 10/],
+    ['a million retries', (c) => (c.client.call.retries = 1_000_000), /retries/],
     ['negative backoff', (c) => (c.client.call.backoffBaseMs = -5), /backoff/],
     ['zero instances', (c) => (c.tiers[0].instances = 0), /instances/],
     ['fractional workers', (c) => (c.tiers[0].workersPerInstance = 1.5), /workersPerInstance/],
@@ -165,6 +168,11 @@ describe('validateConfig', () => {
       ['a cache with further calls', (c) => ((c.tiers[4].downstream = call('db')), (c.tiers[4].moreDownstream = [call('a')])), /cannot call other tiers/],
       ['a cycle through a second call', (c) => (c.tiers[3].downstream = call('b')), /cycle/],
       ['a cycle through a further call only', (c) => (c.tiers[2].moreDownstream = [call('svc')]), /cycle/],
+      // Malformed input (a hand-edited saved system) says what is wrong instead of throwing a TypeError (review 3).
+      ['further calls that are not a list', (c) => (c.tiers[0].moreDownstream = {} as never), /moreDownstream must be a list of calls/],
+      ['a further call that is not a call', (c) => (c.tiers[0].moreDownstream = [null as never]), /moreDownstream must be a list of calls/],
+      ['further calls given as text', (c) => (c.tiers[0].moreDownstream = 'a' as never), /moreDownstream must be a list of calls/],
+      ['shares too large to add up', (c) => ((c.tiers[0].downstream!.share = 1e308), (c.tiers[0].moreDownstream![0].share = 1e308)), /shares are too large/],
     ];
 
     it.each(branchCases)('rejects %s', (_, mutate, message) => {

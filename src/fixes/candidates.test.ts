@@ -10,7 +10,7 @@ import { FIX_CATALOG, type FixDefinition, type FixKind } from './catalog';
 
 const labels = Object.fromEntries(Object.entries(webChain.layout).map(([id, l]) => [id, l.label]));
 const def = (kind: FixKind): FixDefinition => FIX_CATALOG.find((d) => d.kind === kind)!;
-const noSignals: Signals = { retryShare: null, wastedShare: null, queueWaitOverTimeout: null, idleSaturation: null, cacheHitDrop: null, queueBacklog: null };
+const noSignals: Signals = { overloaded: null, retryShare: null, wastedShare: null, queueWaitOverTimeout: null, idleSaturation: null, cacheHitDrop: null, queueBacklog: null };
 const signalsWith = (s: Partial<Signals>): Signals => ({ ...noSignals, ...s });
 
 /** Paths of every leaf value that differs between two plain-data values. */
@@ -187,7 +187,11 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Load
     expect(fix.how).toBe(
       'The app server is the only one that asks the database again; every other layer passes errors straight back, so repeats no longer multiply from layer to layer.',
     );
+    // A fix on every layer quotes the highest share anywhere: the load balancer's.
     expect(fix.why).toBe(`retries made up ${Math.round(analysis.signals.retryShare!.value * 100)}% of Load balancer's load`);
+    // A fix on one call quotes the share of the part that call goes to (review 3).
+    expect(byId['retry-budget'].why).toBe(`retries made up ${Math.round(analysis.signals.retryShareOf!.db * 100)}% of DB's load`);
+    expect(byId['cap-retries'].why).toBe(`retries made up ${Math.round(analysis.signals.retryShareOf!.api * 100)}% of App server's load`);
     expect(diffPaths(config, fix.config).sort()).toEqual(['client.call.retries', 'tiers.0.downstream.retries']);
     expect([fix.config.client.call.retries, fix.config.tiers[0].downstream!.retries, fix.config.tiers[1].downstream!.retries]).toEqual([0, 0, 1]);
   });
