@@ -79,7 +79,7 @@ export const tourStops: TourStop[] = [
     screen: 2,
     waitForResults: true,
     title: 'Does a fix help?',
-    body: `Each tab is one change, re-run on the same traffic: ✓ held up, ⚠ only sometimes, ✕ didn’t help. Here, ${TOUR_FIX} holds up.`,
+    body: `Rows are changes re-run on the same traffic: ✓ held up, ⚠ only sometimes; the rest have a tab. Here, ${TOUR_FIX} holds up.`,
   },
   {
     target: 'fix-maps',

@@ -65,10 +65,18 @@ export interface TippingMapProps {
    * a line on the left edge of that cell: together the rows trace the boundary.
    */
   tips?: Array<{ y: number; tipsAtX: number | null }>;
+  /**
+   * Layout only: 'width' stretches the columns to the map's container (cells grow wider, rows keep
+   * --csl-map-cell); 'both' also lets the rows share the container's height (step 2's map fills its
+   * card). Omitted, every cell is a --csl-map-cell square.
+   */
+  fill?: 'width' | 'both';
 }
 
 /** Width of the y tick-label column; small maps narrow it with --csl-map-label. */
 const LABEL_COL = 'var(--csl-map-label, 40px)';
+/** A cell column: --csl-map-col when the map fills its container (set in CSS), else a square's width. */
+const CELL_COL = 'var(--csl-map-col, var(--csl-map-cell))';
 
 /**
  * The cell index a key moves to in a grid of `rows` × `cols` (row-major), or null for other keys:
@@ -108,12 +116,12 @@ export function gridMove(key: string, index: number, rows: number, cols: number,
  * replays the focused cell. The column headers come first in the DOM (headers lead a grid) but are
  * drawn under the rows.
  */
-export function TippingMap({ map, selected = null, onSelect, tips = [] }: TippingMapProps) {
+export function TippingMap({ map, selected = null, onSelect, tips = [], fill }: TippingMapProps) {
   const fmtY = map.formatY ?? String;
   const yName = map.yLabel.replace(/\s*\([^)]*\)\s*$/, '');
   const nx = map.xValues.length;
   const ny = map.yValues.length;
-  const rowStyle: CSSProperties = { gridTemplateColumns: `${LABEL_COL} repeat(${nx}, var(--csl-map-cell))` };
+  const rowStyle: CSSProperties = { gridTemplateColumns: `${LABEL_COL} repeat(${nx}, ${CELL_COL})` };
   // Cells are row-major; a missing cell is shown as not run yet.
   const cellAt = (r: number, c: number): MapCellView => map.cells[r * nx + c] ?? { x: map.xValues[c], y: map.yValues[r], status: 'pending', isCurrent: false };
   const isSelected = (cell: MapCellView) => selected !== null && selected.x === cell.x && selected.y === cell.y;
@@ -135,7 +143,7 @@ export function TippingMap({ map, selected = null, onSelect, tips = [] }: Tippin
   };
 
   return (
-    <div className="csl-map-scroll">
+    <div className={`csl-map-scroll${fill ? ` csl-map-scroll--fill-${fill}` : ''}`}>
       <div className="csl-map-frame">
       <span className="csl-map__yaxis" aria-hidden="true">
         {map.yLabel} →
@@ -251,7 +259,7 @@ export function MapLegend({ showSelected = true, showTip = true, markLabel = 'yo
       {showMark && <li className="csl-map-legend__item">◆ {markLabel}</li>}
       {showSelected && (
         <li className="csl-map-legend__item">
-          <span className="csl-map-legend__swatch" style={{ boxShadow: '0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink)', width: 10, height: 10, margin: '0 2px' }} />
+          <span className="csl-map-legend__swatch" style={{ boxShadow: '0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink)', width: 10, height: 10, margin: '0 4px' }} />
           replaying
         </li>
       )}

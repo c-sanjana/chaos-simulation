@@ -51,6 +51,11 @@ export interface FixTabsProps {
   /** The fix shown, in this panel and in the before/after comparison. */
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /**
+   * The line shown when no fix helped, e.g. "None of the fixes tried made this run recover."
+   * (FixStep words it from the original run's verdict).
+   */
+  noneHelped?: string;
 }
 
 const SCOPE_TEXT: Record<NonNullable<FixTab['scope']>, string> = { layer: 'One layer', stack: 'Whole stack' };
@@ -69,10 +74,11 @@ export function tabLabel(t: FixTab): string {
   // The scope, unless the name already says it ("Budget, one layer"; but "Retry at one layer" changes the whole stack).
   const said = t.scope === 'layer' ? /one layer/i : /all layers/i;
   const scope = t.scope && !said.test(t.short) ? ` (${SCOPE_TEXT[t.scope].toLowerCase()})` : '';
-  return `${t.short}${scope}: ${STATUS_TEXT[t.status]}${t.badge ? `, back to normal ${t.badge} after the failure ended` : ''}`;
+  return `${t.short}${scope}: ${STATUS_TEXT[t.status]}${t.badge ? `, back to normal ${t.badge} after the failure ended` : ''}; ${count(t.failedCount)} failed requests`;
 }
 
-const helpedStatus = (s: FixTab['status']) => s === 'reliable' || s === 'checking' || s === 'unreliable';
+/** Helped, fully or partly: the "Fixes that helped" view. 'rare' (only by luck) and 'no' are the other view. */
+export const helpedStatus = (s: FixTab['status']) => s === 'reliable' || s === 'checking' || s === 'unreliable';
 
 /**
  * Why the first tab is first, from the same keys the ranking uses, in its order (fixes/rank.ts):
@@ -101,63 +107,158 @@ function count(n: number): string {
   }
 }
 
+/** The numbers in a retry fix's "across the stack" sentence, for the compact "48× → 26×" line. */
+export interface AcrossNumbers {
+  /** e.g. "the database". */
+  target: string;
+  before: string;
+  /** e.g. "users' apps 6 × the load balancer 4 × the app server 2". */
+  beforeFactors: string;
+  after: string;
+  /** e.g. "6 × 4 × 1.1"; null when the sentence gives none (one factor, or unchanged). */
+  afterFactors: string | null;
+}
+
 /**
- * Fixes as tabs (reliable ones first; ones that did not help come last, muted), with a key to the
- * marks and numbers on them. Choosing a tab shows that fix everywhere: its details below and the
- * before/after comparison and maps. The panel says what changes, how it works, why it was
- * suggested, why it worked or didn't here, what happened, and its pros and cons.
+ * Reads the multiplication out of fixes/amplification's sentence ("… reaching the database up to
+ * 48× (users' apps 6 × …). With this fix: up to 26× (6 × 4 × 1.1)." or "… leaves that at 48×.").
+ * Null for any other wording (e.g. a fix that changes a call off the worst path): the panel then
+ * shows the sentence itself.
  */
-export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
-  const roving = useRovingTabs(tabs.map((t) => t.id), selectedId);
+export function acrossNumbers(text: string): AcrossNumbers | null {
+  const whole = /reaching (.+?) up to ([\d.]+)× \((.+?)\)\./.exec(text);
+  if (!whole) return null;
+  const fixed = /With this fix: up to ([\d.]+)×(?: \((.+?)\))?\./.exec(text);
+  if (fixed) return { target: whole[1], before: whole[2], beforeFactors: whole[3], after: fixed[1], afterFactors: fixed[2] ?? null };
+  const same = /This fix leaves that at ([\d.]+)×\./.exec(text);
+  return same ? { target: whole[1], before: whole[2], beforeFactors: whole[3], after: same[1], afterFactors: null } : null;
+}
+
+/** "More about this fix" open or closed, kept for the browser session (shared by every fix). */
+const MORE_KEY = 'csl-fix-more-open';
+function readMore(): boolean {
+  try {
+    return sessionStorage.getItem(MORE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function writeMore(open: boolean) {
+  try {
+    sessionStorage.setItem(MORE_KEY, open ? '1' : '0');
+  } catch {
+    // Storage blocked: it just isn't remembered.
+  }
+}
+
+type View = 'helped' | 'not';
+
+/**
+ * Fixes as tabs in two views: the ones that helped, fully or partly (shown first, in rank order),
+ * and the ones tried that didn't (or only by luck). A switch above the tabs moves between them; it
+ * is left out when every fix helped, and the second view opens by itself when none did. Choosing a
+ * tab in either view shows that fix everywhere: its panel below, the before/after maps and the
+ * replay; switching views never changes the chosen fix.
+ *
+ * The panel leads with the result and one line on why; retry fixes add the multiplication across
+ * the stack. How it works, why it was suggested, why it ranks first, the checks and the pros and
+ * cons are under "More about this fix", closed by default and remembered for the session.
+ */
+export function FixTabs({ tabs, selectedId, onSelect, noneHelped }: FixTabsProps) {
+  const helped = tabs.filter((t) => helpedStatus(t.status));
+  const notHelped = tabs.filter((t) => !helpedStatus(t.status));
+  // The viewer's choice of view; until then the helped view, or the other when nothing helped.
+  const [chosenView, setChosenView] = useState<View | null>(null);
+  const view: View = notHelped.length === 0 ? 'helped' : (chosenView ?? (helped.length === 0 ? 'not' : 'helped'));
+  const shown = view === 'helped' ? helped : notHelped;
+  const helpedRoving = useRovingTabs(
+    helped.map((t) => t.id),
+    selectedId,
+  );
+  const notRoving = useRovingTabs(
+    notHelped.map((t) => t.id),
+    selectedId,
+  );
+  const [more, setMore] = useState(readMore);
   if (tabs.length === 0) return null;
-  const selected = tabs.find((t) => t.id === selectedId) ?? tabs[0];
+  // Nothing chosen yet (still checking, or nothing helped): the first fix of the view on screen.
+  const selected = tabs.find((t) => t.id === selectedId) ?? shown[0] ?? tabs[0];
   const reason = selected.id === tabs[0].id ? rankedFirstReason(tabs) : null;
+  const toggleMore = () => {
+    setMore(!more);
+    writeMore(!more);
+  };
+  const list = (kind: View, items: FixTab[], roving: ReturnType<typeof useRovingTabs>) => (
+    <div
+      className={`csl-fixtabs__list csl-fixtabs__list--${kind}`}
+      role="tablist"
+      aria-label={kind === 'helped' ? 'Fixes that helped' : "Fixes that didn't help"}
+      aria-describedby={`fix-tabs-key-${kind}`}
+      hidden={view !== kind}
+      ref={roving.listRef}
+      onKeyDown={roving.onKeyDown}
+      onBlur={roving.onBlur}
+    >
+      {items.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`fix-tab-${t.id}`}
+          aria-selected={t.id === selected.id}
+          aria-controls="fix-tab-panel"
+          aria-label={tabLabel(t)}
+          title={tabLabel(t)}
+          className={`csl-fixtab csl-fixtab--${t.status}`}
+          tabIndex={t.id === roving.focusId ? 0 : -1}
+          onFocus={() => roving.setFocusId(t.id)}
+          onClick={() => onSelect(t.id)}
+        >
+          <span className="csl-fixtab__mark" aria-hidden="true">
+            {MARK[t.status]}
+          </span>
+          <span className="csl-fixtab__name">{t.short}</span>
+          <span className="csl-fixtab__badge">{t.badge}</span>
+          <span className="csl-fixtab__failed">{count(t.failedCount)} failed</span>
+        </button>
+      ))}
+    </div>
+  );
+  const tone = selected.status === 'no' || selected.status === 'rare' ? 'csl-fixtabs__bad' : selected.status === 'unreliable' ? 'csl-fixtabs__warn' : 'csl-fixtabs__good';
+  // The checks are the result's caveat when it didn't hold up; otherwise they wait under "More".
+  const caveat = selected.status === 'unreliable' || selected.status === 'rare';
+  const across = selected.acrossStack ? acrossNumbers(selected.acrossStack) : null;
   return (
     <div className="csl-fixtabs">
-      <p className="csl-fixtabs__key" id="fix-tabs-key">
-        <span>
-          <b className="csl-fixtabs__good">✓</b> held up in the checks
-        </span>
-        <span>
-          <b className="csl-fixtabs__warn">⚠</b> only sometimes
-        </span>
-        <span>
-          <b>✕</b> didn't help (or only by luck)
-        </span>
-        <span>12 s = time to recover after the failure ended</span>
-      </p>
-      <div
-        className="csl-fixtabs__list"
-        role="tablist"
-        aria-label="Fixes"
-        aria-describedby="fix-tabs-key"
-        ref={roving.listRef}
-        onKeyDown={roving.onKeyDown}
-        onBlur={roving.onBlur}
-      >
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`fix-tab-${t.id}`}
-            aria-selected={t.id === selected.id}
-            aria-controls="fix-tab-panel"
-            aria-label={tabLabel(t)}
-            title={tabLabel(t)}
-            className={`csl-fixtab csl-fixtab--${t.status}`}
-            tabIndex={t.id === (roving.focusId ?? selected.id) ? 0 : -1}
-            onFocus={() => roving.setFocusId(t.id)}
-            onClick={() => onSelect(t.id)}
-          >
-            <span className="csl-fixtab__mark" aria-hidden="true">
-              {MARK[t.status]}
-            </span>
-            <span className="csl-fixtab__name">{t.short}</span>
-            {t.badge && <span className="csl-fixtab__badge">{t.badge}</span>}
-          </button>
-        ))}
+      <div className="csl-fixtabs__bar">
+        {notHelped.length > 0 && (
+          <div className="csl-fixtabs__views" role="group" aria-label="Which fixes to list">
+            <button type="button" className="csl-fixtabs__view" aria-pressed={view === 'helped'} onClick={() => setChosenView('helped')}>
+              Fixes that helped <span className="csl-fixtabs__count">({helped.length})</span>
+            </button>
+            <button type="button" className="csl-fixtabs__view" aria-pressed={view === 'not'} onClick={() => setChosenView('not')}>
+              Tried, didn't help <span className="csl-fixtabs__count">({notHelped.length})</span>
+            </button>
+          </div>
+        )}
+        <p className="csl-fixtabs__key" id="fix-tabs-key-helped" hidden={view !== 'helped'}>
+          <span>
+            <b className="csl-fixtabs__good">✓</b> held up
+          </span>
+          <span>
+            <b className="csl-fixtabs__warn">⚠</b> only sometimes
+          </span>
+          <span>12 s = time to recover</span>
+        </p>
+        <p className="csl-fixtabs__key" id="fix-tabs-key-not" hidden={view !== 'not'}>
+          <span>
+            <b>✕</b> didn't help, or only by luck
+          </span>
+        </p>
       </div>
+      {helped.length === 0 && noneHelped && <p className="csl-fixtabs__none">{noneHelped}</p>}
+      {list('helped', helped, helpedRoving)}
+      {list('not', notHelped, notRoving)}
       <div className="csl-fixtabs__panel" role="tabpanel" id="fix-tab-panel" aria-labelledby={`fix-tab-${selected.id}`} tabIndex={0}>
         <div className="csl-fixtabs__head">
           <div>
@@ -166,52 +267,101 @@ export function FixTabs({ tabs, selectedId, onSelect }: FixTabsProps) {
           </div>
           <div className="csl-fixtabs__chips">
             {selected.scope && <span className={`csl-chip csl-fixtabs__scope csl-fixtabs__scope--${selected.scope}`}>{SCOPE_TEXT[selected.scope]}</span>}
-            <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown in the replay</span>
+            {selectedId !== null && <span className="csl-chip csl-chip--neutral csl-fixtabs__shown">Shown in the replay</span>}
           </div>
         </div>
-        {/* What happened first (result, then why), then how the fix works in general. */}
-        <dl className="csl-fixtabs__facts">
-          <dt>Result</dt>
-          <dd>
-            <b className={selected.status === 'no' || selected.status === 'rare' ? 'csl-fixtabs__bad' : selected.status === 'unreliable' ? 'csl-fixtabs__warn' : 'csl-fixtabs__good'}>{selected.result}</b>{' '}
-            <span className="csl-fixtabs__where">{selected.where}</span>
-            <span className="csl-fixtabs__detail">{[selected.failed, ...selected.checks].join(' · ')}</span>
-          </dd>
-          {selected.verdict && (
+        {/* The result first, then one line on why; the rest is under "More about this fix". */}
+        <p className="csl-fixtabs__result">
+          <b className={tone}>{selected.result}</b> <span className="csl-fixtabs__where">{selected.where}</span>
+          <span className="csl-fixtabs__detail">{[selected.failed, ...(caveat ? selected.checks : [])].join(' · ')}</span>
+        </p>
+        <p className="csl-fixtabs__why">
+          {selected.verdict ? (
             <>
-              <dt>{selected.verdict.title}</dt>
-              <dd>{selected.verdict.text}</dd>
+              <span className="csl-fixtabs__label">{selected.verdict.title}:</span> {selected.verdict.text}
             </>
+          ) : (
+            <span className="csl-fixtabs__pending">Working out why…</span>
           )}
-          {selected.acrossStack && (
-            <>
-              <dt>Across the stack</dt>
-              <dd>{selected.acrossStack}</dd>
-            </>
-          )}
-          {reason && (
-            <>
-              <dt>Why it's ranked first</dt>
-              <dd>{reason}</dd>
-            </>
-          )}
-          <dt>How it works</dt>
-          <dd>{selected.how}</dd>
-          <dt>Why try it</dt>
-          <dd>{selected.why}</dd>
-        </dl>
-        <div className="csl-fixtabs__procon">
-          <ProCon title="Pros" sign="+" items={selected.pros} tone="good" />
-          <ProCon title="Cons" sign="−" items={selected.cons} tone="bad" />
-        </div>
+        </p>
+        {selected.acrossStack && <AcrossStack text={selected.acrossStack} numbers={across} />}
+        <button type="button" className="csl-fixtabs__more-btn" aria-expanded={more} aria-controls="fix-tab-more" onClick={toggleMore}>
+          <span className="csl-fixtabs__chevron" aria-hidden="true">
+            {more ? '▾' : '▸'}
+          </span>
+          More about this fix
+        </button>
+        {more && (
+          <div className="csl-fixtabs__more" id="fix-tab-more">
+            <dl className="csl-fixtabs__facts">
+              <dt>How it works</dt>
+              <dd>{selected.how}</dd>
+              <dt>Why it was suggested</dt>
+              <dd>{selected.why}</dd>
+              {reason && (
+                <>
+                  <dt>Why it's ranked first</dt>
+                  <dd>{reason}</dd>
+                </>
+              )}
+              {!caveat && selected.checks.length > 0 && (
+                <>
+                  <dt>Checks</dt>
+                  <dd>{selected.checks.join(' · ')}</dd>
+                </>
+              )}
+              {across && (
+                <>
+                  <dt>Across the stack</dt>
+                  <dd>{selected.acrossStack}</dd>
+                </>
+              )}
+            </dl>
+            <div className="csl-fixtabs__procon">
+              <ProCon title="Pros" sign="+" items={selected.pros} tone="good" />
+              <ProCon title="Cons" sign="−" items={selected.cons} tone="bad" />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 /**
- * WAI-ARIA tabs keyboard pattern with manual activation: the tab list is one tab stop; ←/→ (and
- * Home/End) move focus between tabs, Enter or Space chooses one. Choosing re-simulates the
+ * A retry fix's multiplication across the stack as one line: "48× → 26×" with the factors under it
+ * (the full sentence is read out instead, and shown under "More about this fix"). A sentence this
+ * can't read as numbers is shown as it is.
+ */
+function AcrossStack({ text, numbers }: { text: string; numbers: AcrossNumbers | null }) {
+  return (
+    <div className="csl-fixtabs__across">
+      <span className="csl-fixtabs__label">Across the stack:</span>
+      {numbers ? (
+        <>
+          <span className="csl-sr-only">{text}</span>
+          <span className="csl-fixtabs__across-body" aria-hidden="true">
+            <span className="csl-fixtabs__across-line">
+              <b className="csl-fixtabs__x">{numbers.before}×</b> → <b className="csl-fixtabs__x">{numbers.after}×</b>{' '}
+              <span className="csl-fixtabs__across-what">
+                {numbers.after === numbers.before ? 'unchanged: ' : ''}calls reaching {numbers.target} if every call fails
+              </span>
+            </span>
+            <span className="csl-fixtabs__factors">
+              {numbers.beforeFactors} → {numbers.afterFactors ?? `${numbers.after}`}
+            </span>
+          </span>
+        </>
+      ) : (
+        <span> {text}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * WAI-ARIA tabs keyboard pattern with manual activation: the tab list is one tab stop; ←/→ or ↑/↓
+ * (and Home/End) move focus between tabs, Enter or Space chooses one. Choosing re-simulates the
  * before/after comparison, so merely passing over a tab doesn't.
  */
 export function useRovingTabs(ids: string[], selectedId: string | null) {
@@ -220,7 +370,10 @@ export function useRovingTabs(ids: string[], selectedId: string | null) {
   const current = focusId !== null && ids.includes(focusId) ? focusId : selectedId !== null && ids.includes(selectedId) ? selectedId : (ids[0] ?? null);
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = current === null ? 0 : ids.indexOf(current);
-    const next = e.key === 'ArrowRight' ? (i + 1) % ids.length : e.key === 'ArrowLeft' ? (i - 1 + ids.length) % ids.length : e.key === 'Home' ? 0 : e.key === 'End' ? ids.length - 1 : null;
+    // The lists run down the panel (in two columns for the fixes that didn't help), so ↓/↑ work as →/←.
+    const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+    const back = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+    const next = forward ? (i + 1) % ids.length : back ? (i - 1 + ids.length) % ids.length : e.key === 'Home' ? 0 : e.key === 'End' ? ids.length - 1 : null;
     if (next === null || ids.length === 0) return;
     e.preventDefault();
     setFocusId(ids[next]);
