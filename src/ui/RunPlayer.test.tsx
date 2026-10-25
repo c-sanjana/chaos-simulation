@@ -89,7 +89,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'List' }));
     expect(screen.getByText(/^Stuck → recovers in \d+ s$/)).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Details: what was measured (after the fix)' })).toBeTruthy();
-    expect(screen.getByText(/Back to normal: recovered/)).toBeTruthy();
+    expect(screen.getByText(/back to normal \d+ s after the failure ended/i, { selector: '.csl-flow__text' })).toBeTruthy(); // the step says it; the measured verdict isn't repeated
     fireEvent.click(within(screen.getByRole('group', { name: 'Show run' })).getByRole('button', { name: 'Before' }));
     expect(screen.getByRole('heading', { name: 'Details: what was measured (before the fix)' })).toBeTruthy();
     expect(screen.getByText(/Point of no return/)).toBeTruthy();

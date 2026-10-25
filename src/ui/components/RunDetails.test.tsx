@@ -79,6 +79,10 @@ describe('RunDetails: one panel for what happened', () => {
     expect(byStep.get(steps[1])!.map((e) => e.tMs)).toEqual([31_000, 32_000]);
     expect(byStep.get(steps[2])!.map((e) => e.tMs)).toEqual([34_000]);
     expect(byStep.get(steps[3])!.map((e) => e.tMs)).toEqual([117_000]);
+    // The verdict's own words aren't repeated; a recovered verdict adds nothing to its step.
+    expect(byStep.get(steps[3])![0].text).toBe('100% of DB work was for requests already given up on');
+    const back: StoryStepView = { tMs: 50_000, text: 'It was back to normal 15 s after the failure ended.', tone: 'good', kind: 'recovered', headline: 'Back to normal' };
+    expect(measuredBySteps([back], [{ tMs: 50_000, text: 'Back to normal: recovered 15 s after the failure ended', kind: 'good' }], 120_000).size).toBe(0);
     // Anything before the first step goes with it; nothing without steps.
     expect(measuredBySteps(steps, [{ tMs: 1_000, text: 'early', kind: 'info' }], 120_000).get(steps[0])!.length).toBe(1);
     expect(measuredBySteps([], entries, 120_000).size).toBe(0);

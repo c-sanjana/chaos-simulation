@@ -154,7 +154,14 @@ export function measuredBySteps(steps: StoryStepView[], entries: TimelineEntryVi
   for (const e of entries) {
     if (e.kind === 'fault' || revealAt(e) > nowMs) continue;
     const owner = [...steps].reverse().find((s) => s.tMs <= e.tMs) ?? steps[0];
-    out.set(owner, [...(out.get(owner) ?? []), e]);
+    // A "recovered" verdict says what the step already says; a "still stuck" one adds what the
+    // work was spent on, so it stays, without repeating the step's own words ("Still stuck: …").
+    if (owner.kind === 'recovered' && e.kind === 'good') continue;
+    const prefix = owner.headline ? `${owner.headline.toLowerCase()}: ` : null;
+    const text = prefix && e.text.toLowerCase().startsWith(prefix) ? capitalise(e.text.slice(prefix.length)) : e.text;
+    out.set(owner, [...(out.get(owner) ?? []), text === e.text ? e : { ...e, text }]);
   }
   return out;
 }
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
