@@ -2518,6 +2518,52 @@ button.csl-map__cell {
   margin-right: 4px;
 }
 
+/* The one details panel: the selected step spelled out under the icons, as a card. */
+.csl-details__focus {
+  padding: 8px 10px 4px;
+  border-radius: 8px;
+  background: var(--csl-subtle-bg);
+}
+.csl-details__focus .csl-flow__step {
+  padding-bottom: 4px;
+}
+.csl-details__list .csl-flow__headline {
+  font-weight: 600;
+}
+/* What was measured in that stretch of the run: quieter than the explanation above it. */
+.csl-details__measured {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--csl-divider);
+}
+.csl-details__measured-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--csl-muted);
+}
+.csl-details__measured ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.csl-details__entry {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--csl-ink-2);
+}
+.csl-details__entry--bad,
+.csl-details__entry--tip {
+  color: var(--csl-ink);
+}
+
 /* Comparison: change chips, outcome, one dumbbell per measure. */
 .csl-compare__changes {
   list-style: none;
