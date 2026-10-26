@@ -71,8 +71,30 @@ failure length, so users see identical outcomes; the database's own queue and ou
 
 ### UI (reviewer 3, fixed by an agent)
 
-UI_FINDINGS
+| # | Sev | Finding | Status |
+|---|---|---|---|
+| U1 | **B** | The chart's "Showing:" part survived a switch to a system without that part (e.g. undoing "Use the example system instead", then the tour), and the chart read a part that didn't exist: the page crashed, and the error page's "Start again" deleted the saved built system. | Fixed: a chosen part is used only if this run has it, else the default; the chart code copes with a missing part. Re-run of the reproduction: no crash. |
+| U2 | M | "Replay from the start" (or Re-run with nothing changed) counted as new settings: steps 2 and 3 were rebuilt, losing the chosen map cell and fix. | Fixed: with nothing changed only the replay restarts. |
+| U3 | M | Re-running from step 2 with another failure kept a map cell that wasn't on the new map ("Not on the map", a 12 s replay on a 1–20 s map). | Fixed: the cell resets to the one nearest your settings when the settings change. |
+| U4 | M | "Changed?" was decided by comparing settings as JSON text, so key order mattered: switching the part DB → Cache → DB showed "(edited)" and a fake comparison chip ("slows 8× for 5 s at 30 s → slows 8× for 5 s at 30 s"). | Fixed: one order-insensitive comparison (`sameData`) for every such check; failures are built in the presets' key order. |
+| U5 | M | After "Use this topology", a carried-over edited failure kept its old title: renaming DB to "Ledger" still showed "DB slows down". | Fixed: "Ledger slows down". |
+| U6 | M | When no fix helped, the first "didn't help" tab looked selected but its panel said "Working out why…" forever. | Fixed: that fix is chosen, so its "why" is worked out and its maps and replay show. |
+| U7 | M | Between 1101 and 1200 px an empty 380 px column sat beside step 1's player, and below 1100 px an empty 340 px block under it (left from the removed details panel). | Fixed: the side column is left out while the story sits above the chart. |
+| U8 | m | A drawer problem quoted an option that doesn't exist ("one server goes down"); the same failure was a "server" in one place and a "copy" in another. | Fixed: the real option label, and "copy" throughout ("loses one copy"). |
+| U9 | n | "Users retried more, adding retries"; step 2 said "Client 5×" beside a banner saying "users' apps 5×". | Fixed: "Users retried more, and more requests failed"; "users' apps 5×". |
+| U10 | M | ~650 lines of theme.css (~20%) styled classes no source used (removed timeline, picker, details panel, event track, old fix list…); the story-beside-the-chart layout was defined twice, a later block silently reversing the first. | Fixed: dead rules removed (3,298 → 2,650 lines); one rule set per element. Screenshots before/after pixel-identical at 1440 and 1280 px. |
+| U11 | m/n | Dead TypeScript (Timeline, timelineView, presetDraft, graphForCanvas…), comparability decided by splitting the display name on " + ", copied `capitalise`/`listed`, a saved field never read, names and comments describing removed panels ("timeline slot", "Show the details"), stale measurements and examples. | Fixed: removed or renamed (`storyTarget`, `storyEl`…); runs are comparable by scenario, failing part and kind; comments re-measured and corrected. |
 
 ---
 
-TESTS_LINE
+## After the fixes
+
+- **Tests:** 1,208 pass (103 files), up from 1,189; every accuracy fix has a test that fails without it (`src/analysis/review4.test.ts` and tests beside each change).
+- **Speed:** the default tipping map takes the same time (14.3 s here, 15.3 s before: noise).
+- **Checked in the browser:** the crash reproduction, step 3 when no fix helps, and all three steps at 1440×900.
+
+### For you to decide
+
+- **"(edited)" on other failures.** Since the preset cards were removed, every failure other than the
+  example's default ("DB slows down") shows "(edited)", even one the app offers as is. Keep it
+  meaning "not the default failure", or show it only when the system's own settings were changed?
