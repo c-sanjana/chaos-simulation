@@ -1,4 +1,5 @@
-import { connect, editShare, setFanOut, setShare, shareEdit, shareFractions, sharesWith, shareWeight } from './edit';
+import { shareFractions, shareWeight } from '../engine/config';
+import { connect, editShare, setFanOut, setShare, shareEdit } from './edit';
 import { branchedGraph, chainGraph } from './testGraphs';
 
 describe('editing branches', () => {
@@ -13,11 +14,11 @@ describe('editing branches', () => {
     expect(shareFractions([undefined, undefined, 2])).toEqual([0.25, 0.25, 0.5]);
     expect(shareFractions([0, 0])).toEqual([0.5, 0.5]);
     expect(shareWeight(-1)).toBe(1);
-    expect(sharesWith([undefined, undefined, undefined], 0, 50)).toEqual([0.5, 0.25, 0.25]);
-    expect(sharesWith([1, 3], 1, 60)).toEqual([0.4, 0.6]);
+    expect(shareEdit([undefined, undefined, undefined], 0, 50).shares).toEqual([0.5, 0.25, 0.25]);
+    expect(shareEdit([1, 3], 1, 60).shares).toEqual([0.4, 0.6]);
     // Everything was on the edited arrow: the rest is shared evenly.
-    expect(sharesWith([1, 0, 0], 0, 40)).toEqual([0.4, 0.3, 0.3]);
-    expect(sharesWith([1, 1], 0, 150)).toEqual([1, 0]);
+    expect(shareEdit([1, 0, 0], 0, 40).shares).toEqual([0.4, 0.3, 0.3]);
+    expect(shareEdit([1, 1], 0, 150).shares).toEqual([1, 0]);
   });
 
   it('typing 70, then 20, then 10 gives exactly 70/20/10: shares set by hand keep their value while the others make up the rest', () => {

@@ -1,7 +1,7 @@
 import { callsOf, type CallPolicy, type Fault, type TierConfig } from '../engine/config';
 import { scenarios } from '../data/scenarios';
 import { topologies } from '../data/topologies';
-import { LIMITS, runSizeProblem } from '../data/limits';
+import { JUDGE_AFTER_FAILURE_S, LIMITS, runSizeProblem } from '../data/limits';
 import { buildRunConfig } from '../data/buildConfig';
 import { callsPerRequest } from '../analysis/helpers';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
@@ -160,7 +160,7 @@ export function currentCell(s: ScenarioPreset): { x: number; y: number } {
 export { LIMITS };
 
 /** Recovery needs time after the failure to be judged; the run must last this long past its end. */
-export const JUDGE_AFTER_FAILURE_S = 20;
+export { JUDGE_AFTER_FAILURE_S };
 
 /**
  * Problems that involve more than one setting, in plain words (each field checks its own range).

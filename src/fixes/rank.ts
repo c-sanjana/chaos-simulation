@@ -1,5 +1,6 @@
 import type { Verdict } from '../analysis/recovery';
 import { simulateUntilSettled } from '../analysis/settle';
+import { JUDGE_AFTER_FAILURE_S } from '../data/limits';
 import type { RunConfig } from '../engine/config';
 import type { FixCandidate } from './candidates';
 import { FIX_CATALOG } from './catalog';
@@ -94,8 +95,9 @@ export function isReliable(r: Robustness | undefined): boolean | null {
 }
 
 /**
- * helped = the fix turns a stuck/overloaded run into recovered/unaffected, or (if the original
- * already recovered) recovers strictly faster or fails strictly fewer requests. Ranked:
+ * helped = fixHelped: the fix turns a stuck/overloaded run into recovered/unaffected, or (if the
+ * original already got back to normal) still gets back to normal, fails no more requests, and
+ * either recovers more than RECOVERY_TIE_MS (1 s) faster or fails fewer requests. Ranked:
  *   1. helped first, and among those, reliable ones (see isReliable; not known yet counts as
  *      reliable) before unreliable ones;
  *   2. verdict (unaffected < recovered < stuck < overloaded);
@@ -157,23 +159,16 @@ function assignTimeTiers(rows: Array<{ outcome: FixOutcome; group: string; timeT
 const compare = (x: number, y: number) => (x === y ? 0 : x < y ? -1 : 1);
 
 /**
- * Longest a failure may last into the run, as time left after it: recovery needs room to be seen
- * (the retry storm recovers within seconds when it recovers at all, and the judged range ends a
- * few seconds before the run does).
- */
-export const LONGER_OUTAGE_MARGIN_MS = 20_000;
-
-/**
  * The same config with every failure lasting `factor` times as long (same start), to check whether
  * a fix still helps with a longer slowdown. Null when there are no failures, or when a longer one
- * would end less than LONGER_OUTAGE_MARGIN_MS before the run does (too late to judge recovery).
- * Never mutates `config`.
+ * would end less than JUDGE_AFTER_FAILURE_S (data/limits.ts) before the run does: too late to
+ * judge recovery, the same rule the failure editor applies. Never mutates `config`.
  */
 export function withLongerOutage(config: RunConfig, factor = 2): RunConfig | null {
   const faults = config.faults ?? [];
   if (faults.length === 0) return null;
   const longer = faults.map((f) => ({ ...f, endMs: f.startMs + factor * (f.endMs - f.startMs) }));
-  if (longer.some((f) => f.endMs > config.durationMs - LONGER_OUTAGE_MARGIN_MS)) return null;
+  if (longer.some((f) => f.endMs > config.durationMs - JUDGE_AFTER_FAILURE_S * 1000)) return null;
   return { ...config, faults: longer };
 }
 

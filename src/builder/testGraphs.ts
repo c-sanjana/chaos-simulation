@@ -1,4 +1,15 @@
-import { defaultCall, defaultSettings, type BuilderGraph, type ComponentKind } from './graph';
+import { defaultCall, defaultSettings, KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode, type ComponentKind } from './graph';
+
+/**
+ * The example to start from, laid out like the preset diagram: Client → Load balancer → App server →
+ * Database left to right along the middle row, with the app server's Cache above it.
+ */
+export function starterGraph(): BuilderGraph {
+  const node = (kind: ComponentKind, col: number, row: number): BuilderNode => ({ id: `${kind}-1`, label: KIND_LABELS[kind], col, row, settings: defaultSettings(kind) });
+  const nodes = [node('client', 1, 3), node('loadBalancer', 3, 3), node('server', 5, 3), node('cache', 5, 1), node('database', 7, 3)];
+  const edge = (from: ComponentKind, to: ComponentKind): BuilderEdge => ({ id: `${from}-1--${to}-1`, from: `${from}-1`, to: `${to}-1`, call: defaultCall(from, to) });
+  return { nodes, edges: [edge('client', 'loadBalancer'), edge('loadBalancer', 'server'), edge('server', 'cache'), edge('server', 'database')] };
+}
 
 /** A chain of components in a row (client first), each calling the next with its default call. */
 export function chainGraph(kinds: ComponentKind[], cacheBeside?: number): BuilderGraph {

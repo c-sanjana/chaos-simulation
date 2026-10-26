@@ -1,9 +1,12 @@
+import { queueBranch } from '../analysis/testGraphs';
 import { analyzed, retryStormRun } from '../analysis/testRuns';
+import { chainGraph } from '../builder/testGraphs';
 import { buildRunConfig } from '../data/buildConfig';
 import { retryStorm } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, tier } from '../engine/testConfigs';
+import { customSystem } from '../ui/system';
 import { candidateFixes } from './candidates';
 import { configChanges } from './changes';
 
@@ -49,6 +52,19 @@ describe('configChanges for the retry fixes on the default retry storm (every la
       [{ call: { from: 'lb', to: 'api' }, text: 'max 1 retry (was 3)' }],
       [{ call: { from: 'api', to: 'db' }, text: 'random retry delays' }],
     ]);
+  });
+});
+
+describe('configChanges for "twice as many consumers" on a built system with a queue', { timeout: 60_000 }, () => {
+  it('labels the queue\'s new number of consumers', () => {
+    const system = customSystem(chainGraph(['client', 'loadBalancer', 'queue', 'server', 'database']));
+    if (system.kind !== 'custom') throw new Error('expected a built system');
+    const queueLabels = Object.fromEntries(Object.entries(system.topology.layout).map(([id, l]) => [id, l.label]));
+    const scenario = system.scenarios.find((s) => s.id.startsWith('custom-queue-backlog'))!;
+    const config = buildRunConfig(system.topology, scenario);
+    const fix = candidateFixes(config, analyzed(config).analysis.signals, queueLabels).find((c) => c.id === 'more-consumers')!;
+    const queue = config.tiers.find((t) => t.queue)!;
+    expect(configChanges(config, fix.config)).toEqual([{ tier: queue.id, text: `${queue.queue!.consumers * 2} consumers (was ${queue.queue!.consumers})` }]);
   });
 });
 
@@ -98,6 +114,13 @@ describe('configChanges', () => {
     const tighter = base();
     tighter.tiers[0].downstream = { ...tighter.tiers[0].downstream!, retryBudget: 0.05, backoffBaseMs: 200 };
     expect(configChanges(base(), tighter).map((c) => c.text)).toEqual(['retry budget 5% (was 10%)', 'retry delay 200 ms (was 50 ms)']);
+  });
+
+  it('words a message queue\'s consumers', () => {
+    const before = queueBranch(false);
+    const after = { ...before, tiers: before.tiers.map((t) => (t.queue ? { ...t, queue: { ...t.queue, consumers: 1 } } : t)) };
+    expect(configChanges(before, after)).toEqual([{ tier: 'q', text: '1 consumer (was 8)' }]);
+    expect(configChanges(after, before)).toEqual([{ tier: 'q', text: '8 consumers (was 1)' }]);
   });
 
   it('ignores tiers and calls present in only one config', () => {

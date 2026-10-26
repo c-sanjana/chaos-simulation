@@ -87,12 +87,12 @@ describe('builtScenarios', () => {
     expect(list[1].faults[0].flushAtEnd).toBe(true);
   });
 
-  it('slows the front door enough to serve only about half the traffic, and says what that means per request', () => {
+  it('slows the front door enough to serve only about half the traffic, and is named after it', () => {
     const t = compileGraph(chainGraph(['client', 'server', 'database']));
     const [, front] = builtScenarios(t, { n1: 'server', n2: 'database' }, 100);
     const factor = front.faults[0].factor!;
     expect(tierCapacityRps(t.tiers[0]) / factor).toBeCloseTo(50, -1);
-    expect(front.blurb).toBe(`server 1, the first thing users reach, takes ~${4 * factor} ms a request instead of ~4 ms (${factor}× slower) for 20 s.`);
+    expect(front.title).toBe('server 1 slows down');
   });
 
   it("keeps the front door's slowdown a slowdown: a typical request still finishes within half the users' timeout", () => {
@@ -105,10 +105,12 @@ describe('builtScenarios', () => {
     expect(builtScenarios(strict, kinds, 1).find((s) => s.id === 'custom-front-slow:n1')!.faults[0].factor).toBe(100);
   });
 
-  it('describes the slowdown behind a queue by its effect', () => {
+  it('slows the part behind a queue, named after that part, with the longer lengths a queue absorbs', () => {
     const t = compileGraph(chainGraph(['client', 'queue', 'server']));
     const [backlog] = builtScenarios(t, { n1: 'queue', n2: 'server' }, 50);
-    expect(backlog.blurb).toMatch(/^server 2 takes ~[\d.]+ (ms|s) a request instead of ~4 ms \(\d+× slower\) for 20 s; messages pile up in queue 1\. Does it catch up\?$/);
+    expect(backlog.title).toBe('server 2 slows down');
+    expect(backlog.faults[0]).toMatchObject({ tier: 'n2', kind: 'slow', startMs: 30_000, endMs: 50_000 });
+    expect(backlog.map.y.values).toEqual([40, 20, 10, 5, 2].map((s) => s * 1000));
   });
 
   it('leaves out what does not apply', () => {

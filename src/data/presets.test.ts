@@ -32,6 +32,18 @@ describe('presets', () => {
   });
 });
 
+describe('preset names and map rows, from their failure (src/data/failure.ts)', () => {
+  it('come out as they were written by hand before', () => {
+    const seconds = (s: ScenarioPreset) => s.map.y.values.map((ms) => ms / 1000);
+    expect([retryStorm, cacheRestart, loadBalancerSlow].map((s) => [s.title, seconds(s), s.map.y.label])).toEqual([
+      ['DB slows down', [12, 8, 5, 3, 2, 1], 'failure length'],
+      ['Cache restarts empty', [20, 10, 5, 3, 1], 'failure length'],
+      ['Load balancer slows down', [30, 20, 10, 5, 2], 'failure length'],
+    ]);
+    expect([retryStorm, cacheRestart, loadBalancerSlow].map((s) => [s.topology, s.rps, s.durationMs])).toEqual(Array(3).fill(['web-chain', 200, 120_000]));
+  });
+});
+
 describe('presets at their default settings (retries 5 / 3 / 1)', { timeout: 60_000 }, () => {
   it('retry storm: a 5 s DB slowdown at 200 req/s gets stuck', () => {
     expect(verdictOf(retryStorm)).toBe('stuck');

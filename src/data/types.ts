@@ -26,7 +26,6 @@ export interface Axis {
 export interface ScenarioPreset {
   id: string;
   title: string;
-  blurb: string;
   topology: string;
   rps: number;
   durationMs: number;

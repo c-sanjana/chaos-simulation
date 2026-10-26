@@ -50,7 +50,16 @@ describe('validateGraph: each message says what is wrong, naming the parts, then
 
   it('two Clients', () => {
     const two = withNode(chainGraph(['client', 'server']), 'other', 'client', 'Mobile');
-    expect(validateGraph(two)).toContain('Too many Clients: client 0 and Mobile. Keep one and remove the others, since one Client stands for all your users.');
+    // The second Client gets no advice to connect it or draw to it: it is to be removed, and nothing may send to a Client.
+    expect(validateGraph(two)).toEqual(['Too many Clients: client 0 and Mobile. Keep one and remove the other, since one Client stands for all your users.']);
+    const three = withNode(two, 'third', 'client', 'Tablet');
+    expect(validateGraph(three)).toEqual(['Too many Clients: client 0, Mobile and Tablet. Keep one and remove the others, since one Client stands for all your users.']);
+    // The first Client still gets its own advice when it calls nothing.
+    const unconnected = withNode(chainGraph(['client']), 'other', 'client', 'Mobile');
+    expect(validateGraph(unconnected)).toEqual([
+      'Too many Clients: client 0 and Mobile. Keep one and remove the other, since one Client stands for all your users.',
+      "client 0 isn't connected to anything. Draw an arrow from it to the first part users talk to, usually a load balancer.",
+    ]);
   });
 
   it('a Client that calls nothing', () => {
@@ -68,7 +77,7 @@ describe('validateGraph: each message says what is wrong, naming the parts, then
   });
 
   it('a queue that hands its messages to nothing', () => {
-    expect(validateGraph(chainGraph(['client', 'queue']))).toEqual(["queue 1 doesn't pass its messages on. Draw an arrow from it to the part that should handle them."]);
+    expect(validateGraph(chainGraph(['client', 'queue']))).toEqual(["queue 1 doesn't pass its messages on. Draw an arrow from it to the part that should work through them."]);
   });
 
   it('a load balancer over nothing', () => {
@@ -201,6 +210,7 @@ describe('validateGraph: each message says what is wrong, naming the parts, then
       withEdge(withNode(chainGraph(['client', 'server']), 's2', 'server'), 'n0', 's2'),
       withNode(chainGraph(['client', 'loadBalancer']), 'spare', 'server'),
       withEdge(chainGraph(['client', 'server', 'database']), 'n2', 'n1'),
+      chainGraph(['client', 'queue']),
       set(g, 'n1', { instances: 0, service: { medianMs: 5, p99Ms: 5 }, queueLimit: -1, fanOut: 'x' }),
     ];
     for (const text of graphs.flatMap(validateGraph)) {

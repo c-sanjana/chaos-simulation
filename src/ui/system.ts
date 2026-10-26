@@ -117,7 +117,7 @@ export function carryOver(applied: Draft, scenarioId: string, next: Extract<Syst
   const scenario = {
     ...structuredClone(base),
     // Its own words when it is the scenario as offered; the viewer's own title once changed.
-    ...(same ? {} : { title: applied.scenario.title, blurb: applied.scenario.blurb }),
+    ...(same ? {} : { title: applied.scenario.title }),
     faults: structuredClone(applied.scenario.faults),
     durationMs: applied.scenario.durationMs,
     map: { x: base.map.x, y: structuredClone(applied.scenario.map.y) },
