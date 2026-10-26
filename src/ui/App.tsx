@@ -266,10 +266,15 @@ export function App({ pool: injected }: AppProps) {
     setNotice(null);
     focusAfter(FOCUS.buildButton);
   };
-  /** "Use this topology": the new system keeps the current failure and step where it can (system.ts carryOver). */
+  /**
+   * "Use this topology": the new system keeps the current failure where it can (system.ts
+   * carryOver) and opens on step 1, "What happened", since a new system is a new run to watch (user
+   * decision, 2026-10-26: it used to stay on the step it was on).
+   */
   const useCanvas = (graph: BuilderGraph) => {
     const next = customSystem(graph) as Extract<System, { kind: 'custom' }>;
     const kept = carryOver(applied, scenarioId, next);
+    setStep(0);
     setSystem(next);
     setScenarioId(kept.scenarioId);
     setApplied(kept.draft);

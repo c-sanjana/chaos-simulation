@@ -413,6 +413,8 @@ Review stops: after **P0**, **P3** and **P7**. Every other milestone still repor
 | 2026-10-26 | Change checks compare data regardless of key order (`sameData`); an unchanged Re-run or "Replay from the start" keeps steps 2 and 3; a chosen chart part is used only if the run has it | Review 4 (U1–U4): a crash (and a deleted save) on a missing chart part; steps 2–3 lost on a replay; "(edited)" and a fake comparison chip from key order |
 | 2026-10-26 | "Copies" everywhere for one instance of a part ("loses one copy", "1 of 4 App server copies down", "one of the 4 app server copies went down") | Review 4 (E7, U8): "App server servers", and "server" vs "copy" for the same failure |
 | 2026-10-26 | "(edited)" after the failure's name only when the system's own settings differ from the system as set up (its parts and calls: tiers and the users' call), not for another failure, added failures or other traffic | User decision: with the preset cards gone, every failure but the default read "(edited)", even one offered as is (REVIEW4) |
+| 2026-10-26 | Step 3's before and after maps fill together: their cells go to the pool alternately (`useSweeps`), and a map whose settings are unchanged keeps its cells when another fix is chosen | User report: the after map showed one blue cell (the fix at your settings, already simulated for the replay) on an empty grid for ~8 s while the before map ran first, which looked like a result from nowhere. Same total time |
+| 2026-10-26 | "Use this topology" opens on step 1, "What happened" (the failure is still carried over where its parts exist) | User request: it stayed on the step it was on |
 
 ## 11. Time log
 

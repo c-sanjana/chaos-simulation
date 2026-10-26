@@ -18,7 +18,7 @@ import { currentCell, nearestCell, onMap } from './draft';
 import { formatCount } from './format';
 import { RunPlayer } from './RunPlayer';
 import { useFixRanking } from './useFixRanking';
-import { useAnalysis, useSweep, type Async } from './useSimulation';
+import { useAnalysis, useSweeps, type Async } from './useSimulation';
 import { axisPhrase, formatAxisValue, mapView, shortVerdict } from './viewModels';
 
 export interface FixStepProps {
@@ -68,8 +68,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
     // ASSUMPTION: the fix is applied to every cell the same way it was planned for this run's signals.
     return buildSweep(topology, scenario, {}, (c) => applyFix(def, c, signals) ?? c);
   }, [applied, signals, topology, scenario]);
-  const before = useSweep(pool, beforeSpec);
-  const after = useSweep(pool, afterSpec);
+  // Filled together, cell by cell (see useSweeps), so the after map never waits for the before map.
+  const [before, after] = useSweeps(pool, [beforeSpec, afterSpec]);
   // At the current settings the original run and the ranking's run of the fix are reused (the pool
   // keeps them); any other cell re-runs that cell's map settings, without and with the fix. The fix
   // at the viewer's settings is always asked for: the panel's "why it worked / didn't" is measured

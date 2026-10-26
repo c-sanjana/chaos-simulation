@@ -644,7 +644,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByRole('button', { name: '✎ Build your own system' })).toBeTruthy();
   });
 
-  it('"Use this topology" keeps the current failure and step when its parts still exist', async () => {
+  it('"Use this topology" keeps the current failure when its parts still exist, and opens on "What happened"', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
@@ -657,7 +657,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use this topology' }));
     await waitFor(() => expect(pool.analyzed.at(-1)!.faults).toEqual([{ tier: 'db', kind: 'slow', factor: 4, startMs: 30_000, endMs: 35_000 }]), SLOW);
     expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/^Failure being tested\s*DB slows down.*DB slows 4×/);
-    expect(screen.getByRole('button', { name: /Where's the tipping point/ }).getAttribute('aria-current')).toBe('step');
+    expect(screen.getByRole('button', { name: /What happened/ }).getAttribute('aria-current')).toBe('step');
     expect(screen.queryByText(/The failure was reset/)).toBeNull();
   });
 });

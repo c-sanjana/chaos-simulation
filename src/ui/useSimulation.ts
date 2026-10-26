@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RunConfig } from '../engine/config';
-import { runSweep, SweepResult, type SweepSpec } from '../sweep/sweep';
+import { SweepResult, type SweepSpec } from '../sweep/sweep';
 import { stableKey } from '../worker/cachingPool';
 import type { AnalyzeResult } from '../worker/jobs';
 import { CancelledError, PRIORITY, type SimBatch, type SimPool } from '../worker/pool';
@@ -92,22 +92,61 @@ export interface SweepState {
 
 /** Runs a tipping-point sweep in the worker pool, updating as each cell finishes (cells the pool holds arrive at once). */
 export function useSweep(pool: SimPool, spec: SweepSpec | null): SweepState {
-  const key = spec ? stableKey(spec.cells.map((c) => c.config)) : null;
-  const [state, setState] = useState<SweepState & { key: string | null }>({ key: null, result: null, done: 0, total: 0, error: null });
+  return useSweeps(pool, [spec])[0];
+}
+
+type KeyedSweep = SweepState & { key: string | null };
+const NO_SWEEP: KeyedSweep = { key: null, result: null, done: 0, total: 0, error: null };
+
+/**
+ * Several sweeps shown side by side (step 3's before and after maps), filled together: their cells
+ * go to the pool alternately, one from each map in turn, so no map waits for another to finish (the
+ * pool takes jobs in order). Before, the after map stayed empty until the before map was done, but
+ * for its one cell the pool already held (the fix at your settings), which looked like a result
+ * from nowhere. A sweep whose spec is unchanged keeps the cells it has and only asks for the rest.
+ */
+export function useSweeps(pool: SimPool, specs: Array<SweepSpec | null>): SweepState[] {
+  const keys = specs.map((spec) => (spec ? stableKey(spec.cells.map((c) => c.config)) : null));
+  const joined = JSON.stringify(keys);
+  const [states, setStates] = useState<KeyedSweep[]>(() => keys.map(() => NO_SWEEP));
+  const latest = useRef(states);
+  latest.current = states;
   useEffect(() => {
-    if (!spec) {
-      setState({ key, result: null, done: 0, total: 0, error: null });
-      return;
-    }
-    const empty = new SweepResult(spec);
-    setState({ key, result: empty, done: 0, total: empty.total, error: null });
     const batch = pool.batch({ priority: PRIORITY.map });
-    runSweep(spec, batch, (_, result) => setState({ key, result, done: result.done, total: result.total, error: null })).catch((e: unknown) => {
-      if (!(e instanceof CancelledError)) setState((s) => ({ ...s, error: String(e) }));
+    const results = specs.map((spec, i) => {
+      if (!spec) return null;
+      const result = new SweepResult(spec);
+      const kept = latest.current[i];
+      if (kept?.key === keys[i] && kept.result) for (const c of kept.result.cells()) result.set(c.x, c.y, c.summary);
+      return result;
     });
+    const show = (i: number, change: Partial<KeyedSweep>) => setStates((prev) => prev.map((p, j) => (j === i && p.key === keys[i] ? { ...p, ...change } : p)));
+    setStates(keys.map((key, i) => ({ key, result: results[i], done: results[i]?.done ?? 0, total: results[i]?.total ?? 0, error: null })));
+    // One cell from each map in turn, skipping cells a map already has.
+    const queues = specs.map((spec, i) => (spec ? spec.cells.filter((c) => !results[i]!.get(c.x, c.y)) : []));
+    for (let n = 0; n < Math.max(0, ...queues.map((q) => q.length)); n++) {
+      queues.forEach((queue, i) => {
+        const cell = queue[n];
+        if (!cell) return;
+        batch.cell(cell.config).then(
+          (summary) => {
+            results[i]!.set(cell.x, cell.y, summary);
+            show(i, { result: results[i], done: results[i]!.done });
+          },
+          (e: unknown) => {
+            if (e instanceof CancelledError) return;
+            show(i, { error: String(e) });
+            batch.cancel(); // a failed cell stops the rest, as runSweep does
+          },
+        );
+      });
+    }
     return () => batch.cancel();
-  }, [pool, key]);
-  // As in useAnalysis: never the previous spec's result alongside a new spec.
-  if (state.key !== key) return { result: null, done: 0, total: spec ? spec.cells.length : 0, error: null };
-  return { result: state.result, done: state.done, total: state.total, error: state.error };
+  }, [pool, joined]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by the specs' configs, not their identity
+  // As in useAnalysis: never a previous spec's result alongside a new spec.
+  return keys.map((key, i) => {
+    const s = states[i] ?? NO_SWEEP;
+    if (s.key !== key) return { result: null, done: 0, total: specs[i] ? specs[i]!.cells.length : 0, error: null };
+    return { result: s.result, done: s.done, total: s.total, error: s.error };
+  });
 }
