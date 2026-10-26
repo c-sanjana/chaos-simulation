@@ -7,6 +7,7 @@ import { scenarios as presetScenarios } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { faultKindOf, type Draft } from './draft';
+import { sameData } from './same';
 
 /** The system being simulated: the example preset, or one built on the canvas (compiled, with its scenarios). */
 export type System = { kind: 'preset' } | { kind: 'custom'; graph: BuilderGraph; topology: TopologyPreset; scenarios: ScenarioPreset[] };
@@ -26,15 +27,6 @@ export function scenarioCatalog(system: System): ScenarioPreset[] {
   return system.kind === 'preset' ? Object.values(presetScenarios) : system.scenarios;
 }
 
-/**
- * The id of the system's scenario that `scenarioId` names (an older save's id gives today's, see
- * `findScenario`), or its first scenario's when it names none of them.
- */
-export function resolveScenarioId(system: System, scenarioId: string): string {
-  const list = scenarioCatalog(system);
-  return (findScenario(list, scenarioId) ?? list[0]).id;
-}
-
 /** A fresh draft for one of the system's scenarios (its first if the id isn't one of them). */
 export function systemDraft(system: System, scenarioId: string): Draft {
   const list = scenarioCatalog(system);
@@ -46,11 +38,6 @@ export function systemDraft(system: System, scenarioId: string): Draft {
 /** The example system drawn on the canvas, exactly as the example preset runs it (its traffic, retries, sizes). */
 export function exampleGraph(): BuilderGraph {
   return graphFromPreset(webChain, presetScenarios['retry-storm'].rps);
-}
-
-/** The graph the canvas opens with: the built system as drawn, or the example drawn on the canvas. */
-export function graphForCanvas(system: System, rps: number): BuilderGraph {
-  return system.kind === 'custom' ? system.graph : graphFromPreset(webChain, rps);
 }
 
 /**
@@ -74,7 +61,7 @@ export function withTrafficAxis(d: Draft): Draft {
 export function withFailureDetails(d: Draft): Draft {
   const title = failureTitle(d.topology, d.scenario.faults);
   const y = failureAxis(d.topology, d.scenario.faults);
-  if (title === d.scenario.title && JSON.stringify(y) === JSON.stringify(d.scenario.map.y)) return d;
+  if (title === d.scenario.title && sameData(y, d.scenario.map.y)) return d;
   return { ...d, scenario: { ...d.scenario, title, map: { ...d.scenario.map, y } } };
 }
 
@@ -87,11 +74,12 @@ export interface CarriedOver {
 }
 
 /**
- * "Use this topology": keeps the current failure (parts, kinds, timings, the run's length and the
- * failure-length axis) when every part it names still exists, matched by id, and can still fail
- * that way; the traffic and every setting come from the canvas. It is filed under the new system's
- * scenario of the same id (the same failure on the same part), or its first. Otherwise that
- * scenario is used as offered, and `reset` says why.
+ * "Use this topology": keeps the current failure (parts, kinds, timings and the run's length) when
+ * every part it names still exists, matched by id, and can still fail that way; the traffic and
+ * every setting come from the canvas, and the failure's name and map lengths from the new system
+ * (`withFailureDetails`: a renamed part is called by its new name). It is filed under the new
+ * system's scenario of the same id (the same failure on the same part), or its first. Otherwise
+ * that scenario is used as offered, and `reset` says why.
  */
 export function carryOver(applied: Draft, scenarioId: string, next: Extract<System, { kind: 'custom' }>): CarriedOver {
   const catalog = next.scenarios;
@@ -113,7 +101,7 @@ export function carryOver(applied: Draft, scenarioId: string, next: Extract<Syst
     const draft = systemDraft(next, base.id);
     return { draft, scenarioId: base.id, reset: `The failure was reset to "${draft.scenario.title}": ${why}.` };
   }
-  const same = JSON.stringify(applied.scenario.faults) === JSON.stringify(base.faults);
+  const same = sameData(applied.scenario.faults, base.faults);
   const scenario = {
     ...structuredClone(base),
     // Its own words when it is the scenario as offered; the viewer's own title once changed.
@@ -122,6 +110,7 @@ export function carryOver(applied: Draft, scenarioId: string, next: Extract<Syst
     durationMs: applied.scenario.durationMs,
     map: { x: base.map.x, y: structuredClone(applied.scenario.map.y) },
   };
-  // In systemDraft's key order, so the app's comparison (by JSON) sees an unchanged draft as unchanged.
-  return { draft: { scenario, topology: structuredClone(next.topology) }, scenarioId: base.id };
+  // The name and the map's failure lengths follow the failure on the new system (code review 4: a
+  // renamed part kept its old name in the banner); the scenario as offered is returned as it is.
+  return { draft: withFailureDetails({ scenario, topology: structuredClone(next.topology) }), scenarioId: base.id };
 }

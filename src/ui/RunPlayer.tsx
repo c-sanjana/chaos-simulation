@@ -1,6 +1,6 @@
 import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { spokenName } from '../analysis/helpers';
+import { capitalise, spokenName } from '../analysis/helpers';
 import { buildStory } from '../analysis/story';
 import type { Fault, RunConfig } from '../engine/config';
 import type { TopologyPreset } from '../data/types';
@@ -32,8 +32,8 @@ export interface RunPlayerProps {
   onEdit?: (tierId: string | null) => void;
   /** Smaller topology and chart, for side-by-side layouts. */
   compact?: boolean;
-  /** Render the live timeline into this element (e.g. a column beside the player) instead of inside it. */
-  timelineTarget?: HTMLElement | null;
+  /** Render the story into this element (e.g. a column beside the player) instead of inside it. */
+  storyTarget?: HTMLElement | null;
   /** Chart height in px (defaults: full layout 240, compact 175). */
   chartHeight?: number;
   /**
@@ -41,8 +41,8 @@ export interface RunPlayerProps {
    * still fits the screen. Turn off where the chart's height matters more than fitting.
    */
   shrinkChartForTallDiagram?: boolean;
-  /** Show the live timeline beside the chart (under the metric tabs), as tall as the chart. */
-  sideTimeline?: boolean;
+  /** Show the story beside the chart (under the metric tabs). */
+  sideStory?: boolean;
   /** Keep the replay at the start and paused (e.g. while the guided tour is open); it plays when released. */
   holdPlayback?: boolean;
   /**
@@ -63,10 +63,8 @@ export interface RunPlayerProps {
   demoAtMs?: number | null;
   /** id for the title heading, which can then take focus (e.g. after a re-run). */
   headingId?: string;
-  /** Show the details (and end panel) above the chart, e.g. on narrow screens where the side column is far below. */
+  /** Show the story (and end panel) above the chart, e.g. on narrow screens where there is no room beside it. */
   storyAbove?: boolean;
-  /** No longer used: every replay has the one details panel, story included. Kept so callers needn't change at once. */
-  compactStory?: boolean;
   /**
    * Open the replay paused at this moment instead of playing from the start, e.g. the end of the
    * run after the guided tour, so the verdict it led up to stays on screen. Read when a new run
@@ -99,8 +97,8 @@ const NOTE_PX = 28;
 
 /**
  * Replays one computed run: topology with live flows, playback controls, metric charts and the
- * "why" timeline. In compare mode the charts overlay before and after, and the topology and
- * timeline switch between the two runs.
+ * run's story in plain words. In compare mode the charts overlay before and after, and the
+ * topology and story switch between the two runs.
  */
 export function RunPlayer({
   title,
@@ -112,10 +110,10 @@ export function RunPlayer({
   autoPlay = true,
   onEdit,
   compact = false,
-  timelineTarget,
+  storyTarget,
   chartHeight,
   shrinkChartForTallDiagram = true,
-  sideTimeline = false,
+  sideStory = false,
   holdPlayback = false,
   guided = false,
   story,
@@ -139,7 +137,7 @@ export function RunPlayer({
   const [showAfter, setShowAfter] = useState(true);
 
   // Every new run replays from the start (and plays by itself unless told not to or held), so the
-  // live timeline always tells that run's story from the beginning.
+  // story is always told from the beginning.
   const faults = config.faults ?? [];
   const guidePauseMs = guided && !after && faults.length > 0 ? Math.max(...faults.map((f) => f.endMs)) + 1500 : null;
   const guideSlowMs = guidePauseMs === null ? null : Math.min(...faults.map((f) => f.startMs)) - 3000;
@@ -217,8 +215,11 @@ export function RunPlayer({
     playback.play();
   };
 
+  // A part chosen for an earlier run may not be in this one (another system, a renamed part): the
+  // chart then shows the tab's default (code review 4: it read a missing part and the page broke).
+  const scopeHere = scope !== null && config.tiers.some((t) => t.id === scope) && (!after || after.config.tiers.some((t) => t.id === scope)) ? scope : null;
   // Chart data is rebuilt only when what it shows changes, so the playhead can move every frame cheaply.
-  const chart = useMemo(() => chartView(tab, config, result.run, labels, scope, after?.result.run, undefined, showAfter), [tab, config, result, labels, scope, after, showAfter]);
+  const chart = useMemo(() => chartView(tab, config, result.run, labels, scopeHere, after?.result.run, undefined, showAfter), [tab, config, result, labels, scopeHere, after, showAfter]);
   // A chart note takes its room from the plot, so a tab with a note is no taller than one without.
   const extraRows = shrinkChartForTallDiagram ? Math.max(0, boxRowCount(Object.values(topology.layout)) - 2) : 0;
   const baseHeight = chartHeight ?? (compact ? COMPACT_CHART_HEIGHT : CHART_HEIGHT);
@@ -227,7 +228,7 @@ export function RunPlayer({
   const plotHeight = Math.max(Math.min(baseHeight, MIN_PLOT_PX), baseHeight - extraRows * PLOT_PX_PER_EXTRA_ROW - badgeRoom - (chart.note ? NOTE_PX : 0));
   const shown = after && showAfter ? after : { config, result };
   // The default scope already is one tier ("DB (most overloaded)"), so that tier isn't listed twice.
-  const scopeShown = scope === chart.defaultScopeId ? 'client' : (scope ?? 'client');
+  const scopeShown = scopeHere === chart.defaultScopeId ? 'client' : (scopeHere ?? 'client');
   const [asTable, setAsTable] = useState(false);
   const summaryId = useId();
   const revealS = Math.floor(playback.tMs / 1000);
@@ -253,7 +254,7 @@ export function RunPlayer({
   // One panel tells what happened: "What's happening" (user decision, 2026-10-25: the separate
   // "Details: what was measured" panel repeated it). Step 1 tells every step; the narrower step 2
   // and 3 replays the newest, with the earlier ones a click away.
-  const timeline = (
+  const storyPanel = (
     <>
       {ended && endPanel}
       <StoryCard steps={steps} nowMs={playback.tMs} compact={!story} />
@@ -317,7 +318,7 @@ export function RunPlayer({
       />
       </div>
 
-      {storyAbove && <div className="csl-player__story">{timeline}</div>}
+      {storyAbove && <div className="csl-player__story">{storyPanel}</div>}
 
       <div className="csl-player__body">
         <div className="csl-player__charts" data-tour="charts">
@@ -330,7 +331,7 @@ export function RunPlayer({
             scope={scopeShown}
             onScope={(id) => setScope(id === 'client' ? null : id)}
           />
-          <div className={`csl-player__chartrow${sideTimeline ? ' csl-player__chartrow--side' : ''}${extraRows > 0 ? ' csl-player__chartrow--short' : ''}`}>
+          <div className={`csl-player__chartrow${sideStory ? ' csl-player__chartrow--side' : ''}${extraRows > 0 ? ' csl-player__chartrow--short' : ''}`}>
             <div className="csl-player__chart">
               {guide === 'paused' && (
                 <div className="csl-guide">
@@ -362,16 +363,16 @@ export function RunPlayer({
                 <TimeSeriesChart {...chart.spec} playheadS={playback.tMs / 1000} revealS={playback.tMs / 1000} height={plotHeight} describedBy={summaryId} />
               )}
             </div>
-            {sideTimeline && !storyAbove && (
-              <div className="csl-player__timeline csl-player__timeline--side">
-                <div className="csl-player__sidestack">{timeline}</div>
+            {sideStory && !storyAbove && (
+              <div className="csl-player__storycol csl-player__storycol--side">
+                <div className="csl-player__sidestack">{storyPanel}</div>
               </div>
             )}
           </div>
         </div>
-        {!sideTimeline && !storyAbove && timelineTarget === undefined && <div className="csl-player__timeline">{timeline}</div>}
+        {!sideStory && !storyAbove && storyTarget === undefined && <div className="csl-player__storycol">{storyPanel}</div>}
       </div>
-      {timelineTarget && !storyAbove && createPortal(timeline, timelineTarget)}
+      {storyTarget && !storyAbove && createPortal(storyPanel, storyTarget)}
     </section>
   );
 }
@@ -427,8 +428,4 @@ function compareWords(before: AnalyzeResult, after: AnalyzeResult): string {
 
 function summary(r: AnalyzeResult) {
   return { verdict: r.analysis.recovery.verdict, recoveryMs: r.analysis.recovery.recoveryMs };
-}
-
-function capitalise(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }

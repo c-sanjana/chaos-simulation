@@ -5,7 +5,8 @@ import { validateGraph } from '../builder/validate';
 import { validateConfig } from '../engine/validate';
 import { draftProblems, type Draft } from './draft';
 import { inGrid } from '../builder/edit';
-import { customSystem, PRESET_SYSTEM, resolveScenarioId, systemDraft, withTrafficAxis, type System } from './system';
+import { sameData } from './same';
+import { customSystem, PRESET_SYSTEM, scenarioCatalog, systemDraft, withTrafficAxis, type System } from './system';
 
 /**
  * Remembering a built system in this browser (user decision, 2026-10-24: "save it in that session,
@@ -19,11 +20,13 @@ type SystemStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 /** Reading `window.localStorage` can itself throw, so this is only called inside try blocks. */
 const orLocal = (storage?: SystemStorage): SystemStorage => storage ?? window.localStorage;
 
-/** What is saved: plain data only (a built system is compiled again on load). */
+/**
+ * What is saved: plain data only (a built system is compiled again on load). Saves from before
+ * 2026-10-26 also hold a `scenarioId`; it is ignored (every system starts on its first scenario).
+ */
 interface Saved {
   /** The built system's graph, as last used; null while the example is in use. */
   system: BuilderGraph | null;
-  scenarioId: string;
   /** What is simulated on the built system (failure, traffic, settings edits); null for the example. */
   applied: Draft | null;
   /** The drawing on the canvas, open or kept after Cancel; null when there is none. */
@@ -179,7 +182,7 @@ export function loadSaved(storage?: SystemStorage): Restored | null {
   // decision, 2026-10-25: a remembered "load balancer slows down" greeted returning visitors). A
   // built system keeps the settings edits and traffic simulated on it; its names always come from
   // the drawing as loaded (a save from before a rename carried the old ones in its copy).
-  const scenarioId = resolveScenarioId(system, '');
+  const scenarioId = scenarioCatalog(system)[0].id;
   const fresh = systemDraft(system, scenarioId);
   const kept = fits(saved.applied ?? null, system) ? saved.applied! : null;
   const applied = kept === null ? fresh : restoredDraft(fresh, kept);
@@ -190,12 +193,10 @@ export function loadSaved(storage?: SystemStorage): Restored | null {
 
 /**
  * The default draft with the settings edits and traffic of a saved one; the default itself when
- * nothing was edited, so the summary doesn't say "(edited)" (the app compares drafts as JSON, in
- * systemDraft's key order).
+ * nothing was edited, so the summary doesn't say "(edited)".
  */
 function restoredDraft(fresh: Draft, kept: Draft): Draft {
-  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  const edited = !same(kept.topology.tiers, fresh.topology.tiers) || !same(kept.topology.clientCall, fresh.topology.clientCall);
+  const edited = !sameData(kept.topology.tiers, fresh.topology.tiers) || !sameData(kept.topology.clientCall, fresh.topology.clientCall);
   const topology = edited ? { ...fresh.topology, tiers: kept.topology.tiers, clientCall: kept.topology.clientCall } : fresh.topology;
   const scenario = kept.scenario.rps === fresh.scenario.rps ? fresh.scenario : { ...fresh.scenario, rps: kept.scenario.rps };
   return withTrafficAxis({ scenario, topology });
@@ -210,12 +211,11 @@ export function forgetSaved(storage?: SystemStorage): void {
   }
 }
 
-/** Saves the state (a built system with what is simulated on it, the scenario, the drawing). */
-export function saveState(state: { system: System; scenarioId: string; applied: Draft; canvas: BuilderGraph | null; canvasOpen: boolean }, storage?: SystemStorage): void {
+/** Saves the state (a built system with what is simulated on it, and the drawing). */
+export function saveState(state: { system: System; applied: Draft; canvas: BuilderGraph | null; canvasOpen: boolean }, storage?: SystemStorage): void {
   const custom = state.system.kind === 'custom';
   const saved: Saved = {
     system: state.system.kind === 'custom' ? state.system.graph : null,
-    scenarioId: state.scenarioId,
     applied: custom ? state.applied : null,
     canvas: state.canvas,
     canvasOpen: state.canvasOpen,

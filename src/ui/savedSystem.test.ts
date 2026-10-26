@@ -29,7 +29,9 @@ describe('saved system', () => {
     const store = memory();
     const applied = systemDraft(system, 'custom-cache-restart:c');
     applied.topology.tiers[0].instances = 9;
-    saveState({ system, scenarioId: 'custom-cache-restart:c', applied, canvas: graph, canvasOpen: false }, store);
+    saveState({ system, applied, canvas: graph, canvasOpen: false }, store);
+    // Nothing reads a scenario back (every system starts on its first), so none is written.
+    expect(JSON.parse(store.data.get(SAVED_SYSTEM_KEY)!)).not.toHaveProperty('scenarioId');
     const back = loadSaved(store)!;
     expect(back.system).toEqual(system);
     expect(back.scenarioId).toBe('custom-db-slow:n2');
@@ -43,16 +45,16 @@ describe('saved system', () => {
 
   it('forgets everything once the example is in use with no drawing', () => {
     const store = memory();
-    saveState({ system, scenarioId: 'x', applied: systemDraft(system, 'x'), canvas: null, canvasOpen: false }, store);
+    saveState({ system, applied: systemDraft(system, 'x'), canvas: null, canvasOpen: false }, store);
     expect(store.data.has(SAVED_SYSTEM_KEY)).toBe(true);
-    saveState({ system: PRESET_SYSTEM, scenarioId: 'retry-storm', applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: null, canvasOpen: false }, store);
+    saveState({ system: PRESET_SYSTEM, applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: null, canvasOpen: false }, store);
     expect(store.data.has(SAVED_SYSTEM_KEY)).toBe(false);
     expect(loadSaved(store)).toBeNull();
   });
 
   it('keeps a drawing over the example, open or not; the example starts on its default failure, the database slowing down', () => {
     const store = memory();
-    saveState({ system: PRESET_SYSTEM, scenarioId: 'cache-restart', applied: systemDraft(PRESET_SYSTEM, 'cache-restart'), canvas: graph, canvasOpen: true }, store);
+    saveState({ system: PRESET_SYSTEM, applied: systemDraft(PRESET_SYSTEM, 'cache-restart'), canvas: graph, canvasOpen: true }, store);
     const back = loadSaved(store)!;
     expect(back.system).toBe(PRESET_SYSTEM);
     expect(back.applied.scenario.id).toBe('retry-storm');
@@ -65,11 +67,11 @@ describe('saved system', () => {
     const withLb = chainGraph(['client', 'loadBalancer', 'server', 'database']);
     const old = { ...withLb, nodes: withLb.nodes.map((n) => (n.settings.kind === 'loadBalancer' ? { ...n, label: 'Gateway' } : n)) };
     expect(old.nodes.some((n) => n.label === 'Gateway')).toBe(true);
-    saveState({ system: PRESET_SYSTEM, scenarioId: 'retry-storm', applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: old, canvasOpen: false }, store);
+    saveState({ system: PRESET_SYSTEM, applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: old, canvasOpen: false }, store);
     const back = loadSaved(store)!;
     expect(back.canvas!.nodes.filter((n) => n.settings.kind === 'loadBalancer').map((n) => n.label)).toEqual(['Load balancer']);
     const typed = { ...withLb, nodes: withLb.nodes.map((n) => (n.settings.kind === 'loadBalancer' ? { ...n, label: 'Edge proxy' } : n)) };
-    saveState({ system: PRESET_SYSTEM, scenarioId: 'retry-storm', applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: typed, canvasOpen: false }, store);
+    saveState({ system: PRESET_SYSTEM, applied: systemDraft(PRESET_SYSTEM, 'retry-storm'), canvas: typed, canvasOpen: false }, store);
     expect(loadSaved(store)!.canvas!.nodes.some((n) => n.label === 'Edge proxy')).toBe(true);
   });
 
@@ -103,7 +105,7 @@ describe('saved system', () => {
   it('works without storage: nothing restored, nothing thrown', () => {
     const store = memory(true);
     expect(loadSaved(store)).toBeNull();
-    expect(() => saveState({ system, scenarioId: '', applied: systemDraft(system, ''), canvas: null, canvasOpen: false }, store)).not.toThrow();
+    expect(() => saveState({ system, applied: systemDraft(system, ''), canvas: null, canvasOpen: false }, store)).not.toThrow();
   });
 
   it("an older save's scenario id is no longer restored either: the default failure", () => {

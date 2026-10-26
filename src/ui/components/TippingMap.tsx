@@ -67,10 +67,10 @@ export interface TippingMapProps {
   tips?: Array<{ y: number; tipsAtX: number | null }>;
   /**
    * Layout only: 'width' stretches the columns to the map's container (cells grow wider, rows keep
-   * --csl-map-cell); 'both' also lets the rows share the container's height (step 2's map fills its
-   * card). Omitted, every cell is a --csl-map-cell square.
+   * --csl-map-cell), as step 3's before and after maps do. Omitted, every cell is a --csl-map-cell
+   * square.
    */
-  fill?: 'width' | 'both';
+  fill?: 'width';
 }
 
 /** Width of the y tick-label column; small maps narrow it with --csl-map-label. */

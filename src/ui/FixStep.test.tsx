@@ -137,14 +137,19 @@ describe('FixStep', { timeout: 60_000 }, () => {
     expect(screen.getByText('Waiting for the original run…')).toBeTruthy();
     const neverHelps = new FakePool(() => ({ verdict: 'stuck', recoveryMs: null, failedRequests: 9000 }));
     rerender(<FixStep pool={neverHelps} topology={singleLayer} scenario={retryStorm} config={config} original={original} labels={labels} />);
-    await screen.findByText(/^\d+ fixes tested$/, undefined, SLOW);
+    await screen.findByText('◆ = the run in the replay; select any cell', undefined, SLOW);
     // The view of fixes that didn't help opens by itself, with the note.
     expect(screen.getByText('None of the fixes tried made this run recover.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Tried, didn't help/ }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: 'Fixes that helped (0)' })).toBeTruthy();
-    expect(screen.getAllByRole('tab').length).toBeGreaterThan(0);
-    expect(screen.getByText('Choose a fix below to see its before and after maps anyway.')).toBeTruthy();
-    expect(screen.getByText('No fix helped, so there is nothing to compare.')).toBeTruthy();
+    // The first fix tried is shown (code review 4: its tab looked chosen while nothing was, and its
+    // "why" never came): its panel says why it didn't help, and the replay shows it.
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.length).toBeGreaterThan(0);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('Shown in the replay')).toBeTruthy();
+    await screen.findByText("Why it didn't help here:", undefined, SLOW);
+    expect(screen.queryByText('Working out why…')).toBeNull();
   });
 
   it('explains when there is nothing to try, instead of waiting forever', async () => {
@@ -153,6 +158,7 @@ describe('FixStep', { timeout: 60_000 }, () => {
     render(<FixStep pool={new FakePool(verdict)} topology={singleLayer} scenario={retryStorm} config={calm} original={quiet} labels={labels} />);
     await screen.findByText(/^0 fixes tested$/, undefined, SLOW);
     expect(screen.getByText(/nothing in it points to a fix worth trying|Nothing in this run points to a fix/)).toBeTruthy();
+    expect(screen.getByText('No fix to try, so there is nothing to compare.')).toBeTruthy();
   });
 
   it('shows errors from the pool', async () => {

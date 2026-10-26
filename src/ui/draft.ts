@@ -1,6 +1,4 @@
 import { callsOf, type CallPolicy, type Fault, type TierConfig } from '../engine/config';
-import { scenarios } from '../data/scenarios';
-import { topologies } from '../data/topologies';
 import { JUDGE_AFTER_FAILURE_S, LIMITS, runSizeProblem } from '../data/limits';
 import { buildRunConfig } from '../data/buildConfig';
 import { callsPerRequest } from '../analysis/helpers';
@@ -10,11 +8,6 @@ import type { ScenarioPreset, TopologyPreset } from '../data/types';
 export interface Draft {
   topology: TopologyPreset;
   scenario: ScenarioPreset;
-}
-
-export function presetDraft(scenarioId: string): Draft {
-  const scenario = scenarios[scenarioId];
-  return { scenario: structuredClone(scenario), topology: structuredClone(topologies[scenario.topology]) };
 }
 
 export function updateTier(d: Draft, id: string, change: (t: TierConfig) => TierConfig): Draft {
@@ -55,22 +48,36 @@ export function removeFault(d: Draft, index: number): Draft {
 /** The kinds of failure the editor offers, as plain words. */
 export type FaultKindChoice = 'slow' | 'down' | 'one-down' | 'restart-empty';
 
+/**
+ * Each kind as the failure editor's "What happens" offers it; a problem quotes these, so it names
+ * an option that is really there. A server's instances are "copies" everywhere the viewer reads.
+ */
+export const FAULT_KIND_LABELS: Record<FaultKindChoice, string> = {
+  slow: 'slows down',
+  down: 'goes down',
+  'one-down': 'loses one copy',
+  'restart-empty': 'goes down, restarts empty',
+};
+
 export function faultKindOf(f: Fault): FaultKindChoice {
   if (f.kind === 'slow') return 'slow';
   if (f.flushAtEnd) return 'restart-empty';
   return f.instance === undefined ? 'down' : 'one-down';
 }
 
-/** The fault with its kind changed, keeping where and when it happens. */
+/**
+ * The fault with its kind changed, keeping where and when it happens. Its keys are in the presets'
+ * order (part, kind, how much, when, then the kind's extras), so it reads like them too.
+ */
 export function withFaultKind(f: Fault, kind: FaultKindChoice): Fault {
   const { tier, startMs, endMs } = f;
-  if (kind === 'slow') return { tier, startMs, endMs, kind: 'slow', factor: f.factor ?? 4 };
-  if (kind === 'one-down') return { tier, startMs, endMs, kind: 'dead', instance: 0 };
-  if (kind === 'restart-empty') return { tier, startMs, endMs, kind: 'dead', flushAtEnd: true };
-  return { tier, startMs, endMs, kind: 'dead' };
+  if (kind === 'slow') return { tier, kind: 'slow', factor: f.factor ?? 4, startMs, endMs };
+  if (kind === 'one-down') return { tier, kind: 'dead', startMs, endMs, instance: 0 };
+  if (kind === 'restart-empty') return { tier, kind: 'dead', startMs, endMs, flushAtEnd: true };
+  return { tier, kind: 'dead', startMs, endMs };
 }
 
-/** e.g. "slows 8×", "goes down", "loses one of its 4 servers", "goes down and restarts empty". */
+/** e.g. "slows 8×", "goes down", "loses one of its 4 copies", "goes down and restarts empty". */
 export function describeFault(f: Fault, instances: number): string {
   switch (faultKindOf(f)) {
     case 'slow':
@@ -78,7 +85,7 @@ export function describeFault(f: Fault, instances: number): string {
     case 'restart-empty':
       return 'goes down and restarts empty';
     case 'one-down':
-      return `loses one of its ${instances} servers`;
+      return `loses one of its ${instances} copies`;
     case 'down':
       return 'goes down';
   }
@@ -146,9 +153,9 @@ export function updateCallAt(t: TierConfig, index: number, change: Partial<CallP
 }
 
 /**
- * The map cell matching the current settings. ASSUMPTION: the map's y axis is failure length (every
- * preset) or traffic; a 'retries' axis would read its caller's retries from the topology, which the
- * UI does not offer.
+ * The map cell matching the current settings: the traffic across, and the first failure's length up.
+ * ASSUMPTION: every scenario's map has failure length up (the failure editor sets the failure); the
+ * sweep could also vary retries up, but no scenario does, so any other axis reads the traffic.
  */
 export function currentCell(s: ScenarioPreset): { x: number; y: number } {
   const f = s.faults[0];
@@ -174,7 +181,9 @@ export function draftProblems(d: Draft): string[] {
   for (const f of s.faults) {
     const tier = d.topology.tiers.find((t) => t.id === f.tier);
     if (f.instance !== undefined && tier && (tier.instances < 2 || f.instance >= tier.instances)) {
-      problems.push(`${label(f.tier)} has only ${tier.instances} server${tier.instances === 1 ? '' : 's'}, so "one server goes down" would take it down completely; choose "goes down" instead.`);
+      problems.push(
+        `${label(f.tier)} has only ${tier.instances} cop${tier.instances === 1 ? 'y' : 'ies'}, so "${FAULT_KIND_LABELS['one-down']}" would take it down completely; choose "${FAULT_KIND_LABELS.down}" instead.`,
+      );
     }
     const endS = f.endMs / 1000;
     if (endS > durationS - JUDGE_AFTER_FAILURE_S) {

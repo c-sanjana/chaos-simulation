@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { capitalise } from '../analysis/helpers';
 import { buildRunConfig } from '../data/buildConfig';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
 import { buildSweep, tippingPoints } from '../sweep/sweep';
@@ -17,8 +18,16 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
   const spec = useMemo(() => buildSweep(topology, scenario), [topology, scenario]);
   const sweep = useSweep(pool, spec);
   const current = currentCell(scenario);
-  // Settings between or beyond the map's values start on the nearest cell (and say so).
+  // Settings between or beyond the map's values start on the nearest cell (and say so). A re-run
+  // with other settings starts on its own cell again (code review 4: the old cell could be off the
+  // new map); replaying the same settings keeps the cell chosen (App keeps the same scenario).
   const [selected, setSelected] = useState(() => nearestCell(scenario));
+  const [selectedFor, setSelectedFor] = useState(scenario);
+  if (selectedFor !== scenario) {
+    // Set while rendering (not in an effect), so the old cell is never simulated on the new settings.
+    setSelectedFor(scenario);
+    setSelected(nearestCell(scenario));
+  }
   const { x: xAxis, y: yAxis } = scenario.map;
   const yOverride = { [yAxis.param]: selected.y };
   const cellConfig = useMemo(() => buildRunConfig(topology, scenario, { rps: selected.x, ...yOverride }), [topology, scenario, selected.x, selected.y]);
@@ -80,7 +89,7 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
             onEdit={onEdit}
             compact
             chartHeight={200}
-            sideTimeline
+            sideStory
           />
         )}
         {replay.status === 'running' && <PlayerPlaceholder text={`Simulating ${cellTitle}…`} progress={replay.progress} minHeight={REPLAY_PLAYER_HEIGHT} />}
@@ -92,7 +101,3 @@ export function TippingStep({ pool, topology, scenario, labels, onEdit }: { pool
 
 /** ASSUMPTION: about the height of the replay player at 1440 × 900 (measured), so the page doesn't jump when it appears. */
 const REPLAY_PLAYER_HEIGHT = 640;
-
-function capitalise(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}

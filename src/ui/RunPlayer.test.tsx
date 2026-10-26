@@ -1,8 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { AnnouncerProvider } from './components/Announcer';
 import { retryStormRun } from '../analysis/testRuns';
+import { chainGraph } from '../builder/testGraphs';
+import { buildRunConfig } from '../data/buildConfig';
 import { webChain } from '../data/topologies';
+import { executeJob } from '../worker/jobs';
 import { failureOverText, RunPlayer } from './RunPlayer';
+import { customSystem } from './system';
+import { labelsOf } from './viewModels';
 
 vi.mock('uplot', () => import('./testing/fakeUplot'));
 
@@ -124,7 +129,7 @@ describe('RunPlayer', { timeout: 60_000 }, () => {
   });
 
   it('tells the run shown in a compact story beside the chart (step 2 and 3 replays), its one panel', () => {
-    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} after={{ config: recovered.config, result: result(recovered) }} autoPlay={false} sideTimeline />);
+    render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} after={{ config: recovered.config, result: result(recovered) }} autoPlay={false} sideStory />);
     const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
     expect(story.className).toContain('csl-story--compact');
     expect(story.closest('.csl-player__sidestack')).not.toBeNull();
@@ -348,6 +353,22 @@ describe('RunPlayer accessibility', { timeout: 60_000 }, () => {
     expect(screen.queryByRole('img', { name: /^Load & retries/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show as chart' }));
     expect(screen.getByRole('img', { name: /^Load & retries/ })).toBeTruthy();
+  });
+
+  it("shows the default for a part chosen earlier that this run doesn't have, instead of breaking (code review 4)", () => {
+    const chain = customSystem(chainGraph(['client', 'server', 'database'])) as Extract<ReturnType<typeof customSystem>, { kind: 'custom' }>;
+    const config = buildRunConfig(chain.topology, chain.scenarios[0]);
+    const other = executeJob({ kind: 'analyze', config, labels: labelsOf(chain.topology) });
+    const { rerender } = render(<RunPlayer title="t" subtitle="s" topology={webChain} config={stuck.config} result={result(stuck)} autoPlay={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Errors' }));
+    const scope = screen.getByLabelText('Show metrics for') as HTMLSelectElement;
+    fireEvent.change(scope, { target: { value: 'api' } });
+    expect(scope.value).toBe('api');
+    // Another system (the example's App server isn't in it): end to end again, and nothing breaks.
+    rerender(<RunPlayer title="t" subtitle="s" topology={chain.topology} config={config} result={other} autoPlay={false} />);
+    expect(scope.value).toBe('client');
+    expect(Array.from(scope.options).map((o) => o.value)).not.toContain('api');
+    expect(screen.getByRole('img', { name: /^Errors \(end to end\)/ })).toBeTruthy();
   });
 
   it('lists the tier behind the default scope once ("DB (most overloaded)", not DB again)', () => {

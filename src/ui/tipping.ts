@@ -54,18 +54,20 @@ function yourPart(tip: TippingPoint, current: { x: number; y: number }, verdict:
 
 /**
  * Who retries, using the same every/several rule as the story: "Every layer retries when it
- * gives up (Client 5×, Load balancer 3×, App server 1×), so one failed answer can come back as many
- * requests." With one retrying caller it names that caller; with none it says nothing.
+ * gives up (users' apps 5×, Load balancer 3×, App server 1×), so one failed answer can come back as
+ * many requests." The client is "users' apps", as in the banner's retries. With one retrying caller
+ * it names that caller; with none it says nothing.
  */
 export function cascadeSentence(calls: RetryCall[], labels: Record<string, string>): string {
   // One entry per caller: a part that calls several parts reads "App server 1× / 2×".
   const retrying = retriesByCaller(calls.filter((c) => c.retries > 0));
   if (retrying.length === 0) return '';
-  const name = (id: string) => labels[id] ?? id;
+  const name = (id: string) => (id === 'client' ? "users' apps" : (labels[id] ?? id));
   const list = retrying.map((g) => withCounts(name(g.caller), g.counts)).join(', ');
   if (retrying.length === 1) {
     const g = retrying[0];
-    return `${name(g.caller)} retries when it gives up (${countsText(g.counts)}), so one failed answer can come back as more requests.`;
+    const who = g.caller === 'client' ? "Users' apps retry when they give" : `${name(g.caller)} retries when it gives`;
+    return `${who} up (${countsText(g.counts)}), so one failed answer can come back as more requests.`;
   }
   const every = retrying.length === retriesByCaller(calls).length;
   return `${every ? 'Every layer retries when it gives' : 'Several layers retry when they give'} up (${list}), so one failed answer can come back as many requests.`;
