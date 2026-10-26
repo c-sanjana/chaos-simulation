@@ -1,3 +1,4 @@
+import { capitalise } from '../analysis/helpers';
 import type { Signals } from '../analysis/signals';
 import { analyzed, retryStormRun } from '../analysis/testRuns';
 import { buildRunConfig } from '../data/buildConfig';
@@ -6,7 +7,7 @@ import { webChain } from '../data/topologies';
 import type { RunConfig } from '../engine/config';
 import { call, singleTier, tier } from '../engine/testConfigs';
 import { applyFix, candidateFixes, COMMON_INSTINCT, describeSignal, fillNames, queueLimitFor } from './candidates';
-import { FIX_CATALOG, type FixDefinition, type FixKind } from './catalog';
+import { FIX_CATALOG, FIX_SETTINGS, type FixDefinition, type FixKind } from './catalog';
 
 const labels = Object.fromEntries(Object.entries(webChain.layout).map(([id, l]) => [id, l.label]));
 const def = (kind: FixKind): FixDefinition => FIX_CATALOG.find((d) => d.kind === kind)!;
@@ -50,6 +51,29 @@ describe('FIX_CATALOG', () => {
       // never promises or denies an outcome next to a result that might say otherwise.
       expect(d.how).not.toMatch(/drain|usually|goes on|recover|enough|stuck|keeps growing|the loop/i);
     }
+  });
+
+  it('says the numbers FIX_SETTINGS applies, so changing a setting means changing the words too', () => {
+    const byId = Object.fromEntries(FIX_CATALOG.map((d) => [d.id, d]));
+    const words = (d: FixDefinition) => [d.title, d.how, ...d.pros, ...d.cons].join(' ');
+    const inWords: Record<number, string> = { 1: 'once', 2: 'twice', 3: 'three times' };
+    const pct = `${Math.round(FIX_SETTINGS.retryBudgetRatio * 100)}%`;
+    expect(FIX_SETTINGS.retryBudgetRatio).toBe(0.1); // "a tenth" below
+    for (const id of ['retry-budget', 'retry-budget-every-layer']) {
+      expect(byId[id].title).toContain(pct);
+      expect(byId[id].how).toContain(pct);
+      expect(byId[id].how).toContain('a tenth more');
+    }
+    expect(byId['cap-retries'].title).toBe(`Cap retries at ${FIX_SETTINGS.maxRetries}`);
+    expect(byId['cap-retries'].how).toContain(`at most ${inWords[FIX_SETTINGS.maxRetries + 1]}`);
+    expect(byId['longer-timeout'].title).toContain(`×${FIX_SETTINGS.timeoutFactor}`);
+    expect(byId['longer-timeout'].how).toContain(`${inWords[FIX_SETTINGS.timeoutFactor]} longer`);
+    expect(words(byId['longer-timeout'])).toContain(`up to ${inWords[FIX_SETTINGS.timeoutFactor]} longer`);
+    const more = `${Math.round((FIX_SETTINGS.instanceFactor - 1) * 100)}%`;
+    expect(byId['add-instances'].title).toContain(`+${more}`);
+    expect(words(byId['add-instances'])).toContain(`${more} more servers`);
+    expect(byId['more-consumers'].title).toBe(`${capitalise(inWords[FIX_SETTINGS.consumerFactor])} as many consumers`);
+    expect(byId['more-consumers'].how).toContain(`${inWords[FIX_SETTINGS.consumerFactor]} as many messages`);
   });
 
   it('marks only its own pros and cons as contradictable by a run', () => {
@@ -195,6 +219,13 @@ describe('on the default retry storm, every layer retrying (users\' apps 5, Load
     expect(diffPaths(config, fix.config).sort()).toEqual(['client.call.retries', 'tiers.0.downstream.retries']);
     expect([fix.config.client.call.retries, fix.config.tiers[0].downstream!.retries, fix.config.tiers[1].downstream!.retries]).toEqual([0, 0, 1]);
   });
+
+  it('names a part ending in a number without "the", as spokenName does', () => {
+    const numbered = { ...labels, lb: 'Load balancer 2', api: 'App server 2', db: 'Database 2' };
+    const fixes = Object.fromEntries(candidateFixes(config, analysis.signals, numbered).map((c) => [c.id, c]));
+    expect(fixes['retry-one-layer'].what).toBe("Only App server 2 retries Database 2 (once); users' apps and Load balancer 2 no longer retry.");
+    expect(fixes['retry-budget-every-layer'].what).toBe("Users' apps, Load balancer 2 and App server 2 each stop retrying once retries reach 10% of their first attempts.");
+  });
 });
 
 describe('applyFix: where it applies', () => {
@@ -325,7 +356,7 @@ describe('applyFix: where it applies', () => {
     const c = chain();
     c.tiers[0].cacheAside = { ...c.tiers[0].cacheAside!, retries: 2 };
     const what = candidateFixes(c, signalsWith({ retryShare: at('cache') }), {}).find((x) => x.id === 'retry-one-layer')!.what;
-    expect(what).toBe("Only the api's cache lookups retry the cache (up to 2 times); users' apps and the api no longer retry.");
+    expect(what).toBe("Only the api's cache lookups retry (up to 2 times); users' apps and the api no longer retry.");
   });
 
   it('retrying at one layer needs at least two retrying calls and something overloaded', () => {

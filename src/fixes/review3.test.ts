@@ -134,6 +134,7 @@ describe('where fixes are aimed', () => {
     expect(fix.config.tiers.find((t) => t.id === 'db')!.queueLimit).toBe(0);
     expect(fix.title).toBe('Bound the queue (load shedding): DB, no queue');
     expect(fix.what).toBe("DB turns away every request it can't start at once, instead of letting it wait.");
+    expect(fix.how).toBe("The database turns away any request it can't start at once instead of letting it wait, so it spends its time on requests it can answer before the caller gives up.");
   });
 
   it('quotes the part the struggling-part signal names', () => {

@@ -8,6 +8,16 @@
 export const LIMITS = { maxRps: 5000, minDurationS: 30, maxDurationS: 600 } as const;
 
 /**
+ * How long a run must go on after its last failure ends, so there is room to see whether it
+ * recovers. Recovery is judged only up to maxRequestMs (analysis/recovery: the longest a request
+ * can take, every retry included) before the run's end, so this leaves time after the failure
+ * even then. Used by the failure editor's limits (ui/draft.ts) and by the check that a fix still
+ * helps with a longer slowdown (fixes/rank.ts withLongerOutage).
+ * ASSUMPTION: 20 s; the retry storm recovers within seconds when it recovers at all.
+ */
+export const JUDGE_AFTER_FAILURE_S = 20;
+
+/**
  * The most requests users may send in one run: the largest traffic for the longest run (3 million).
  * ASSUMPTION: this counts users' first attempts only. Retries can multiply them during a failure,
  * but nested timeouts cap that (the default retry storm peaks at ~3× the DB's capacity), and a run

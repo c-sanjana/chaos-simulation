@@ -58,9 +58,8 @@ export interface CacheSettings {
 
 /**
  * A message queue between a producer and its consumers.
- * ASSUMPTION (provisional until the queue's semantics are decided, see PLAN.md): the producer is
- * answered once the message is stored; `consumers` workers take messages in order and call the
- * next component, retrying by its call settings.
+ * ASSUMPTION: the producer is answered once the message is stored; `consumers` workers take
+ * messages in order and call the next component, retrying by its call settings.
  */
 export interface QueueSettings {
   kind: 'queue';
@@ -119,6 +118,11 @@ export const KIND_LABELS: Record<ComponentKind, string> = {
   database: 'Database',
   queue: 'Queue',
 };
+
+/** What a part is called in messages and on screen: its name, or its kind when the name is blank. */
+export function displayName(node: BuilderNode): string {
+  return node.label.trim() || KIND_LABELS[node.settings.kind];
+}
 
 /** The kind in the middle of a sentence. */
 export const KIND_NOUNS: Record<ComponentKind, string> = {

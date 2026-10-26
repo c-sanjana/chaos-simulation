@@ -1,4 +1,5 @@
-import { connect, starterGraph } from '../../builder/edit';
+import { connect } from '../../builder/edit';
+import { starterGraph } from '../../builder/testGraphs';
 import { defaultCall, defaultSettings, type BuilderGraph } from '../../builder/graph';
 import { BOX_H, BOX_W, CELL_H, CELL_W, boxExit, cellCenter, edgeLine, edgeLines, labelSize, segmentHitsRect, wrapLabel } from './geometry';
 

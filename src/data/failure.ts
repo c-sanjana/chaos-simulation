@@ -15,14 +15,13 @@ import type { Axis, TopologyPreset } from './types';
  * - a cache going down and coming back empty: 1 s recovers everywhere; it tips from ~3 s;
  * - the front door (the part users call) slowing: it has lots of spare capacity, so it takes longer;
  * - the work behind a queue slowing: the queue absorbs it for longest;
- * - anything else (a database slowing, a part going down): up to 2 s always recovers.
+ * - anything else (a database slowing, a part going down), or no failure: up to 2 s always recovers.
  */
 export function failureLengths(topology: TopologyPreset, fault: Fault | undefined): number[] {
-  if (!fault) return [12, 8, 5, 3, 2, 1];
-  const tier = topology.tiers.find((t) => t.id === fault.tier);
-  if (tier?.cache && fault.kind === 'dead' && fault.flushAtEnd) return [20, 10, 5, 3, 1];
-  if (fault.kind === 'slow' && fault.tier === topology.clientCall.target) return [30, 20, 10, 5, 2];
-  if (fault.kind === 'slow' && behindQueue(topology, fault.tier)) return [40, 20, 10, 5, 2];
+  const tier = topology.tiers.find((t) => t.id === fault?.tier);
+  if (tier?.cache && fault?.kind === 'dead' && fault.flushAtEnd) return [20, 10, 5, 3, 1];
+  if (fault?.kind === 'slow' && fault.tier === topology.clientCall.target) return [30, 20, 10, 5, 2];
+  if (fault?.kind === 'slow' && behindQueue(topology, fault.tier)) return [40, 20, 10, 5, 2];
   return [12, 8, 5, 3, 2, 1];
 }
 

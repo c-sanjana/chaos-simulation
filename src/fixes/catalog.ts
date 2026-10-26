@@ -61,18 +61,29 @@ export interface FixDefinition {
   scope?: 'layer' | 'stack';
 }
 
-/** Settings the fixes apply. */
+/**
+ * Settings the fixes apply. The catalogue's titles and texts below say these numbers in words
+ * ("10%", "a tenth", "twice", "three times", "+50%"); a test checks they agree, so change both.
+ */
 export const FIX_SETTINGS = {
-  /** Retries may be at most 10% of first attempts. */
+  /**
+   * Retries may be at most 10% of first attempts.
+   * ASSUMPTION: 10%, the per-client retry budget Google's SRE book suggests: small enough that
+   * retries can't multiply load, large enough to rescue the odd failed request.
+   */
   retryBudgetRatio: 0.1,
+  /** ASSUMPTION: 1 retry, the smallest cap that still rescues a single brief error. */
   maxRetries: 1,
   /**
    * Backoff base used when adding jittered backoff to a call that retries immediately.
    * ASSUMPTION: 100 ms, a typical base delay for request retries.
    */
   jitterBaseMs: 100,
+  /** ASSUMPTION: ×3, enough to outlast a short slowdown without making the caller wait for ever. */
   timeoutFactor: 3,
+  /** ASSUMPTION: +50%, a sizeable but plausible scale-out step. */
   instanceFactor: 1.5,
+  /** ASSUMPTION: twice as many, a clear step that shows whether the consumers were the limit. */
   consumerFactor: 2,
 } as const;
 
@@ -125,7 +136,7 @@ export const FIX_CATALOG: FixDefinition[] = [
     kind: 'capRetries',
     title: 'Cap retries at 1',
     short: 'Cap retries at 1',
-    how: 'Each request asks {target} at most twice: one try and one more, so this layer adds at most one extra call per request.',
+    how: 'Each request tries {target} at most twice: one try and one retry, so this layer adds at most one extra call per request.',
     pros: ['The simplest change: one number', AT_MOST_DOUBLE],
     cons: [
       'A genuinely brief error reaches the user more often',

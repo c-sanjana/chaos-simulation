@@ -1,7 +1,7 @@
 /**
  * Pure editing functions for the topology builder. Each takes a graph and returns a new one
- * (never mutating its input), so the screen can keep the graph in React state and undo is easy
- * to add later.
+ * (never mutating its input), so the screen can keep the graph in React state and undo a change
+ * by going back to the graph before it.
  *
  * Edits that can be refused (placing, moving, connecting) return an `EditResult`: the graph
  * unchanged (the same object) plus a plain-language `reason` when refused, or the new graph plus
@@ -23,8 +23,9 @@ import {
   type QueueSettings,
   type ServiceSettings,
   aKind,
+  displayName as name,
 } from './graph';
-import { shareFractions, shareWeight } from '../engine/config';
+import { shareFractions } from '../engine/config';
 import { flowCalls } from './graphWalk';
 
 /** Size of the builder's canvas grid. Positions are 1-based, like the topology diagram's. */
@@ -178,10 +179,6 @@ export function connectRefusal(from: ComponentKind, to: ComponentKind): string |
   return 'Only an app server looks things up in a cache.';
 }
 
-function name(node: BuilderNode): string {
-  return node.label.trim() || KIND_LABELS[node.settings.kind];
-}
-
 /**
  * Makes `from` call `to`, with the usual call settings for that pair (`defaultCall`).
  * Refused for a component calling itself, a call that already exists, or a pair `canConnect`
@@ -265,9 +262,6 @@ export function updateCall(graph: BuilderGraph, edgeId: string, patch: Partial<C
   return { ...graph, edges: graph.edges.map((e) => (e.id === edgeId ? { ...e, call: { ...e.call, ...patch } } : e)) };
 }
 
-/** Share maths lives with the config's `share` (one definition for the builder, the drawer and the analysis). */
-export { shareFractions, shareWeight };
-
 /** A share edit's result: the new shares (fractions adding up to 1), and the arrows set by hand so far (see shareEdit). */
 export interface ShareEdit {
   shares: number[];
@@ -298,11 +292,6 @@ export function shareEdit(shares: Array<number | undefined>, index: number, perc
   const movableTotal = movable.reduce((sum, i) => sum + f[i], 0);
   const next = f.map((x, i) => (i === index ? p : !movable.includes(i) ? x : movableTotal > 0 ? (x * left) / movableTotal : left / movable.length));
   return { shares: next.map(roundShare), pinned: holds ? [...kept, index] : [index] };
-}
-
-/** The shares after one of them is set to `percent` (shareEdit, with no arrow set by hand before). */
-export function sharesWith(shares: Array<number | undefined>, index: number, percent: number): number[] {
-  return shareEdit(shares, index, percent).shares;
 }
 
 /** A share kept to 6 decimals, so stored shares stay readable (0.333333, not 0.33333333333333337). */
@@ -344,15 +333,4 @@ export function setFanOut(graph: BuilderGraph, id: string, fanOut: 'sequence' | 
 /** An empty canvas. */
 export function emptyGraph(): BuilderGraph {
   return { nodes: [], edges: [] };
-}
-
-/**
- * The example to start from, laid out like the preset diagram: Client → Load balancer → App server →
- * Database left to right along the middle row, with the app server's Cache above it.
- */
-export function starterGraph(): BuilderGraph {
-  const node = (kind: ComponentKind, col: number, row: number): BuilderNode => ({ id: `${kind}-1`, label: KIND_LABELS[kind], col, row, settings: defaultSettings(kind) });
-  const nodes = [node('client', 1, 3), node('loadBalancer', 3, 3), node('server', 5, 3), node('cache', 5, 1), node('database', 7, 3)];
-  const edge = (from: ComponentKind, to: ComponentKind): BuilderEdge => ({ id: `${from}-1--${to}-1`, from: `${from}-1`, to: `${to}-1`, call: defaultCall(from, to) });
-  return { nodes, edges: [edge('client', 'loadBalancer'), edge('loadBalancer', 'server'), edge('server', 'cache'), edge('server', 'database')] };
 }

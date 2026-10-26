@@ -48,7 +48,7 @@ describe('fix candidates with branches', { timeout: 120_000 }, () => {
     const { run, analysis } = analyzed(config);
     const candidates = candidateFixes(config, analysis.signals, graphLabels, run);
     const one = candidates.find((c) => c.id === 'retry-one-layer')!;
-    expect(one.what).toBe("Only the App server's calls to DB retry the DB (once); users' apps, the Load balancer and the App server's calls to Search service no longer retry.");
+    expect(one.what).toBe("Only the App server's calls to DB retry (once); users' apps, the Load balancer and the App server's calls to Search service no longer retry.");
     expect(one.how).toBe('The app server retries the database and nothing else does: its other calls and every other layer pass errors straight back, so retries no longer multiply from layer to layer.');
     expect(allCalls(one.config).filter((r) => r.policy.retries > 0).map((r) => `${r.owner}→${r.policy.target}`)).toEqual(['api→db']);
     const coalesce = candidates.find((c) => c.id === 'coalesce-misses')!;

@@ -11,7 +11,7 @@ export interface FixCandidate {
   title: string;
   /** The catalogue's name, e.g. "Bound the queue (load shedding)". */
   name: string;
-  /** Tab label, e.g. "Bound queue". */
+  /** Tab label, e.g. "Bound the queue". */
   short: string;
   /** What changes, in one plain sentence with this config's numbers. */
   what: string;
@@ -49,7 +49,7 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
   const candidates: FixCandidate[] = [];
   for (const def of FIX_CATALOG) {
     if (def.signal !== null && signals[def.signal] === null) continue;
-    const plan = planFix(def, config, signals, name, run);
+    const plan = planFix(def, config, signals, labels, run);
     if (plan === null) continue;
     const target = bottleneck(signals);
     const acrossStack = def.scope && target !== null ? acrossTheStack(config, plan.config, target, def.scope, labels) : null;
@@ -74,7 +74,7 @@ export function candidateFixes(config: RunConfig, signals: Signals, labels: Reco
 
 /** The config with `def` applied, or null when it does not apply to this config. Never mutates `config`. */
 export function applyFix(def: FixDefinition, config: RunConfig, signals: Signals, run?: RunResult): RunConfig | null {
-  return planFix(def, config, signals, (id) => id, run)?.config ?? null;
+  return planFix(def, config, signals, {}, run)?.config ?? null;
 }
 
 interface FixPlan {
@@ -99,19 +99,28 @@ export function fillNames(how: string, caller: string, target: string, labels: R
   });
 }
 
-function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: (id: string) => string, run?: RunResult): FixPlan | null {
+function planFix(def: FixDefinition, config: RunConfig, signals: Signals, labels: Record<string, string>, run?: RunResult): FixPlan | null {
+  const name = (id: string) => nameOf(id, labels);
   const callName = (ref: CallRef) => `${name(ref.owner)} → ${name(ref.policy.target)}`;
   const [caller, target] = [(ref: CallRef) => name(ref.owner), (ref: CallRef) => name(ref.policy.target)];
   /** A tier's own call (singular: "the API asks"), as opposed to users' apps or cache lookups (plural). */
   const singular = (ref: CallRef) => ref.field === 'downstream' || ref.field === 'more';
   /**
+   * A part's name with "the" in front where analysis/helpers' spokenName puts one: "the API",
+   * "the Ledger DB", but "App server 2" (a name ending in a number reads like a proper name). The
+   * label keeps its own spelling, like the rest of these sentences ("the DB", not "the database").
+   */
+  const theName = (id: string) => (spokenName(id, labels).startsWith('the ') ? `the ${name(id)}` : name(id));
+  /** Whether `maker` already names the call's target ("the API's Cache lookups", "the API's calls to DB"). */
+  const namesTarget = (ref: CallRef) => ref.owner !== 'client' && (ref.field === 'cacheAside' || callsMadeBy(config, ref.owner) > 1);
+  /**
    * Who makes a call: "users' apps" (the client), "the API", "the API's Cache lookups" (plural
-   * except a tier's own call), or, for a tier with several calls, "the API's calls to the DB".
+   * except a tier's own call), or, for a tier with several calls, "the API's calls to DB".
    */
   const maker = (ref: CallRef) => {
     if (ref.owner === 'client') return "users' apps";
-    if (ref.field === 'cacheAside') return `the ${name(ref.owner)}'s ${name(ref.policy.target)} lookups`;
-    return callsMadeBy(config, ref.owner) > 1 ? `the ${name(ref.owner)}'s calls to ${name(ref.policy.target)}` : `the ${name(ref.owner)}`;
+    if (ref.field === 'cacheAside') return `${theName(ref.owner)}'s ${name(ref.policy.target)} lookups`;
+    return callsMadeBy(config, ref.owner) > 1 ? `${theName(ref.owner)}'s calls to ${name(ref.policy.target)}` : theName(ref.owner);
   };
   const callInto = (id: string) => heaviestCallInto(config, id, run);
   const retryCallFor = (applies: (ref: CallRef) => boolean) => retryCallTowards(config, signals, applies, run);
@@ -187,7 +196,8 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
         // The kept caller's other calls stop retrying too: the catalog's "every other layer" would leave them out.
         how: callsMadeBy(config, keep.owner) > 1 ? '{Caller} retries {target} and nothing else does: its other calls and every other layer pass errors straight back, so retries no longer multiply from layer to layer.' : undefined,
         where: callName(keep),
-        what: `${only} the ${target(keep)} (${n === 1 ? 'once' : `up to ${n} times`}); ${listed(makers)} no longer ${plural ? 'retry' : 'retries'}.`,
+        // The target is said once: "Only the App server's calls to DB retry (once)", not "… retry the DB".
+        what: `${only}${namesTarget(keep) ? '' : ` ${theName(keep.policy.target)}`} (${n === 1 ? 'once' : `up to ${n} times`}); ${listed(makers)} no longer ${plural ? 'retry' : 'retries'}.`,
       };
     }
     case 'boundQueue': {
@@ -204,7 +214,8 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       return {
         config: withTier(config, id, { queueLimit: limit }),
         ...ends(strictest),
-        // A limit of 0 (a caller too impatient for any wait) means no queue at all.
+        // A limit of 0 (a caller too impatient for any wait) means no queue at all: there is no "short queue" to fill.
+        how: limit === 0 ? "{Target} turns away any request it can't start at once instead of letting it wait, so it spends its time on requests it can answer before the caller gives up." : undefined,
         where: limit === 0 ? `${name(id)}, no queue` : `${name(id)}, at most ${limit} queued per instance`,
         what: limit === 0 ? `${name(id)} turns away every request it can't start at once, instead of letting it wait.` : `${name(id)} lets at most ${limit} requests wait per instance and turns the rest away immediately.`,
       };
@@ -273,6 +284,8 @@ function planFix(def: FixDefinition, config: RunConfig, signals: Signals, name: 
       return {
         config: withCall(config, ref, { timeoutMs }),
         ...ends(ref),
+        // A call that never retries only gives up: the catalog's "and retrying" would be untrue.
+        how: ref.policy.retries === 0 ? '{Caller} waits three times longer before giving up on {target}, so an answer slower than before but within the new wait no longer becomes an error for the layers in front to retry.' : undefined,
         where: `${callName(ref)}, ${formatMs(ref.policy.timeoutMs)} → ${formatMs(timeoutMs)}`,
         what: `${caller(ref)} waits up to ${formatMs(timeoutMs)} for ${target(ref)} before giving up (instead of ${formatMs(ref.policy.timeoutMs)}).`,
       };
@@ -378,7 +391,8 @@ export function describeSignal(signal: SignalName, s: Signals, config: RunConfig
   }
 }
 
-const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
+/** A ratio, or a load as a multiple of capacity: "2.3×", "14×". */
+export const formatRatio = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 
 /**
  * A call policy in the config, addressed so that a fix can change it:

@@ -13,7 +13,7 @@ export interface ConfigChange {
 /**
  * What changed between two configs of the same system, e.g. a config and the same config with a
  * fix applied: each tier's own settings (queue limit, skipping abandoned work, sharing cache
- * refills, instances, workers, cores), then each call's policy (the client's call, each tier's
+ * refills, instances, workers, cores, a message queue's consumers), then each call's policy (the client's call, each tier's
  * cache-aside call and every one of its downstream calls: retries, retry budget, timeout, retry
  * delays). Texts are short and plain, e.g. "6 instances (was 4)", "max 1 retry (was 3)".
  *
@@ -45,6 +45,7 @@ function tierChanges(b: TierConfig, a: TierConfig): string[] {
   if (a.instances !== b.instances) texts.push(`${plural(a.instances, 'instance', 'instances')} (was ${b.instances})`);
   if (a.workersPerInstance !== b.workersPerInstance) texts.push(`${plural(a.workersPerInstance, 'worker', 'workers')} each (was ${b.workersPerInstance})`);
   if (a.coresPerInstance !== b.coresPerInstance) texts.push(`${plural(a.coresPerInstance, 'core', 'cores')} each (was ${b.coresPerInstance})`);
+  if (a.queue && b.queue && a.queue.consumers !== b.queue.consumers) texts.push(`${plural(a.queue.consumers, 'consumer', 'consumers')} (was ${b.queue.consumers})`);
   return texts;
 }
 

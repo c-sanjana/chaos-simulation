@@ -13,6 +13,7 @@ import type { Analysis } from '../analysis/analyze';
 import { capitalise, formatMs, incidentWindow, listed, peakLoad as peakLoadIn, spokenName, strugglingPart } from '../analysis/helpers';
 import { callsOf, type CallPolicy, type RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
+import { formatRatio } from './candidates';
 import type { FixKind, Refutation } from './catalog';
 
 /** A run with its no-failure control and analysis (the shape of the worker's AnalyzeResult). */
@@ -129,8 +130,6 @@ function refutations(pressure: string | null, before: { result: MeasuredRun }, a
 
 // ---------- the sentences ----------
 
-/** A load as a multiple of capacity: "2.3×", "14×". */
-const multiple = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 const count = (n: number) => {
   try {
     return Math.round(n).toLocaleString('en-US');
@@ -169,10 +168,16 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
     // ASSUMPTION: the ranking may refuse a recovery that fails more users (REVIEW2 1.4); say why.
     if (b.verdict === 'stuck' || b.verdict === 'overloaded') return `It gets back to normal (in ${t(a.recoveryMs, a.verdict)}) where the run without it stays stuck, but ${failed}, so it doesn't count as helping.`;
     // The original recovered too, and the fix was neither faster nor kinder to users.
+    if (a.failedRequests === 0 && b.failedRequests === 0) {
+      // Not "0 requests failed instead of 0": say that nobody failed, and what didn't improve.
+      if (b.verdict === 'unaffected') return 'Even without it, no request failed and the failure made no difference to users, so there was nothing to improve.';
+      const sooner = (a.verdict === 'unaffected' ? 0 : (a.recoveryMs ?? 0)) < (b.recoveryMs ?? 0);
+      return `No request failed with it or without it, and it recovers in ${t(a.recoveryMs, a.verdict)}, against ${t(b.recoveryMs, b.verdict)} without it: ${sooner ? 'at most a second faster, too little to count' : 'no faster'}, so no improvement.`;
+    }
     return `It recovers in ${t(a.recoveryMs, a.verdict)}, against ${t(b.recoveryMs, b.verdict)} without it, and ${failed}: no improvement.`;
   }
   const load = pressure === null ? 0 : peakLoad(after.config, after.result.run, pressure, afterFailure(after.result));
-  const loadPart = pressure !== null && load > 1 ? `${say(pressure)} still had up to ${multiple(load)} the work it can handle after the failure ended` : null;
+  const loadPart = pressure !== null && load > 1 ? `${say(pressure)} still had up to ${formatRatio(load)} the work it can handle after the failure ended` : null;
   const still = stillRetrying(after.config, say);
   const cause = still && loadPart ? `${still}, so ${loadPart}` : loadPart ? capitalise(loadPart) : still;
   const text = (main: string) => main + cacheEmptied(after.result, say);
@@ -183,11 +188,13 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
     // Compared only with a failure of the part that call waits for: another part's failure says nothing about this wait.
     const longest = Math.max(0, ...(after.config.faults ?? []).filter((f) => changed && f.tier === changed.target).map((f) => f.endMs - f.startMs));
     if (changed && changed.timeoutMs < longest) {
-      return text(`The failure lasted ${formatMs(longest)}, longer than the new ${formatMs(changed.timeoutMs)} wait, so ${say(changed.owner)} still gave up and retried${cause ? `. ${cause}` : ''}.`);
+      // "and retried" only when that call retries: one with no retries just gave up.
+      const retried = changed.retries > 0 ? ' and retried' : '';
+      return text(`The failure lasted ${formatMs(longest)}, longer than the new ${formatMs(changed.timeoutMs)} wait, so ${say(changed.owner)} still gave up${retried}${cause ? `. ${cause}` : ''}.`);
     }
   }
   if (kind === 'addInstances' && pressure !== null && grew(before.config, after.config) === pressure && loadPart) {
-    return text(`Even with more servers, ${say(pressure)} had up to ${multiple(load)} the work it can now handle after the failure ended${still ? `: ${uncap(still)}` : ''}.`);
+    return text(`Even with more servers, ${say(pressure)} had up to ${formatRatio(load)} the work it can now handle after the failure ended${still ? `: ${uncap(still)}` : ''}.`);
   }
   if (kind === 'moreConsumers') {
     const q = after.result.analysis.signals.queueBacklog;
@@ -214,7 +221,7 @@ function workedText(kind: FixKind, pressure: string | null, before: { config: Ru
   if (pressure === null) return change ? `${change}.` : 'It got back to normal after the failure ended.';
   const now = peakLoad(after.config, after.result.run, pressure, afterFailure(after.result));
   const was = peakLoad(before.config, before.result.run, pressure, afterFailure(before.result));
-  const load = `${say(pressure)} had at most ${multiple(now)} the work it can handle, against ${multiple(was)} without the fix`;
+  const load = `${say(pressure)} had at most ${formatRatio(now)} the work it can handle, against ${formatRatio(was)} without the fix`;
   const drained = now <= 1 ? ', so the pile left by the failure could drain' : '';
   return change ? `${change}, so after the failure ended ${load}${drained}.` : `After the failure ended, ${load}${drained}.`;
 }
@@ -248,13 +255,13 @@ function changeText(kind: FixKind, pressure: string | null, before: { config: Ru
 
 const uncap = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
-/** The call whose timeout the fix lengthened, with its new timeout. */
-function changedTimeout(before: RunConfig, after: RunConfig): { owner: string; target: string; timeoutMs: number } | null {
+/** The call whose timeout the fix lengthened, with its new timeout and how many times it retries. */
+function changedTimeout(before: RunConfig, after: RunConfig): { owner: string; target: string; timeoutMs: number; retries: number } | null {
   const key = (c: { owner: string; policy: CallPolicy }) => `${c.owner}→${c.policy.target}`;
   const was = new Map(layerCalls(before).map((c) => [key(c), c.policy.timeoutMs]));
   for (const c of layerCalls(after)) {
     const old = was.get(key(c));
-    if (c.policy.timeoutMs !== null && old !== undefined && old !== null && c.policy.timeoutMs > old) return { owner: c.owner, target: c.policy.target, timeoutMs: c.policy.timeoutMs };
+    if (c.policy.timeoutMs !== null && old !== undefined && old !== null && c.policy.timeoutMs > old) return { owner: c.owner, target: c.policy.target, timeoutMs: c.policy.timeoutMs, retries: c.policy.retries };
   }
   return null;
 }

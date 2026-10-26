@@ -1,12 +1,7 @@
+import { listed } from '../analysis/helpers';
 import { MAX_RETRIES } from '../engine/config';
 import { connectRefusal } from './edit';
-import { aKind, KIND_LABELS, type BuilderEdge, type BuilderGraph, type BuilderNode } from './graph';
-
-/** A part as the messages name it: its name, or its kind when the name is blank. */
-const nameOf = (n: BuilderNode) => n.label.trim() || KIND_LABELS[n.settings.kind];
-
-/** "a", "a and b", "a, b and c". */
-const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+import { aKind, displayName as nameOf, type BuilderEdge, type BuilderGraph, type BuilderNode } from './graph';
 
 /** "A database only answers…" → "a database only answers…", to follow a colon. */
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -56,7 +51,8 @@ export function validateGraph(graph: BuilderGraph): string[] {
 export function findProblems(graph: BuilderGraph): GraphProblem[] {
   const problems: GraphProblem[] = [];
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  // Only a damaged save can have these (the canvas gives every part its own id).
+  // A guard: only a damaged save could have these. The canvas gives every part its own id, and
+  // saves are loaded through ui/savedSystem's isGraph, which refuses a drawing with repeated ids.
   for (const id of new Set(graph.nodes.filter((n, i) => graph.nodes.findIndex((m) => m.id === n.id) < i).map((n) => n.id))) {
     problems.push(problem('wrong', 'This saved drawing is damaged: two parts are mixed up. Press Clear and draw it again, or start from the example.', [id]));
   }
@@ -65,11 +61,13 @@ export function findProblems(graph: BuilderGraph): GraphProblem[] {
     return [problem('unfinished', 'No Client yet. Add one from the list above: requests start there.')];
   }
   if (clients.length > 1) {
-    problems.push(problem('wrong', `Too many Clients: ${listed(clients.map(nameOf))}. Keep one and remove the others, since one Client stands for all your users.`, clients.map((n) => n.id)));
+    const others = clients.length === 2 ? 'the other' : 'the others';
+    problems.push(problem('wrong', `Too many Clients: ${listed(clients.map(nameOf))}. Keep one and remove ${others}, since one Client stands for all your users.`, clients.map((n) => n.id)));
   }
 
   // Calls that aren't allowed at all, or that point at a part that is gone (the canvas refuses
-  // these; a loaded graph might have them).
+  // these). The checks for arrows to a missing part are a guard: saves are loaded through
+  // ui/savedSystem's withoutLooseArrows, which drops such arrows.
   for (const e of graph.edges) {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
@@ -119,11 +117,12 @@ export function findProblems(graph: BuilderGraph): GraphProblem[] {
     if (caches.length > 0 && calls.length === 0) {
       problems.push(problem('unfinished', `${who} has a cache but nothing behind it. Draw an arrow from ${who} to a database, for when the cache doesn't have the answer.`, [n.id], [], true));
     }
-    if (kind === 'client' && outEdges.length === 0) {
+    // Only the first Client is checked: any other is to be removed (see "Too many Clients"), not connected.
+    if (kind === 'client' && n.id === clients[0].id && outEdges.length === 0) {
       problems.push(problem('unfinished', `${who} isn't connected to anything. Draw an arrow from it to the first part users talk to, usually a load balancer.`, [n.id], [], true));
     }
     if (kind === 'queue' && calls.length === 0) {
-      problems.push(problem('unfinished', `${who} doesn't pass its messages on. Draw an arrow from it to the part that should handle them.`, [n.id], [], true));
+      problems.push(problem('unfinished', `${who} doesn't pass its messages on. Draw an arrow from it to the part that should work through them.`, [n.id], [], true));
     }
     if (kind === 'loadBalancer' && calls.length === 0) {
       problems.push(problem('unfinished', `${who} has nothing to send requests to. Draw an arrow from it to an app server.`, [n.id], [], true));
@@ -167,7 +166,8 @@ export function findProblems(graph: BuilderGraph): GraphProblem[] {
   const reached = reachable(graph, clients[0].id);
   const clientCalls = graph.edges.some((e) => e.from === clients[0].id && byId.has(e.to));
   for (const n of graph.nodes) {
-    if (reached.has(n.id) || !clientCalls) continue;
+    // A second Client can't be drawn to (nothing may send to a Client): "Too many Clients" covers it.
+    if (reached.has(n.id) || !clientCalls || n.settings.kind === 'client') continue;
     problems.push(problem('unfinished', `Nothing sends requests to ${nameOf(n)}. Draw an arrow to it from the part before it, or remove it.`, [n.id], [], true));
   }
   return merged(problems);

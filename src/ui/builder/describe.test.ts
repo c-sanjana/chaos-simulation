@@ -1,4 +1,5 @@
-import { starterGraph, updateNode } from '../../builder/edit';
+import { updateNode } from '../../builder/edit';
+import { starterGraph } from '../../builder/testGraphs';
 import { defaultSettings, type PoolSettings } from '../../builder/graph';
 import { callLabel, callSentence, displayName, edgeEnds, edgeTitle, formatCount, formatMs, nodeLines, nodeSummary, plural } from './describe';
 

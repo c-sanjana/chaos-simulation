@@ -14,10 +14,10 @@ import {
   nodeAt,
   removeEdge,
   removeNode,
-  starterGraph,
   updateCall,
   updateNode,
 } from './edit';
+import { starterGraph } from './testGraphs';
 import { canConnect, defaultCall, defaultSettings, type BuilderGraph, type ComponentKind } from './graph';
 
 const KINDS: ComponentKind[] = ['client', 'loadBalancer', 'server', 'cache', 'database', 'queue'];

@@ -1,6 +1,7 @@
 import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
-import { GRID_COLS, GRID_ROWS, addNode, emptyGraph, starterGraph } from '../../builder/edit';
+import { GRID_COLS, GRID_ROWS, addNode, emptyGraph } from '../../builder/edit';
+import { starterGraph } from '../../builder/testGraphs';
 import type { BuilderGraph } from '../../builder/graph';
 import { findProblems } from '../../builder/validate';
 import { exampleGraph } from '../system';

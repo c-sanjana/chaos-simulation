@@ -3,7 +3,8 @@ import type { RunConfig } from '../engine/config';
 import { runSimulation } from '../engine/run';
 import { singleTier } from '../engine/testConfigs';
 import type { FixCandidate } from './candidates';
-import { fixHelped, isReliable, LONGER_OUTAGE_MARGIN_MS, measureOutcome, rankFixes, seedAgreement, seedVariants, withLongerOutage, type FixOutcome } from './rank';
+import { JUDGE_AFTER_FAILURE_S } from '../data/limits';
+import { fixHelped, isReliable, measureOutcome, rankFixes, seedAgreement, seedVariants, withLongerOutage, type FixOutcome } from './rank';
 
 const out = (verdict: FixOutcome['verdict'], recoveryMs: number | null, failedRequests: number): FixOutcome => ({ verdict, recoveryMs, failedRequests });
 const stuck = out('stuck', null, 12_000);
@@ -202,7 +203,7 @@ describe('withLongerOutage', () => {
   });
 
   it('gives up when a longer failure would end too close to the end of the run, or there is none', () => {
-    expect(LONGER_OUTAGE_MARGIN_MS).toBe(20_000);
+    expect(JUDGE_AFTER_FAILURE_S).toBe(20);
     const lastFault = (endMs: number): RunConfig => ({ ...config, faults: [{ tier: 'svc', kind: 'slow', factor: 2, startMs: 60_000, endMs }] });
     expect(withLongerOutage(lastFault(80_000))!.faults![0].endMs).toBe(100_000); // ends exactly 20 s before the end: fine
     expect(withLongerOutage(lastFault(80_001))).toBeNull();

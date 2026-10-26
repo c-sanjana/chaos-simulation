@@ -85,8 +85,40 @@ describe('explainFix', { timeout: 120_000 }, () => {
     expect(explain(buildRunConfig(webChain, loadBalancerSlow), 'longer-timeout').text).not.toMatch(/The failure lasted/);
   });
 
+  it('never says "0 requests failed instead of 0": it says nobody failed, and that recovery was no faster', () => {
+    // A 1 s cache restart at 100 req/s changes nothing for users, with or without merging misses.
+    const e = explain(buildRunConfig(webChain, cacheRestart, { rps: 100, outageMs: 1000 }), 'coalesce-misses');
+    expect(e.helped).toBe(false);
+    expect(e.text).toBe('Even without it, no request failed and the failure made no difference to users, so there was nothing to improve.');
+    // A 1 s DB slowdown at 60 req/s: back to normal 1 s after, nobody failed.
+    const calm = buildRunConfig(webChain, retryStorm, { rps: 60, outageMs: 1000 });
+    const before = analyzed(calm);
+    expect(before.analysis.recovery).toMatchObject({ verdict: 'recovered', recoveryMs: 1000, failedRequests: 0 });
+    expect(explainFix('jitterBackoff', false, { config: calm, result: before }, { config: calm, result: before }, labels).text).toBe(
+      'No request failed with it or without it, and it recovers in 1 s, against 1 s without it: no faster, so no improvement.',
+    );
+    const unaffected = { ...before, analysis: { ...before.analysis, recovery: { ...before.analysis.recovery, verdict: 'unaffected' as const, recoveryMs: null } } };
+    expect(explainFix('jitterBackoff', false, { config: calm, result: before }, { config: calm, result: unaffected }, labels).text).toBe(
+      'No request failed with it or without it, and it recovers in 0 s, against 1 s without it: at most a second faster, too little to count, so no improvement.',
+    );
+  });
+
+  it('says a call with no retries only gave up, and its "how" claims no retry of its own', () => {
+    // The app server never retries the database: it gives up, and the layers in front retry.
+    const noRetries = buildRunConfig(webChain, retryStorm, { retries: { api: 0 }, outageMs: 10_000 });
+    const e = explain(noRetries, 'longer-timeout');
+    expect(e.helped).toBe(false);
+    expect(e.text).toMatch(/^The failure lasted 10 s, longer than the new 3 s wait, so the app server still gave up\. Users' apps/);
+    const candidate = candidateFixes(noRetries, e.before.analysis.signals, labels).find((c) => c.id === 'longer-timeout')!;
+    expect(candidate.how).toBe('The app server waits three times longer before giving up on the database, so an answer slower than before but within the new wait no longer becomes an error for the layers in front to retry.');
+    // A call that retries keeps the catalogue's wording.
+    const retrying = candidateFixes(storm, analyzed(storm).analysis.signals, labels).find((c) => c.id === 'longer-timeout')!;
+    expect(retrying.how).toBe('The app server waits three times longer before giving up and retrying, so an answer slower than before but within the new wait causes no retry.');
+  });
+
   it('says plainly when a run that recovered anyway did no better with the fix', () => {
-    const calm = buildRunConfig(webChain, retryStorm, { rps: 60 });
+    // Recovers, with some requests failed (no retries in front of the app server to rescue them).
+    const calm = buildRunConfig(webChain, retryStorm, { rps: 100, retries: { client: 0, lb: 0 } });
     const before = analyzed(calm);
     const e = explainFix('jitterBackoff', false, { config: calm, result: before }, { config: calm, result: before }, labels);
     expect(e.title).toBe("Why it didn't help here");
