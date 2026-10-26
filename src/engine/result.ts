@@ -31,8 +31,14 @@ export interface TierSeries {
   busyCoresAvg: number[];
   /** Compute time spent on attempts whose caller had already given up. */
   wastedMs: number[];
-  /** Cache tiers only (zeros elsewhere): lookups answered from the cache. Hit rate = hits / ok. */
+  /** Cache tiers only (zeros elsewhere): lookups answered from the cache. */
   hits: number[];
+  /**
+   * Of `hits`: those answered for a retry or a repeat further up (counting only). The analysis judges
+   * a cache's hit rate on users' own lookups (see ownHitRate): retries look up the very keys that just
+   * missed, so counting them halves the rate while the cache answers as many lookups as before.
+   */
+  hitsFromRepeats: number[];
   /**
    * Of `arrivalsFirst`: first tries here made on behalf of a repeat further up (a retry by a caller
    * above, or a request sent for one). arrivalsFirst − this = load from users' own first tries.

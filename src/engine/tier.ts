@@ -1,7 +1,7 @@
 import type { Attempt, FinalState } from './attempt';
 import { CacheStore, ZipfKeys } from './cache';
 import { callWithRetries, type CallTarget } from './caller';
-import { callsOf, type CallPolicy, type Fault, type TierConfig } from './config';
+import { callsOf, shareWeight, type CallPolicy, type Fault, type TierConfig } from './config';
 import { sampleServiceTime } from './distributions';
 import { Instance } from './instance';
 import { RoundRobin, type LoadBalancer } from './loadBalancer';
@@ -13,7 +13,8 @@ import { hashPath, Stream, uniform } from './rng';
 import type { Simulation } from './simulation';
 
 /**
- * A tier (load balancer, API, cache, database…): a set of identical instances behind a load balancer.
+ * A tier (load balancer, app server, cache, database…): a set of identical instances (copies), with
+ * attempts spread over them by an instance router (see loadBalancer.ts).
  *
  * Handling an attempt: compute on a core for a sampled service time (with `dropExpired`, an attempt
  * whose caller's deadline passed before it got a core is dropped instead), then
@@ -206,7 +207,7 @@ export class Tier implements CallTarget {
       this.finish(attempt, instance, this.queue.offer(attempt.requestId, attempt.pathHash, attempt.isRetry || attempt.fromRepeat) ? 'ok' : 'rejected');
     } else if (this.store !== null) {
       attempt.hit = this.store.get(attempt.key, this.sim.now);
-      if (attempt.hit) this.metrics.cacheHit(this.sim.now);
+      if (attempt.hit) this.metrics.cacheHit(this.sim.now, attempt.isRetry || attempt.fromRepeat);
       this.finish(attempt, instance, 'ok');
     } else if (this.cacheTier !== null) {
       this.lookUpThenCall(attempt, instance, this.cacheTier);
@@ -349,7 +350,7 @@ export class Tier implements CallTarget {
    * gets its share of first tries.
    */
   private retryPick(previous: number, requestId: number, tryPath: number): number {
-    const others = this.calls.map((c, i) => ({ i, share: c.share ?? 1 })).filter((c) => c.i !== previous);
+    const others = this.calls.map((c, i) => ({ i, share: shareWeight(c.share) })).filter((c) => c.i !== previous);
     const total = others.reduce((a, c) => a + c.share, 0);
     let u = uniform(this.sim.seed, Stream.Split, requestId, tryPath, this.index) * total;
     for (const c of others.slice(0, -1)) {
@@ -370,7 +371,7 @@ export class Tier implements CallTarget {
    * and may land on any pool.
    */
   private splitPick(attempt: Attempt): number {
-    const shares = this.calls.map((c) => c.share ?? 1);
+    const shares = this.calls.map((c) => shareWeight(c.share));
     const total = shares.reduce((a, b) => a + b, 0);
     let u = uniform(this.sim.seed, Stream.Split, attempt.requestId, attempt.pathHash, this.index) * total;
     for (let i = 0; i < shares.length - 1; i++) {

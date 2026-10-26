@@ -43,12 +43,13 @@ export function executeJob(job: AnalyzeJob, onProgress?: (fraction: number) => v
 export function executeJob(job: CellJob, onProgress?: (fraction: number) => void): CellSummary;
 export function executeJob(job: Job, onProgress?: (fraction: number) => void): JobResult;
 export function executeJob(job: Job, onProgress?: (fraction: number) => void): JobResult {
-  // A guard before any work: one oversized run can exhaust the tab's memory. (Settling extends a
-  // run to at most MAX_SETTLE_MS, well inside the cap for any traffic the guard lets through.)
-  const tooBig = runSizeProblem(job.config.client.rps, job.config.durationMs, callsPerRequest(job.config));
+  // A guard before any work: one oversized run can exhaust the tab's memory. Settling may lengthen
+  // the run, and only within the same limit (review 4: a 30 s run the guard let through became 75 s).
+  const size = (durationMs: number) => runSizeProblem(job.config.client.rps, durationMs, callsPerRequest(job.config));
+  const tooBig = size(job.config.durationMs);
   if (tooBig) throw new Error(tooBig);
   const phase = onProgress ? progressPhases(job.config.durationMs, onProgress) : () => null;
-  const { config, run, control, recovery } = simulateUntilSettled(job.config, (which, simulate) => withSimulationProgress(phase(which), simulate));
+  const { config, run, control, recovery } = simulateUntilSettled(job.config, (which, simulate) => withSimulationProgress(phase(which), simulate), (durationMs) => size(durationMs) === null);
   if (job.kind === 'analyze') return { run, control, analysis: analyzeRun(run, control, config, job.labels, recovery) };
   return summarise(recovery);
 }
@@ -69,15 +70,18 @@ function summarise({ verdict, recoveryMs, failedRequests }: CellSummary): CellSu
 /**
  * Turns simulated time into the job's fraction done, throttled by wall-clock time.
  * ASSUMPTION: the run and its control count for half the job each. The control (no failure) is
- * usually quicker, so progress speeds up in the second half; good enough for "about 40%". A run
- * may go on past `durationMs` (e.g. while a backlog drains); each half then waits at its end.
+ * usually quicker, so progress speeds up in the second half; good enough for "about 40%". When
+ * settling lengthens a run, both runs are simulated again from the start; progress then holds where
+ * it was rather than going backwards (review 4: 93% → 20%), and each half waits at its end.
  */
 function progressPhases(durationMs: number, onProgress: (fraction: number) => void) {
   let last = performance.now();
+  let shown = 0;
   return (phase: 0 | 1) => (simulatedMs: number) => {
     const now = performance.now();
     if (now - last < PROGRESS_INTERVAL_MS) return;
     last = now;
-    onProgress((phase + Math.min(1, simulatedMs / durationMs)) / 2);
+    shown = Math.max(shown, (phase + Math.min(1, simulatedMs / durationMs)) / 2);
+    onProgress(shown);
   };
 }

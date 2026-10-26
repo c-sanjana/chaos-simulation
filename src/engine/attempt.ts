@@ -18,7 +18,7 @@ export class Attempt {
   /**
    * A first try at this tier made on behalf of a repeat further up (the caller is handling a retry,
    * or a request that was itself sent for one). Counted with first attempts here, but caused by
-   * retrying: the load chart shows these as repeats.
+   * retrying: the load chart counts these in its "Retries (from any layer)" band.
    */
   fromRepeat = false;
   /** Compute time spent on this attempt so far. */

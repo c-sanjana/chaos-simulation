@@ -361,6 +361,11 @@ export function admittedIn(t: TierSeries, s: number): number {
   return t.arrivalsFirst[s] + t.arrivalsRetry[s] - t.rejected[s];
 }
 
+/** The work a tier took on in second s, per second (admittedIn over the bucket). */
+export function loadRps(run: RunResult, t: TierSeries, s: number): number {
+  return (admittedIn(t, s) * 1000) / run.bucketMs;
+}
+
 /**
  * The most work a tier that calls nothing took on in one second over seconds [from, to), as a
  * multiple of what it can handle (admittedIn ÷ leafCapacityRps), leaving out the seconds `skip`
@@ -374,7 +379,7 @@ export function peakLoad(config: RunConfig, run: RunResult, id: string, from: nu
   if (!capacity || !t) return 0;
   let peak = 0;
   for (let s = Math.max(0, from); s < Math.min(to, t.arrivalsFirst.length); s++) {
-    if (!skip(s)) peak = Math.max(peak, Math.max(0, (admittedIn(t, s) * 1000) / run.bucketMs) / capacity);
+    if (!skip(s)) peak = Math.max(peak, Math.max(0, loadRps(run, t, s)) / capacity);
   }
   return peak;
 }
@@ -473,13 +478,52 @@ export function strugglingPart(config: RunConfig, run: RunResult, w: IncidentWin
   const averageAfter = (id: string) => {
     const capacity = leafCapacityRps(tierOf(config, id))!;
     let sum = 0;
-    for (let s = after; s < to; s++) sum += Math.max(0, (admittedIn(run.tiers[id], s) * 1000) / b);
+    for (let s = after; s < to; s++) sum += Math.max(0, loadRps(run, run.tiers[id], s));
     return sum / Math.max(1, to - after) / capacity;
   };
   const after_ = pick(candidates.map((id) => ({ id, load: averageAfter(id) })));
   if (after_) return { ...after_, sustained: true };
   const during = pick(candidates.map((id) => ({ id, load: peakLoad(config, run, id, from, to, (s) => wholeTierDown(config, run, id, s)) })));
   return during && { ...during, sustained: false };
+}
+
+/**
+ * Estimated wait for a newly queued attempt at a tier in second s (Little's law: queue ÷ throughput),
+ * capped at the run's length when throughput has collapsed.
+ */
+export function queuedWaitMs(run: RunResult, tierId: string, s: number): number {
+  const t = run.tiers[tierId];
+  return Math.min(run.durationMs, (t.queueAvg[s] / Math.max(1, t.ok[s] + t.failed[s])) * run.bucketMs);
+}
+
+/**
+ * Whether a tier's workers were all occupied while its CPU was mostly idle in second s: waiting
+ * (on the parts it calls), not working. ASSUMPTION: "all occupied" is 99% or more of its workers on
+ * average over the second, "mostly idle" under half of its cores (well clear of normal noise on the
+ * presets, where busy servers use most of their cores).
+ */
+export function idleSaturated(t: TierSeries, s: number): boolean {
+  return t.busyWorkersAvg[s] >= 0.99 * t.workers && t.busyCoresAvg[s] < 0.5 * t.cores;
+}
+
+/** Lookups at a cache in second s from users' own first tries (no retries or repeats further up). */
+export function ownLookups(t: TierSeries, s: number): number {
+  return t.arrivalsFirst[s] - t.arrivalsFromRepeats[s];
+}
+
+/**
+ * A cache's hit rate over seconds [from, to) on users' own lookups: retries look up the very keys
+ * that just missed, so counting them would halve the rate while the cache answers as many lookups as
+ * before (review 4). Lookups refused while the cache is down count as misses.
+ */
+export function ownHitRate(t: TierSeries, from: number, to: number): number {
+  let hits = 0;
+  let lookups = 0;
+  for (let s = Math.max(0, from); s < Math.min(t.hits.length, to); s++) {
+    hits += t.hits[s] - t.hitsFromRepeats[s];
+    lookups += ownLookups(t, s);
+  }
+  return hits / Math.max(1, lookups);
 }
 
 export function sumRange(xs: number[], from: number, to: number): number {

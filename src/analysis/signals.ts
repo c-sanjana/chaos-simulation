@@ -1,7 +1,6 @@
 import type { RunConfig } from '../engine/config';
 import type { RunResult, TierSeries } from '../engine/result';
-import { incidentWindow, strictestCallerInto, strugglingPart, sumRange } from './helpers';
-import { queuedWaitMs } from './timeline';
+import { idleSaturated, incidentWindow, ownHitRate, ownLookups, queuedWaitMs, strictestCallerInto, strugglingPart, sumRange } from './helpers';
 import type { RecoveryResult } from './recovery';
 
 /** Something measured in the run that points at a particular kind of fix. */
@@ -39,8 +38,12 @@ export interface Signals {
   queueWaitOverTimeout: Signal | null;
   /** Tier whose workers were saturated while its cores were mostly idle (waiting, not working). */
   idleSaturation: Signal | null;
-  /** Cache hit rate during the incident vs before it. */
-  cacheHitDrop: Signal<{ before: number; during: number }> | null;
+  /**
+   * Cache hit rate (on users' own lookups, see ownHitRate) during the incident vs before it, and the
+   * first second the failure made it fall below half of normal (`dip`, absent in hand-made signals):
+   * the second the story and the timeline tell it at.
+   */
+  cacheHitDrop: Signal<{ before: number; during: number; dip?: { atS: number; rate: number } }> | null;
   /**
    * The message queue whose backlog grew most during the incident: its peak (messages waiting),
    * what was still waiting at the end of the judged range, the busiest its consumers got (share
@@ -50,16 +53,16 @@ export interface Signals {
   queueBacklog: Signal<{ peak: number; atEnd: number; consumersBusy: number; deadLettered: number }> | null;
 }
 
-/**
- * `control` (the same run without the failure), when given, keeps a cache-hit dip that happens
- * just as much without the failure from counting as one (see cacheHitDrop below).
- */
 /** Fewer lookups than this in a second say nothing about a cache's hit rate (see cacheHitDrop). */
 const MIN_LOOKUPS = 10;
 
 /** The symptoms a fix can be tried for (every signal but the per-tier retry shares). */
 export type SignalName = Exclude<keyof Signals, 'retryShareOf'>;
 
+/**
+ * `control` (the same run without the failure), when given, keeps a cache-hit dip that happens
+ * just as much without the failure from counting as one (see cacheHitDrop below).
+ */
 export function computeSignals(run: RunResult, config: RunConfig, recovery: RecoveryResult, control?: RunResult): Signals {
   const faults = config.faults ?? [];
   const from = Math.floor((faults.length ? Math.min(...faults.map((f) => f.startMs)) : 0) / run.bucketMs);
@@ -103,31 +106,30 @@ export function computeSignals(run: RunResult, config: RunConfig, recovery: Reco
     tiers.map((t) => {
       let seconds = 0;
       for (let s = from; s < to; s++) {
-        if (t.busyWorkersAvg[s] >= 0.99 * t.workers && t.busyCoresAvg[s] < 0.5 * t.cores) seconds++;
+        if (idleSaturated(t, s)) seconds++;
       }
       return { tier: t.id, value: seconds, score: seconds };
     }),
   );
 
-  // Lookups that never reached the cache (refused while down) count as misses.
-  const lookups = (t: TierSeries, s: number) => t.arrivalsFirst[s] + t.arrivalsRetry[s];
   const cacheHitDrop = worst(
     tiers
       .filter((t) => (config.tiers.find((c) => c.id === t.id)?.cache ?? null) !== null)
       .map((t) => {
-        const rate = (a: number, b: number) => sumRange(t.hits, a, b) / Math.max(1, sumRange(t.ok, a, b));
-        const before = rate(Math.max(0, from - 20), from);
-        const during = sumRange(t.hits, from, to) / Math.max(1, sumRange(t.arrivalsFirst, from, to) + sumRange(t.arrivalsRetry, from, to));
+        // ASSUMPTION: the 20 seconds before the failure are "normal" for the cache (every preset and
+        // built scenario starts its failure at 30 s, after the cache has warmed up).
+        const before = ownHitRate(t, from - 20, from);
+        const during = ownHitRate(t, from, to);
         // ASSUMPTION: a drop counts only if the failure caused it: in some second the hit rate fell
         // below half of normal (the rule the story and the timeline tell it by) with at least
         // MIN_LOOKUPS lookups, while the run without the failure, when known, did not dip in that
         // second. A cache with a few lookups a second dips now and then on its own (review 3: a dip
         // identical to the no-failure run was told as a consequence of a failure elsewhere).
         const normal = control?.tiers[t.id];
-        const dips = (x: TierSeries, s: number, min: number) => lookups(x, s) >= min && x.hits[s] / lookups(x, s) < before / 2;
-        let caused = false;
-        for (let s = from; s < to && !caused; s++) caused = dips(t, s, MIN_LOOKUPS) && !(normal && dips(normal, s, 1));
-        return { tier: t.id, value: { before, during }, score: caused ? before - during : 0 };
+        const dips = (x: TierSeries, s: number, min: number) => ownLookups(x, s) >= min && ownHitRate(x, s, s + 1) < before / 2;
+        let dip: { atS: number; rate: number } | undefined;
+        for (let s = from; s < to && !dip; s++) if (dips(t, s, MIN_LOOKUPS) && !(normal && dips(normal, s, 1))) dip = { atS: s, rate: ownHitRate(t, s, s + 1) };
+        return { tier: t.id, value: dip ? { before, during, dip } : { before, during }, score: dip ? before - during : 0 };
       }),
   );
 

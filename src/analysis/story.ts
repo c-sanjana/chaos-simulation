@@ -2,7 +2,6 @@ import { callsOf, type CallPolicy, type Fault, type RunConfig, type TierConfig }
 import type { RunResult } from '../engine/result';
 import type { Analysis } from './analyze';
 import {
-  admittedIn,
   callersInFront,
   callersOf,
   callFraction,
@@ -11,18 +10,17 @@ import {
   capitalise,
   doesWork,
   failureReaches,
-  incidentWindow,
   formatMs,
   formatSeconds,
   leafCapacityRps,
   listed,
+  loadRps,
   overByRepeats,
   peakLoad as peakLoadIn,
   percent,
   reachableFrom,
   spokenName,
   sentAlong,
-  strugglingPart,
   sumRange,
   tierOf,
   tiersLeadingTo,
@@ -51,7 +49,7 @@ export interface StoryStep {
   figure?: string;
   /** Load as a multiple of capacity (1 = exactly full), drawn as a meter. */
   meter?: number;
-  /** Each retrying caller's retries, front to back, e.g. users' apps 5, load balancer 3, API 1. */
+  /** Each retrying caller's retries, front to back, e.g. users' apps 5, load balancer 3, app server 1. */
   cascade?: Array<{ who: string; retries: number }>;
 }
 
@@ -154,7 +152,7 @@ interface Context {
 const noun = (spoken: string) => spoken.replace(/^the /, '');
 /** Whether a name ends in a number ("Database 2"). */
 const numbered = (name: string) => /\s\d+$/.test(name);
-/** "about 160", "about 20": round to two significant figures, which is all a newcomer needs. */
+/** "about 160", "about 20": to the nearest 10 above 100, else a whole number; all a newcomer needs. */
 const about = (x: number) => `about ${x >= 100 ? Math.round(x / 10) * 10 : Math.round(x)}`;
 
 /**
@@ -171,9 +169,10 @@ const about = (x: number) => `about ${x >= 100 ? Math.round(x / 10) * 10 : Math.
  * first, while Database 2 itself then got nothing).
  */
 function pressureTier(ctx: Context, fault: Fault): string | null {
-  const { config, run } = ctx;
-  const struggling = strugglingPart(config, run, incidentWindow(config, ctx.analysis.recovery));
-  if (struggling) return struggling.id;
+  const { config } = ctx;
+  // computeSignals chose it with strugglingPart over the same window: read it rather than choose again.
+  const struggling = ctx.analysis.signals.overloaded;
+  if (struggling) return struggling.tier;
   const tier = tierOf(config, fault.tier);
   if (tier.cache) {
     const behind = behindCache(config, fault.tier).filter((id) => doesWork(tierOf(config, id)));
@@ -197,10 +196,10 @@ function peakLoad(ctx: Context, id: string, fromMs: number): number {
   return peakLoadIn(ctx.config, ctx.run, id, Math.floor(fromMs / ctx.bucketMs), Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs));
 }
 
-/** Who a fault hits: the tier, or "one of the 4 API instances". */
+/** Who a fault hits: the tier, or "one of the 4 app server copies". */
 function who(f: Fault, ctx: Context): string {
   const instances = tierOf(ctx.config, f.tier).instances;
-  return f.instance === undefined || instances === 1 ? ctx.say(f.tier) : `one of the ${instances} ${noun(ctx.say(f.tier))} instances`;
+  return f.instance === undefined || instances === 1 ? ctx.say(f.tier) : `one of the ${instances} ${noun(ctx.say(f.tier))} copies`;
 }
 
 function lasting(ms: number): string {
@@ -346,7 +345,7 @@ function layerCount(config: RunConfig, faultTier: string): number {
 /**
  * Who retries, when that is more than what the caller that noticed does (or '' if not): with
  * several layers, how their repeats multiply ("Every layer retries when it gives up: users'
- * apps up to 5 times, the load balancer 3 times, the API once. One slow answer can come back as many
+ * apps up to 5 times, the load balancer 3 times, the app server once. One slow answer can come back as many
  * requests."); with one layer in front of the noticing caller, that layer ("Users' apps retry
  * when they give up, up to 5 times."). Only layers that retry are listed; a retry budget gets a
  * sentence of its own.
@@ -438,7 +437,7 @@ function causeStep(f: Fault, ctx: Context): StoryStep | null {
   // When other layers retry, the cascade says what each one does.
   const again = others === '' ? ` and ${askAgain(call.policy, call.id, ctx)}` : '';
   if (f.kind === 'dead') {
-    const from = f.instance === undefined ? `from ${ctx.say(f.tier)}` : 'for requests sent to that instance';
+    const from = f.instance === undefined ? `from ${ctx.say(f.tier)}` : 'for requests sent to that copy';
     return step(f.startMs, `${capitalise(caller)} ${verb('gets', 'get')} an error ${from} straight away${again}.`, `${capitalise(shortCaller(call.id, ctx))} ${verb('gets', 'get')} errors`, null);
   }
   const article = /^[aeiou]/i.test(target) ? 'an' : 'a';
@@ -480,7 +479,7 @@ function overloadStep(id: string, main: Fault, ctx: Context, retries: boolean): 
   const tier = tierOf(ctx.config, id);
   const capacity = leafCapacityRps(tier)!;
   const t = ctx.run.tiers[id];
-  const load = (s: number) => (admittedIn(t, s) * 1000) / ctx.bucketMs;
+  const load = (s: number) => loadRps(ctx.run, t, s);
   const r = ctx.analysis.recovery;
   const from = Math.floor(main.startMs / ctx.bucketMs);
   // Nothing after the run was back to normal: an overload told after "back to normal" never
@@ -575,17 +574,10 @@ function cacheStep(faults: Fault[], ctx: Context): StoryStep | null {
   if (drop === null || faults.some((f) => f.tier === drop.tier)) return null;
   const behind = behindCache(ctx.config, drop.tier);
   if (behind.length === 0) return null;
-  const t = ctx.run.tiers[drop.tier];
-  const from = Math.floor(faults[0].startMs / ctx.bucketMs);
-  const to = Math.floor(ctx.analysis.recovery.judgedUntilMs / ctx.bucketMs);
-  for (let s = from; s < to; s++) {
-    const rate = t.hits[s] / Math.max(1, t.arrivalsFirst[s] + t.arrivalsRetry[s]);
-    if (rate < drop.value.before / 2) {
-      const text = `${capitalise(noun(ctx.say(drop.tier)))} entries ran out and weren't refilled, sending even more requests to ${listed(behind.map(ctx.say))}.`;
-      return { tMs: s * ctx.bucketMs, text, tone: 'bad', kind: 'cache', headline: `${capitalise(noun(ctx.say(drop.tier)))} emptied`, figure: `${percent(rate)} hits` };
-    }
-  }
-  return null;
+  const dip = drop.value.dip;
+  if (!dip) return null;
+  const text = `${capitalise(noun(ctx.say(drop.tier)))} entries ran out and weren't refilled, sending even more requests to ${listed(behind.map(ctx.say))}.`;
+  return { tMs: dip.atS * ctx.bucketMs, text, tone: 'bad', kind: 'cache', headline: `${capitalise(noun(ctx.say(drop.tier)))} emptied`, figure: `${percent(dip.rate)} hits` };
 }
 
 function notInRunStep(config: RunConfig, run: RunResult): StoryStep {
@@ -658,14 +650,14 @@ function peakAfter(ctx: Context, id: string | null): string {
   return peak > 1 ? `, with ${ctx.say(id)} getting up to ${peak.toFixed(1)}× the work it can handle` : '';
 }
 
-/** "Database", "API", "One of 4 API servers": the failed part, for a headline. */
+/** "Database", "App server", "1 of 4 App server copies": the failed part, for a headline. */
 function partName(f: Fault, ctx: Context): string {
   const instances = tierOf(ctx.config, f.tier).instances;
   const name = capitalise(noun(ctx.say(f.tier)));
-  return f.instance === undefined || instances === 1 ? name : `1 of ${instances} ${name} servers`;
+  return f.instance === undefined || instances === 1 ? name : `1 of ${instances} ${name} copies`;
 }
 
-/** A caller in a headline: "users' apps" for the client, else "the API". */
+/** A caller in a headline: "users' apps" for the client, else "the app server". */
 function shortCaller(id: string, ctx: Context): string {
   return id === 'client' ? "users' apps" : ctx.say(id);
 }

@@ -1,6 +1,6 @@
 import type { Fault, RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
-import { admittedIn, formatMs, formatSeconds, leafCapacityRps, nameOf, percent, strictestCallerInto } from './helpers';
+import { doesWork, formatMs, formatSeconds, idleSaturated, leafCapacityRps, loadRps, nameOf, percent, queuedWaitMs, strictestCallerInto, wholeTierDown } from './helpers';
 import type { RecoveryResult } from './recovery';
 import type { Signals } from './signals';
 
@@ -66,14 +66,17 @@ export function buildTimeline(
   // uses that for the traffic level at which runs start getting stuck.)
   // Each entry quotes the load in the second it is shown at, never a peak still to come: the
   // replay reveals an entry at its time, and a later peak would be a number from the future
-  // (REVIEW2 1.10). The same second's load is what the story's overload step quotes.
-  for (const t of Object.values(run.tiers)) {
-    const capacity = leafCapacityRps(config.tiers.find((c) => c.id === t.id)!);
-    if (capacity === null) continue;
-    const load = (s: number) => (admittedIn(t, s) * 1000) / run.bucketMs;
+  // (REVIEW2 1.10). Like the story's overload step, only parts that do the work themselves (never a
+  // cache) and never a second the whole part was down: it refused those requests at once, so they
+  // were no work (review 4: a dead database read "2.6× in this second" while serving 3 requests).
+  for (const tier of config.tiers.filter(doesWork)) {
+    const t = run.tiers[tier.id];
+    const capacity = leafCapacityRps(tier);
+    if (!t || capacity === null) continue;
+    const load = (s: number) => loadRps(run, t, s);
     let first = -1;
     for (let s = startSecond; s < endSecond && first < 0; s++) {
-      if (t.arrivalsRetry[s] > 0 && load(s) > capacity) first = s;
+      if (t.arrivalsRetry[s] > 0 && load(s) > capacity && !wholeTierDown(config, run, t.id, s)) first = s;
     }
     if (first < 0) continue;
     entries.push({ tMs: at(first), text: `Retries push ${name(t.id)} load past its capacity: ${(load(first) / capacity).toFixed(1)}× in this second`, kind: 'info' });
@@ -114,25 +117,18 @@ export function buildTimeline(
 
   // Threads exhausted while CPU looks idle.
   for (let s = startSecond; s < endSecond; s++) {
-    const hit = Object.values(run.tiers).find((t) => t.busyWorkersAvg[s] >= 0.99 * t.workers && t.busyCoresAvg[s] < 0.5 * t.cores);
+    const hit = Object.values(run.tiers).find((t) => idleSaturated(t, s));
     if (hit) {
       entries.push({ tMs: at(s), text: `${name(hit.id)} workers ${percent(hit.busyWorkersAvg[s] / hit.workers)} occupied, CPU ${percent(hit.busyCoresAvg[s] / hit.cores)}: waiting, not working`, kind: 'info' });
       break;
     }
   }
 
-  // The cache stops helping: first second its hit rate is below half the pre-failure rate.
-  // Lookups refused while the cache is down count as misses.
-  if (signals.cacheHitDrop) {
-    const t = run.tiers[signals.cacheHitDrop.tier];
-    const { before } = signals.cacheHitDrop.value;
-    for (let s = startSecond; s < endSecond; s++) {
-      const rate = t.hits[s] / Math.max(1, t.arrivalsFirst[s] + t.arrivalsRetry[s]);
-      if (rate < before / 2) {
-        entries.push({ tMs: at(s), text: `${name(t.id)} hit rate falls to ${percent(rate)} (normally ${percent(before)})`, kind: 'info' });
-        break;
-      }
-    }
+  // The cache stops helping: the first second the failure made its hit rate fall below half of
+  // normal (the signal's rule, also the story's).
+  const drop = signals.cacheHitDrop;
+  if (drop?.value.dip) {
+    entries.push({ tMs: at(drop.value.dip.atS), text: `${name(drop.tier)} hit rate falls to ${percent(drop.value.dip.rate)} (normally ${percent(drop.value.before)})`, kind: 'info' });
   }
 
   // Messages pile up behind a queue. Its senders are answered as soon as a message is stored, so
@@ -169,15 +165,6 @@ function wastedShareBetween(run: RunResult, id: string, from: number, to: number
 
 const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
 const count = (x: number) => Math.round(x).toLocaleString('en-US');
-
-/**
- * Estimated wait for a newly queued attempt at a tier in second s (Little's law: queue ÷ throughput),
- * capped at the run's length when throughput has collapsed.
- */
-export function queuedWaitMs(run: RunResult, tierId: string, s: number): number {
-  const t = run.tiers[tierId];
-  return Math.min(run.durationMs, (t.queueAvg[s] / Math.max(1, t.ok[s] + t.failed[s])) * run.bucketMs);
-}
 
 function describeFault(f: Fault, name: (id: string) => string): string {
   const who = f.instance === undefined ? name(f.tier) : `${name(f.tier)} instance ${f.instance + 1}`;

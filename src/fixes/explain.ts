@@ -199,13 +199,14 @@ function notHelpedText(kind: FixKind, pressure: string | null, before: { config:
 
 /**
  * " The cache emptied too (hit rate 11%, normally 75%), so more requests went past it." when the
- * run with the fix shows the cache hit rate falling below half of normal (the timeline's rule).
+ * run with the fix shows the failure making the cache's hit rate fall below half of normal (the
+ * signal's dip, which the story and the timeline tell too).
  */
 function cacheEmptied(r: MeasuredRun, say: (id: string) => string): string {
   const drop = r.analysis.signals.cacheHitDrop;
-  if (!drop || !(drop.value.during < drop.value.before / 2)) return '';
+  if (!drop?.value.dip) return '';
   const pct = (x: number) => `${Math.round(x * 100)}%`;
-  return ` ${capitalise(say(drop.tier))} emptied too (hit rate ${pct(drop.value.during)}, normally ${pct(drop.value.before)}), so more requests went past it.`;
+  return ` ${capitalise(say(drop.tier))} emptied too (hit rate ${pct(drop.value.dip.rate)}, normally ${pct(drop.value.before)}), so more requests went past it.`;
 }
 
 function workedText(kind: FixKind, pressure: string | null, before: { config: RunConfig; result: MeasuredRun }, after: { config: RunConfig; result: MeasuredRun }, say: (id: string) => string): string {

@@ -94,7 +94,7 @@ export function latencyBin(ms: number): number {
   return bin < LATENCY_BINS ? bin : LATENCY_BINS - 1;
 }
 
-/** Geometric centre of a bin, in ms: the value reported for any latency in that bin. */
+/** Geometric centre of a bin, in ms (quantiles interpolate within a bin instead; used by tests). */
 export function binCenterMs(bin: number): number {
   return LATENCY_MIN_MS * Math.exp((bin + 0.5) * LOG_BIN_WIDTH);
 }

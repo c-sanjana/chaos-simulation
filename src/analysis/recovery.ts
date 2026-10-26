@@ -49,6 +49,21 @@ export function maxRequestMs(config: RunConfig): number {
 }
 
 /**
+ * How long before the end of the run a request may arrive and still be running when it ends:
+ * maxRequestMs, or, when the client waits forever, the longest any request took in the control run
+ * (review 4: with no client timeout, requests merely in flight at the end counted as failures, so
+ * almost every run read "overloaded"). A request unfinished for longer than any finished one is
+ * still judged, so a real pile-up still shows.
+ */
+function settleMarginMs(config: RunConfig, control: RunResult): number {
+  const max = maxRequestMs(config);
+  if (max > 0) return max;
+  let longest = 0;
+  for (const ms of control.client.requests.latencyMs) if (ms > longest) longest = ms; // NaN (unfinished) never compares greater
+  return longest;
+}
+
+/**
  * Did the system return to normal after the failure, and when?
  *
  * The reference is a control run: the same config and seed with the failures removed, so it sees
@@ -97,7 +112,7 @@ export function assessRecovery(run: RunResult, control: RunResult, config: RunCo
   const firstFaultStartMs = faults.length ? Math.min(...faults.map((f) => f.startMs)) : 0;
   const lastFaultEndMs = faults.length ? Math.max(...faults.map((f) => f.endMs)) : 0;
   // Requests arriving from here on may legitimately still be running when the run ends.
-  const settledBeforeMs = run.durationMs - maxRequestMs(config);
+  const settledBeforeMs = run.durationMs - settleMarginMs(config, control);
   const judgedUntilMs = Math.min(run.durationMs, Math.max(lastFaultEndMs, settledBeforeMs));
   const lastSecond = Math.floor(judgedUntilMs / bucketMs) - 1;
 

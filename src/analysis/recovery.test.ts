@@ -74,7 +74,7 @@ describe('assessRecovery', { timeout: 60_000 }, () => {
     expect(r.lastFaultEndMs).toBe(0);
   });
 
-  it('judges everything when the client waits forever', () => {
+  it('when the client waits forever, judges up to the longest request before the end', () => {
     const config: RunConfig = {
       seed: 1,
       durationMs: 20_000,
@@ -83,7 +83,7 @@ describe('assessRecovery', { timeout: 60_000 }, () => {
       faults: [{ tier: 'svc', kind: 'dead', startMs: 5_000, endMs: 6_000 }],
     };
     const r = analyzed(config).analysis.recovery;
-    expect(r.judgedUntilMs).toBe(20_000);
+    expect(r.judgedUntilMs).toBe(20_000 - 5); // every request takes 5 ms
     expect(r.verdict).toBe('recovered');
   });
 });

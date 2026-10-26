@@ -79,8 +79,8 @@ const Z99 = 2.3263478740408408;
  * One service time (ms) for uniform u in (0, 1), by inverting the distribution's CDF.
  *
  * Lognormal: mu = ln(median), sigma = (ln(p99) − ln(median)) / Φ⁻¹(0.99), so the configured
- * median and p99 are exact. ASSUMPTION: callers configure p99 >= median (p99 = median gives a
- * constant). `fixed` ignores u.
+ * median and p99 are exact. validateConfig requires p99 > median (equal would give a constant).
+ * `fixed` ignores u.
  */
 export function sampleServiceTime(dist: ServiceTime, u: number): number {
   switch (dist.kind) {

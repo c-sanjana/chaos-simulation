@@ -196,9 +196,9 @@ describe('buildStory on the retry storm, retrying at one layer', { timeout: 60_0
   it('an app server instance going down: errors only for requests sent to it', () => {
     const story = storyOf(storm([{ tier: 'api', instance: 1, kind: 'dead', startMs: 30_000, endMs: 35_000 }]));
     expect(texts(story).slice(0, 3)).toEqual([
-      'At 30 s one of the 4 app server instances went down for 5 seconds.',
-      'The load balancer gets an error for requests sent to that instance straight away and does not retry, so those users got an error.',
-      'At 35 s one of the 4 app server instances was back up.',
+      'At 30 s one of the 4 app server copies went down for 5 seconds.',
+      'The load balancer gets an error for requests sent to that copy straight away and does not retry, so those users got an error.',
+      'At 35 s one of the 4 app server copies was back up.',
     ]);
   });
 });
@@ -215,7 +215,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
       [33_000, 'So the database got more requests than it can handle, even at full speed (about 160 a second).'],
       [35_000, 'At 35 s the database was back to normal speed — but the pile of retried requests was still there.'],
       [
-        36_000,
+        60_000,
         "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too. " +
           "Cache entries ran out and weren't refilled, sending even more requests to the database.",
       ],
@@ -245,7 +245,7 @@ describe('buildStory on the presets, with the default retries at every layer (5 
       [50_000, 'At 50 s the load balancer was back to normal speed — but the pile of retried requests was still there.'],
       [50_000, 'Then the load balancer passed its pile of requests on all at once, more than the database can handle (about 160 a second).'],
       [
-        54_000,
+        70_000,
         "Almost all the database's work was for requests nobody was waiting for any more, so new ones were given up on and retried too. " +
           "Cache entries ran out and weren't refilled, sending even more requests to the database.",
       ],
@@ -347,7 +347,7 @@ describe('buildStory on small systems', { timeout: 60_000 }, () => {
 
   it('one slowed or failed instance halves what the service can serve; users see the errors', () => {
     const slowed = texts(storyOf(direct({ tier: 'svc', instance: 0, kind: 'slow', factor: 10, startMs: 10_000, endMs: 15_000 })));
-    expect(slowed[0]).toBe('At 10 s one of the 2 svc instances became 10× slower for 5 seconds.');
+    expect(slowed[0]).toBe('At 10 s one of the 2 svc copies became 10× slower for 5 seconds.');
     expect(slowed).toContain("Users' apps give up on a svc answer after 200 ms and do not retry, so those users saw an error.");
     expect(slowed.some((t) => /^With one instance slowed, the svc could serve only about 220 requests a second, but it got \d+\.$/.test(t))).toBe(true);
 

@@ -2,7 +2,7 @@
  * The cache's contents: real keys with LRU eviction and a TTL per entry.
  *
  * The hit rate is not a setting: it emerges from capacity, TTL, how many distinct keys are requested
- * and how skewed their popularity is (see zipf.ts and the accuracy tests against the Che
+ * and how skewed their popularity is (see ZipfKeys below and the accuracy tests against the Che
  * approximation and the TTL-cache formula in theory.ts).
  */
 export class CacheStore {

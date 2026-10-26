@@ -13,6 +13,12 @@ export const MAX_SETTLE_MS = 240_000;
 const TREND_S = 10;
 /** Time the judged range must leave after the failure ends to see a recovery. */
 const AFTER_FAILURE_MS = 30_000;
+/**
+ * ASSUMPTION: with less than this judged after the failure, a stuck verdict says more about where
+ * the run ends than about the system (review 4: a 60 s run whose failure ended 0.4 s before the judged
+ * range did read "stuck" with 0 failed requests), so the run is extended as for a late failure.
+ */
+const MIN_JUDGED_AFTER_FAILURE_MS = 10_000;
 
 /** Wraps each simulation (0 = the run, 1 = its control), e.g. to report progress. Must return its result. */
 export type RunWrapper = (which: 0 | 1, simulate: () => RunResult) => RunResult;
@@ -31,7 +37,8 @@ export interface Settled {
  * - a backlog is still draining at the end of the judged range (falling steadily, so it would
  *   settle given time) — e.g. a message queue working through messages after a slowdown; or
  * - the failure ends too close to the end of the run for a recovery to be seen.
- * The run is lengthened to when the drain should finish (plus a margin), at most MAX_SETTLE_MS.
+ * The run is lengthened to when the drain should finish (plus a margin), at most MAX_SETTLE_MS, and
+ * only to a length `fits` allows (the caller's run-size limit: a longer run means more requests).
  * If it still hasn't settled by then, the verdict stays stuck and `catchingUpMs` estimates how
  * much longer the drain needs.
  *
@@ -43,7 +50,7 @@ export interface Settled {
  * Extending is exact: the same seed gives the same requests and random values, so the first
  * 120 s of a longer run are identical to the 120 s run.
  */
-export function simulateUntilSettled(config: RunConfig, wrap: RunWrapper = (_, simulate) => simulate()): Settled {
+export function simulateUntilSettled(config: RunConfig, wrap: RunWrapper = (_, simulate) => simulate(), fits: (durationMs: number) => boolean = () => true): Settled {
   let cfg = config;
   for (;;) {
     const current = cfg;
@@ -52,10 +59,11 @@ export function simulateUntilSettled(config: RunConfig, wrap: RunWrapper = (_, s
     const recovery = assessRecovery(run, control, cfg);
     const need = moreTimeNeeded(run, control, cfg, recovery);
     if (need === null) return { config: cfg, run, control, recovery };
-    if (cfg.durationMs >= MAX_SETTLE_MS) {
+    const longer = Math.min(MAX_SETTLE_MS, cfg.durationMs + need.extraMs);
+    if (cfg.durationMs >= MAX_SETTLE_MS || !fits(longer)) {
       return { config: cfg, run, control, recovery: need.drainMs === null ? recovery : { ...recovery, catchingUpMs: need.drainMs } };
     }
-    cfg = { ...cfg, durationMs: Math.min(MAX_SETTLE_MS, cfg.durationMs + need.extraMs) };
+    cfg = { ...cfg, durationMs: longer };
   }
 }
 
@@ -67,8 +75,8 @@ export function simulateUntilSettled(config: RunConfig, wrap: RunWrapper = (_, s
 export function moreTimeNeeded(run: RunResult, control: RunResult, config: RunConfig, r: RecoveryResult): { extraMs: number; drainMs: number | null } | null {
   if (r.verdict !== 'stuck') return null;
   const margin = maxRequestMs(config) + 10_000;
-  // A failure ending inside the last stretch of the run: run on until a recovery could be seen.
-  if (r.lastFaultEndMs >= r.judgedUntilMs) {
+  // A failure ending inside (or just before) the last stretch of the run: run on until a recovery could be seen.
+  if (r.lastFaultEndMs + MIN_JUDGED_AFTER_FAILURE_MS > r.judgedUntilMs) {
     if (r.lastFaultEndMs >= config.durationMs) return null; // it lasts to the end by design
     return { extraMs: roundUp(r.lastFaultEndMs + AFTER_FAILURE_MS + margin - config.durationMs), drainMs: null };
   }

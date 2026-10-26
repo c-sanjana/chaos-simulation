@@ -45,6 +45,7 @@ export class TierMetrics implements CallStats {
   private readonly latencySum: number[];
   private readonly wasted: number[];
   private readonly hits: number[];
+  private readonly hitsFromRepeats: number[];
   private readonly arrivalsFromRepeats: number[];
   private readonly hist: Uint32Array;
   private readonly delivered: number[];
@@ -76,6 +77,7 @@ export class TierMetrics implements CallStats {
     this.latencySum = buckets.zeros();
     this.wasted = buckets.zeros();
     this.hits = buckets.zeros();
+    this.hitsFromRepeats = buckets.zeros();
     this.arrivalsFromRepeats = buckets.zeros();
     this.hist = new Uint32Array(n * LATENCY_BINS);
     this.delivered = buckets.zeros();
@@ -97,8 +99,10 @@ export class TierMetrics implements CallStats {
     this.ageHist[b * LATENCY_BINS + latencyBin(age)]++;
   }
 
-  cacheHit(timeMs: number): void {
-    this.hits[this.buckets.of(timeMs)]++;
+  cacheHit(timeMs: number, forRepeat = false): void {
+    const b = this.buckets.of(timeMs);
+    this.hits[b]++;
+    if (forRepeat) this.hitsFromRepeats[b]++;
   }
 
   arrival(timeMs: number, isRetry: boolean, fromRepeat = false): void {
@@ -172,6 +176,7 @@ export class TierMetrics implements CallStats {
       busyCoresAvg: avg(this.busyCores),
       wastedMs: this.wasted,
       hits: this.hits,
+      hitsFromRepeats: this.hitsFromRepeats,
       arrivalsFromRepeats: this.arrivalsFromRepeats,
       backlogAvg: avg(this.backlog),
       busyConsumersAvg: avg(this.busyConsumers),
