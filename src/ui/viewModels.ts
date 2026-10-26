@@ -2,15 +2,14 @@
  * Pure mappers from engine/analysis output to the presentational components' view models.
  * Nothing here simulates or decides anything; it only selects and formats.
  */
-import type { Analysis } from '../analysis/analyze';
 import { admittedIn, formatMs, leafCapacityRps, strictestCallerInto, strugglingPart, trafficShares } from '../analysis/helpers';
 import { maxRequestMs, type RecoveryResult } from '../analysis/recovery';
-import { callsOf, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
+import { callsOf, type CallPolicy, type RunConfig } from '../engine/config';
 import { placeCalls, trunkSides } from './edgeRoutes';
 import type { RunResult, TierSeries } from '../engine/result';
 import type { Axis, TopologyPreset } from '../data/types';
 import type { CellSummary } from '../worker/jobs';
-import type { ChartSpec, MapCellView, MapView, TimelineEntryView, TimeSeries, TopologyEdgeView, TopologyNodeView } from './components/types';
+import type { ChartSpec, MapCellView, MapView, TimeSeries, TopologyEdgeView, TopologyNodeView } from './components/types';
 
 export const COLORS = { primary: '#1F6FEB', secondary: '#8250DF', reference: '#8C939D', before: '#6E7781', bad: '#E8590C' };
 
@@ -30,7 +29,7 @@ export function labelsOf(topology: TopologyPreset): Record<string, string> {
 const pct = (x: number) => `${Math.round(Number.isFinite(x) ? x * 100 : 0)}%`;
 const perSecond = (run: RunResult, count: number) => (count * 1000) / run.bucketMs;
 const bucketAt = (run: RunResult, tMs: number) => Math.min(run.client.sent.length - 1, Math.max(0, Math.floor(tMs / run.bucketMs)));
-const tierConfig = (config: RunConfig, id: string) => config.tiers.find((t) => t.id === id)!;
+const tierConfig = (config: RunConfig, id: string) => config.tiers.find((t) => t.id === id);
 const responses = (t: TierSeries, b: number) => t.ok[b] + t.failed[b] + t.rejected[b] + t.dropped[b];
 const errorShare = (t: TierSeries, b: number) => (t.failed[b] + t.rejected[b] + t.dropped[b]) / Math.max(1, responses(t, b));
 const arrivals = (t: TierSeries, b: number) => t.arrivalsFirst[b] + t.arrivalsRetry[b];
@@ -38,7 +37,8 @@ const arrivals = (t: TierSeries, b: number) => t.arrivalsFirst[b] + t.arrivalsRe
 /**
  * A tier's load per second for the Load chart: what it took on (admitted), split into users' own
  * first tries and repeats (retries here plus first tries made for a repeat further up, so the
- * cascade from several layers shows as repeats), and what it turned away at once.
+ * cascade from several layers shows as repeats), and what it turned away at once. All empty for a
+ * part that isn't in the run.
  * ASSUMPTION: refusals are spread over new requests and repeats in proportion to their arrivals.
  */
 export function loadSplit(run: RunResult, id: string): { fresh: number[]; repeats: number[]; admitted: number[]; turnedAway: number[] } {
@@ -47,7 +47,7 @@ export function loadSplit(run: RunResult, id: string): { fresh: number[]; repeat
   const repeats: number[] = [];
   const admitted: number[] = [];
   const turnedAway: number[] = [];
-  t.arrivalsFirst.forEach((first, b) => {
+  t?.arrivalsFirst.forEach((first, b) => {
     const total = first + t.arrivalsRetry[b];
     const kept = total > 0 ? admittedIn(t, b) / total : 0;
     const rep = t.arrivalsRetry[b] + (t.arrivalsFromRepeats?.[b] ?? 0);
@@ -315,12 +315,6 @@ export function bottleneckTier(config: RunConfig, run: RunResult): string {
   return best;
 }
 
-/** Tier whose workers were busiest on average. */
-export function busiestTier(run: RunResult): string {
-  const mean = (t: TierSeries) => t.busyWorkersAvg.reduce((a, v) => a + v, 0) / t.busyWorkersAvg.length / t.workers;
-  return Object.values(run.tiers).reduce((a, t) => (mean(t) > mean(a) ? t : a)).id;
-}
-
 /**
  * Tier whose workers spent the most time occupied but not computing (workers busy minus CPU busy,
  * averaged over the run): where "waiting, not working" shows. The default for "Workers & CPU".
@@ -362,7 +356,8 @@ export interface ChartView {
 
 /**
  * The chart for a metric tab. `scope` is the selected tier (null or 'client' = the tab's default:
- * end to end where that makes sense, otherwise the most telling tier).
+ * end to end where that makes sense, otherwise the most telling tier); a tier missing from either
+ * run (chosen for another system) also gives the default.
  * With `after`, shows the primary series before (grey) and after (blue) a fix; "Load & retries"
  * instead keeps the first-attempts vs retries split of the run being shown (`shownAfter`), with the
  * other run's total as a dashed line, because that split is what the fix changes.
@@ -379,7 +374,7 @@ export function chartView(
 ): ChartView {
   const xsSeconds = run.client.sent.map((_, i) => (i * run.bucketMs) / 1000);
   const failureWindows = (config.faults ?? []).map((f) => [f.startMs / 1000, f.endMs / 1000] as [number, number]);
-  const tierScope = scope && scope !== 'client' ? scope : null;
+  const tierScope = scope && scope !== 'client' && run.tiers[scope] && (!after || after.tiers[scope]) ? scope : null;
   let yMax: number | undefined;
   const name = (id: string) => labels[id] ?? id;
   const ref = (label: string, values: number[]): TimeSeries => ({ label, values, color: COLORS.reference, dashed: true });
@@ -410,7 +405,8 @@ export function chartView(
       scopeLabel = name(id);
       defaultScopeLabel = `${name(bottleneck)} (most overloaded)`;
       defaultScopeId = bottleneck;
-      const capacity = leafCapacityRps(tierConfig(config, id));
+      const tc = tierConfig(config, id);
+      const capacity = tc ? leafCapacityRps(tc) : null;
       const load = loadSplit(after && shownAfter ? after : run, id);
       const other = after ? (shownAfter ? run : after) : null;
       series = [
@@ -499,10 +495,6 @@ export function chartView(
   };
 }
 
-export function timelineView(analysis: Analysis): TimelineEntryView[] {
-  return analysis.timeline.map((e) => ({ ...e }));
-}
-
 export interface VerdictView {
   text: string;
   tone: 'good' | 'bad';
@@ -550,16 +542,6 @@ export function axisPhrase(axis: Axis, v: number): string {
 }
 
 /**
- * The retry cascade in words, front to back, e.g. "Client 5×, Load balancer 3×, API 1×"; null when no
- * call retries.
- */
-export function retriesPhrase(calls: Array<{ caller: string; retries: number }>, labels: Record<string, string>): string | null {
-  const retrying = calls.filter((c) => c.retries > 0);
-  if (retrying.length === 0) return null;
-  return retrying.map((c) => `${labels[c.caller] ?? c.caller} ${c.retries}×`).join(', ');
-}
-
-/**
  * Map cells. Overloaded (too much traffic even without the failure) has its own status, distinct
  * from stuck (PLAN.md, 2026-10-24); unaffected is drawn as an instant recovery.
  */
@@ -575,9 +557,4 @@ export function mapView(title: string, xAxis: Axis, yAxis: Axis, get: (x: number
     }
   }
   return { title, xLabel: xAxis.label, yLabel: yAxis.label, xValues: xAxis.values, yValues: yAxis.values, cells, formatY: (v) => formatAxisValue(yAxis, v) };
-}
-
-/** The tier config for an id (exported for the settings drawer). */
-export function findTier(config: { tiers: TierConfig[] }, id: string): TierConfig {
-  return tierConfig(config as RunConfig, id);
 }

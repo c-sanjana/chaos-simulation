@@ -2,13 +2,14 @@
  * "Compared with your last run": what the viewer changed, and how the results moved. Pure
  * functions over two drafts and two analysed runs; the panel only displays what these return.
  */
-import { leafCapacityRps, admittedIn } from '../analysis/helpers';
+import { admittedIn, capitalise, leafCapacityRps, listed } from '../analysis/helpers';
 import type { Verdict } from '../analysis/recovery';
 import { callsOf, shareFractions, type CallPolicy, type RunConfig, type TierConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { AnalyzeResult } from '../worker/jobs';
 import { callKey, countsText, describeFault, retriesByCaller, retryCalls, type Draft } from './draft';
 import { formatCount, formatSharePercent, roundedPercents } from './format';
+import { sameData } from './same';
 import { bottleneckTier, shortVerdict, waitingTier } from './viewModels';
 
 /** A finished run with the settings that produced it. */
@@ -49,7 +50,7 @@ export function compareRuns(prev: RunSnapshot, next: RunSnapshot, labels: Record
   const nv = next.result.analysis.recovery;
   if (pv.verdict !== nv.verdict || pv.recoveryMs !== nv.recoveryMs) {
     const order = VERDICT_ORDER[nv.verdict] - VERDICT_ORDER[pv.verdict] || (nv.recoveryMs ?? 0) - (pv.recoveryMs ?? 0);
-    rows.push({ label: 'Outcome', before: cap(shortVerdict(pv)), now: cap(shortVerdict(nv)), change: order === 0 ? 'same' : order < 0 ? 'better' : 'worse', tone: toneOf(order) });
+    rows.push({ label: 'Outcome', before: capitalise(shortVerdict(pv)), now: capitalise(shortVerdict(nv)), change: order === 0 ? 'same' : order < 0 ? 'better' : 'worse', tone: toneOf(order) });
   }
   rows.push(countRow('Failed requests', pv.failedRequests, nv.failedRequests));
   rows.push(countRow('Retries sent (all layers)', retriesSent(prev.result.run), retriesSent(next.result.run)));
@@ -98,7 +99,7 @@ export function retryTakeaway(prev: Draft, next: Draft, changes: string[], befor
   if (fewer.length > 0 && more.length > 0) return null;
   const users = (ids: string[]) => ids.length === 1 && ids[0] === 'client';
   const names = (ids: string[]) => listed(ids.map((id) => (id === 'client' ? "users' apps" : `the ${label(id)}`)));
-  const who = (ids: string[]) => cap(names(ids));
+  const who = (ids: string[]) => capitalise(names(ids));
   const still = retriesByCaller(calls.filter((c) => c.retries > 0)).map((g) => `${g.caller === 'client' ? "users' apps" : `the ${label(g.caller)}`} (${countsText(g.counts)})`);
   const multiply = still.length === 0 ? '' : ` because ${listed(still)} still ${still.length === 1 && !still[0].startsWith("users'") ? 'multiplies' : 'multiply'} the load`;
   const order = VERDICT_ORDER[now] - VERDICT_ORDER[before];
@@ -113,14 +114,11 @@ export function retryTakeaway(prev: Draft, next: Draft, changes: string[], befor
     return stuck ? `${first}. It was still stuck${multiply}.` : `${first}. It recovered either way.`;
   }
   if (more.length > 0) {
-    const first = `${users(more) ? 'Users' : who(more)} retried more, adding retries${failed === 'worse' ? ', and more requests failed' : failed === 'better' ? ', yet fewer requests failed' : ''}`;
+    const first = `${users(more) ? 'Users' : who(more)} retried more${failed === 'worse' ? ', and more requests failed' : failed === 'better' ? ', yet fewer requests failed' : ''}`;
     return stuck ? `${first}. It was stuck either way${multiply.replace(' still ', ' ')}.` : `${first}. It recovered either way.`;
   }
   return null;
 }
-
-/** "a", "a and b", "a, b and c". */
-const listed = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 const VERDICT_ORDER: Record<Verdict, number> = { unaffected: 0, recovered: 1, stuck: 2, overloaded: 3 };
 
@@ -159,7 +157,6 @@ function shareRow(label: string, before: number, now: number): ComparisonRow {
 }
 
 const percent = (r: number) => `${r > 0 ? '+' : ''}${Math.round(100 * r)}%`;
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Every retry any layer sent (each arrives at the next tier down as a retried attempt). */
 export function retriesSent(run: RunResult): number {
@@ -242,7 +239,7 @@ export function settingsChanges(prev: Draft, next: Draft): string[] {
   for (let i = 0; i < Math.max(a.faults.length, b.faults.length); i++) {
     if (i >= a.faults.length) out.push(`Added: ${faultText(next, i)}`);
     else if (i >= b.faults.length) out.push(`Removed: ${faultText(prev, i)}`);
-    else if (JSON.stringify(a.faults[i]) !== JSON.stringify(b.faults[i])) out.push(`${faultText(prev, i)} → ${faultText(next, i).replace(`${label(b.faults[i].tier)} `, '')}`);
+    else if (!sameData(a.faults[i], b.faults[i])) out.push(`${faultText(prev, i)} → ${faultText(next, i).replace(`${label(b.faults[i].tier)} `, '')}`);
   }
   const before = new Map(retryCalls(prev.topology).map((c) => [callKey(c), c.retries]));
   for (const c of retryCalls(next.topology)) {

@@ -3,10 +3,10 @@ import {
   currentCell,
   describeFault,
   draftProblems,
+  FAULT_KIND_LABELS,
   faultKindOf,
   nearestCell,
   onMap,
-  presetDraft,
   removeFault,
   retryCalls,
   updateFault,
@@ -16,6 +16,9 @@ import {
   withFaultKind,
   JUDGE_AFTER_FAILURE_S,
 } from './draft';
+import { PRESET_SYSTEM, systemDraft } from './system';
+
+const presetDraft = (id: string) => systemDraft(PRESET_SYSTEM, id);
 
 describe('draftProblems', () => {
   const preset = presetDraft('retry-storm');
@@ -82,10 +85,15 @@ describe('failures and retries', () => {
     const f = d.scenario.faults[0];
     expect(faultKindOf(f)).toBe('slow');
     const kinds = ['down', 'one-down', 'restart-empty', 'slow'] as const;
-    expect(kinds.map((k) => describeFault(withFaultKind(f, k), 4))).toEqual(['goes down', 'loses one of its 4 servers', 'goes down and restarts empty', 'slows 8×']);
+    expect(kinds.map((k) => describeFault(withFaultKind(f, k), 4))).toEqual(['goes down', 'loses one of its 4 copies', 'goes down and restarts empty', 'slows 8×']);
     expect(kinds.map((k) => faultKindOf(withFaultKind(f, k)))).toEqual([...kinds]);
     expect(withFaultKind({ ...f, kind: 'dead', factor: undefined }, 'slow').factor).toBe(4);
     expect(withFaultKind(f, 'one-down')).toEqual({ tier: 'db', startMs: 30_000, endMs: 35_000, kind: 'dead', instance: 0 });
+    // Built in the presets' key order, so it reads (and is written) like them.
+    expect(JSON.stringify(withFaultKind(f, 'slow'))).toBe(JSON.stringify(f));
+    expect(Object.keys(withFaultKind(f, 'one-down'))).toEqual(['tier', 'kind', 'startMs', 'endMs', 'instance']);
+    const cache = presetDraft('cache-restart').scenario.faults[0];
+    expect(JSON.stringify(withFaultKind(cache, 'restart-empty'))).toBe(JSON.stringify(cache));
   });
 
   it('lists and edits every layer\'s retries, front to back', () => {
@@ -98,8 +106,9 @@ describe('failures and retries', () => {
     expect(retryCalls(edited.topology).map((c) => c.retries)).toEqual([0, 3, 4]);
   });
 
-  it('refuses "one server goes down" on a part with a single server', () => {
+  it('refuses "loses one copy" on a part with a single copy, quoting the options as the editor offers them', () => {
     const cacheOneDown = updateFault(d, { tier: 'cache', kind: 'dead', instance: 0, factor: undefined });
-    expect(draftProblems(cacheOneDown)).toEqual(['Cache has only 1 server, so "one server goes down" would take it down completely; choose "goes down" instead.']);
+    expect(draftProblems(cacheOneDown)).toEqual(['Cache has only 1 copy, so "loses one copy" would take it down completely; choose "goes down" instead.']);
+    expect([FAULT_KIND_LABELS['one-down'], FAULT_KIND_LABELS.down]).toEqual(['loses one copy', 'goes down']);
   });
 });

@@ -11,18 +11,15 @@ import {
   answerTimes,
   axisPhrase,
   bottleneckTier,
-  busiestTier,
   chartView,
   COLORS,
-  findTier,
   formatAxisValue,
   labelsOf,
+  loadSplit,
   mapView,
   METRIC_TABS,
   shortVerdict,
-  timelineView,
   topologyView,
-  retriesPhrase,
   verdictView,
   waitingTier,
 } from './viewModels';
@@ -112,11 +109,21 @@ describe('chartView', { timeout: 60_000 }, () => {
     expect(chartView('load', config, run, labels, null).defaultScopeLabel).toBe('DB (most overloaded)');
     // App server workers are all occupied while its CPU is idle; the DB is busy computing (both at 100%).
     expect(waitingTier(run)).toBe('api');
-    expect(busiestTier(run)).not.toBe('api');
     const workers = chartView('workers', config, run, labels, null);
     expect([workers.scopeLabel, workers.defaultScopeLabel]).toEqual(['App server', 'App server (most workers waiting)']);
     // Which tier the default is, so a scope picker doesn't list it twice; none for end to end.
     expect([chartView('load', config, run, labels, null).defaultScopeId, workers.defaultScopeId, chartView('latency', config, run, labels, null).defaultScopeId]).toEqual(['db', 'api', null]);
+  });
+
+  it("falls back to the tab's default for a part that isn't in the run (code review 4: a scope kept from another system broke the page)", () => {
+    const { config, run } = retryStormRun({ retries: 3 });
+    for (const tab of METRIC_TABS.map((m) => m.id)) {
+      const missing = chartView(tab, config, run, labels, 'ledger');
+      const fallback = chartView(tab, config, run, labels, null);
+      expect(missing.scopeLabel).toBe(fallback.scopeLabel);
+      expect(missing.spec.series.map((x) => x.label)).toEqual(fallback.spec.series.map((x) => x.label));
+    }
+    expect(loadSplit(run, 'ledger')).toEqual({ fresh: [], repeats: [], admitted: [], turnedAway: [] });
   });
 
   it('measures end-to-end latency as time to an answer, errors included, so it rises when requests fail', () => {
@@ -242,32 +249,19 @@ describe('verdicts, maps and helpers', { timeout: 60_000 }, () => {
     expect(mapView('x', x, y, () => undefined, null).cells.every((c) => !c.isCurrent)).toBe(true);
   });
 
-  it('phrases map values and the retry cascade in words', () => {
+  it('phrases map values in words', () => {
     expect(axisPhrase(retryStorm.map.y, 5000)).toBe('a 5 s failure');
     expect(axisPhrase(retryStorm.map.y, 8000)).toBe('an 8 s failure');
     expect(axisPhrase(retryStorm.map.x, 200)).toBe('200 req/s');
     expect(axisPhrase({ param: 'retries', label: 'DB retries', values: [], caller: 'api' }, 3)).toBe('3 DB retries');
-    expect(
-      retriesPhrase(
-        [
-          { caller: 'client', retries: 5 },
-          { caller: 'lb', retries: 0 },
-          { caller: 'api', retries: 1 },
-        ],
-        labels,
-      ),
-    ).toBe('Client 5×, App server 1×');
-    expect(retriesPhrase([{ caller: 'api', retries: 0 }], labels)).toBeNull();
   });
 
-  it('formats axes, labels and finds tiers and bottlenecks', () => {
+  it('formats axes, labels and finds bottlenecks', () => {
     expect(formatAxisValue({ param: 'outageMs', label: '', values: [] }, 10_000)).toBe('10s');
     expect(formatAxisValue({ param: 'rps', label: '', values: [] }, 120)).toBe('120');
     expect(labels.db).toBe('DB');
-    expect(findTier(webChain, 'api').instances).toBe(4);
-    const { config, run, analysis } = retryStormRun({ retries: 3 });
+    const { config, run } = retryStormRun({ retries: 3 });
     expect(bottleneckTier(config, run)).toBe('db');
-    expect(timelineView(analysis)).toEqual(analysis.timeline);
   });
 });
 

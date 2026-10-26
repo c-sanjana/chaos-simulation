@@ -6,6 +6,7 @@ import {
   addFault,
   describeFault,
   draftProblems,
+  FAULT_KIND_LABELS,
   faultKindOf,
   JUDGE_AFTER_FAILURE_S,
   LIMITS,
@@ -23,13 +24,6 @@ import {
   type Draft,
   type FaultKindChoice,
 } from './draft';
-
-const KIND_LABELS: Record<FaultKindChoice, string> = {
-  slow: 'slows down',
-  down: 'goes down',
-  'one-down': 'loses one server',
-  'restart-empty': 'goes down, restarts empty',
-};
 
 /**
  * What fails, how badly and when; how many times each layer retries; and the traffic.
@@ -120,7 +114,7 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
           value={f.tier}
           onChange={(e) => {
             const next = tiers.find((t) => t.id === e.target.value)!;
-            // A kind the new part can't have (restart empty on a non-cache, one server of one) becomes "goes down".
+            // A kind the new part can't have (restart empty on a non-cache, one copy of one) becomes "goes down".
             const kind = faultKindOf(f);
             const keep = (kind !== 'restart-empty' || next.cache) && (kind !== 'one-down' || next.instances > 1);
             onChange(setFault(draft, withFaultKind({ ...f, tier: next.id }, keep ? kind : 'down'), index));
@@ -138,7 +132,7 @@ function FaultRow({ draft, fault: f, index, onChange }: { draft: Draft; fault: F
         <select className="csl-field__box csl-field__select" value={faultKindOf(f)} onChange={(e) => onChange(setFault(draft, withFaultKind(f, e.target.value as FaultKindChoice), index))}>
           {kinds.map((k) => (
             <option key={k} value={k}>
-              {KIND_LABELS[k]}
+              {FAULT_KIND_LABELS[k]}
             </option>
           ))}
         </select>

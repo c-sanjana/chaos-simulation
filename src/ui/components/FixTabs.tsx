@@ -27,7 +27,7 @@ export interface FixTab {
   where: string;
   /** e.g. "242 failed requests instead of 12,687", or "no change: 12,687 failed requests". */
   failed: string;
-  /** Robustness checks, e.g. ["Helped on 5 of 5 random runs", "Still helps if the slowdown lasts 10 s"]; empty when not checked. */
+  /** Robustness checks, e.g. ["helped in 5 of 5 random runs", "still helps if the slowdown lasts 10 s"]; empty when not checked. */
   checks: string[];
   /** Short outcome for the tab itself, e.g. "2 s"; empty for a fix that did not help. */
   badge: string;
@@ -181,7 +181,7 @@ export function FixTabs({ tabs, selectedId, onSelect, noneHelped }: FixTabsProps
   );
   const [more, setMore] = useState(readMore);
   if (tabs.length === 0) return null;
-  // Nothing chosen yet (still checking, or nothing helped): the first fix of the view on screen.
+  // Nothing chosen yet (still checking; FixStep chooses one once finished): the first fix of the view on screen.
   const selected = tabs.find((t) => t.id === selectedId) ?? shown[0] ?? tabs[0];
   const reason = selected.id === tabs[0].id ? rankedFirstReason(tabs) : null;
   const toggleMore = () => {

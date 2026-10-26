@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { capitalise } from '../analysis/helpers';
 import type { RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import type { ScenarioPreset, TopologyPreset } from '../data/types';
@@ -37,14 +38,16 @@ export interface FixStepProps {
  */
 export function FixStep({ pool, topology, scenario, config, original, labels, onEdit }: FixStepProps) {
   const ranking = useFixRanking(pool, config, original?.analysis ?? null, labels, original?.run);
-  /** The viewer's pick; until then the best fix is shown once the checks are done. */
+  /** The viewer's pick; until then the best fix is shown once the checks are done (see `best`). */
   const [chosenId, setChosenId] = useState<string | null>(null);
   useEffect(() => setChosenId(null), [config]);
   const allTested = ranking.original !== null && ranking.tested === ranking.candidates.length;
   const finished = allTested && !ranking.checking;
   const helped = ranking.ranked.filter((f) => f.helped);
   // The best fix is selected once, when the checks finish, so nothing reselects under the viewer.
-  const best = finished && helped.length > 0 ? helped[0].candidate.id : null;
+  // When none helped, the first one tried is (code review 4: its tab looked chosen but nothing was,
+  // so its "why it didn't help" never came): its panel says why, and the maps and replay show it.
+  const best = !finished ? null : helped.length > 0 ? helped[0].candidate.id : (ranking.ranked[0]?.candidate.id ?? null);
   const appliedId = chosenId ?? best;
   const applied = ranking.ranked.find((f) => f.candidate.id === appliedId) ?? null;
   // The map cell shown before vs after in the replay: the current settings (or the nearest cell)
@@ -167,9 +170,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
                     ? noFixesMessage(original)
                     : ranking.checking
                       ? `Checking which fixes hold up: other random runs and a longer ${failure}…`
-                      : helped.length === 0
-                        ? 'Choose a fix below to see its before and after maps anyway.'
-                        : 'Choose a fix to see whether it moves the tipping point.'}
+                      : 'Choose a fix to see whether it moves the tipping point.'}
               </span>
             )}
           </div>
@@ -191,7 +192,7 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
             onEdit={onEdit}
             compact
             chartHeight={178}
-            sideTimeline
+            sideStory
           />
         )}
         {applied && (fixed.status === 'running' || beforeRun.status === 'running') && (
@@ -199,7 +200,8 @@ export function FixStep({ pool, topology, scenario, config, original, labels, on
         )}
         {!applied && (
           <PlayerPlaceholder
-            text={!finished ? 'Testing fixes…' : helped.length > 0 ? 'Choose a fix to see it side by side with the original run.' : 'No fix helped, so there is nothing to compare.'}
+            // Once finished, a fix is always shown when there is one (see `best`).
+            text={!finished ? 'Testing fixes…' : 'No fix to try, so there is nothing to compare.'}
             minHeight={!finished ? FIX_PLAYER_HEIGHT : 0}
           />
         )}
@@ -346,7 +348,8 @@ function droppedText(m: FixMeasured): string[] {
 
 /**
  * One sentence on how the boundary moved for the current y value. When that value isn't one of
- * the map's rows (e.g. 7 retries on a 0–5 map), it says so and describes the nearest row instead.
+ * the map's rows (e.g. a 4 s failure on a map of 1, 2, 3, 5, 8 and 12 s), it says so and describes
+ * the nearest row instead.
  */
 export function moveSummary(scenario: ScenarioPreset, before: SweepResult, after: SweepResult): string {
   const y = currentCell(scenario).y;
@@ -364,8 +367,4 @@ export function moveSummary(scenario: ScenarioPreset, before: SweepResult, after
   if (a > b) return `${at}, the tipping point moves from ${b} to ${a} req/s.`;
   if (a < b) return `${at}, the tipping point moves down from ${b} to ${a} req/s: the fix makes this worse.`;
   return `${at}, the tipping point stays at ${b} req/s.`;
-}
-
-function capitalise(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }

@@ -47,10 +47,11 @@ describe('cascadeSentence', () => {
     { caller: 'lb', target: 'api', retries: lb },
     { caller: 'api', target: 'db', retries: api },
   ];
-  it('uses the story’s every/several rule, and names a single retrying caller', () => {
-    expect(cascadeSentence(calls(5, 3, 1), labels)).toBe('Every layer retries when it gives up (Client 5×, Load balancer 3×, App server 1×), so one failed answer can come back as many requests.');
-    expect(cascadeSentence(calls(5, 0, 1), labels)).toBe('Several layers retry when they give up (Client 5×, App server 1×), so one failed answer can come back as many requests.');
+  it("uses the story's every/several rule, and names a single retrying caller; the client is users' apps, as in the banner", () => {
+    expect(cascadeSentence(calls(5, 3, 1), labels)).toBe("Every layer retries when it gives up (users' apps 5×, Load balancer 3×, App server 1×), so one failed answer can come back as many requests.");
+    expect(cascadeSentence(calls(5, 0, 1), labels)).toBe("Several layers retry when they give up (users' apps 5×, App server 1×), so one failed answer can come back as many requests.");
     expect(cascadeSentence(calls(0, 0, 3), labels)).toBe('App server retries when it gives up (3×), so one failed answer can come back as more requests.');
+    expect(cascadeSentence(calls(4, 0, 0), labels)).toBe("Users' apps retry when they give up (4×), so one failed answer can come back as more requests.");
     expect(cascadeSentence(calls(0, 0, 0), labels)).toBe('');
     expect(cascadeSentence([{ caller: 'x', target: 'y', retries: 2 }, { caller: 'z', target: 'w', retries: 1 }], {})).toMatch(/^Every layer retries when it gives up \(x 2×, z 1×\)/);
   });

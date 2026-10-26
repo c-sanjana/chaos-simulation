@@ -16,7 +16,7 @@ describe('saved branched systems', () => {
     let applied = systemDraft(system, 'custom-db-slow-db1');
     applied = updateTier(applied, 'lb', (t) => updateCallAt(t, 2, { retries: 4 }));
     const store = memory();
-    saveState({ system, scenarioId: 'custom-db-slow-db1', applied, canvas: graph, canvasOpen: true }, store);
+    saveState({ system, applied, canvas: graph, canvasOpen: true }, store);
     const restored = loadSaved(store)!;
     expect(restored.system).toEqual(system);
     expect(restored.scenarioId).toBe(system.kind === 'custom' ? system.scenarios[0].id : ''); // every system opens on its default failure

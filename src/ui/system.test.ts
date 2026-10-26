@@ -6,7 +6,8 @@ import { chainGraph } from '../builder/testGraphs';
 import { scenarios } from '../data/scenarios';
 import { webChain } from '../data/topologies';
 import { updateFault, updateScenario } from './draft';
-import { carryOver, customSystem, exampleGraph, graphForCanvas, PRESET_SYSTEM, resolveScenarioId, scenarioCatalog, systemDraft, withFailureDetails, withTrafficAxis } from './system';
+import { sameData } from './same';
+import { carryOver, customSystem, exampleGraph, PRESET_SYSTEM, scenarioCatalog, systemDraft, withFailureDetails, withTrafficAxis } from './system';
 
 type Custom = Extract<ReturnType<typeof customSystem>, { kind: 'custom' }>;
 
@@ -17,7 +18,6 @@ describe('system', () => {
     expect(d.scenario.id).toBe('cache-restart');
     expect(d.topology).toEqual(webChain);
     expect(d.topology).not.toBe(webChain); // a copy to edit
-    expect(graphForCanvas(PRESET_SYSTEM, 150).nodes.find((n) => n.id === 'client')!.settings).toEqual({ kind: 'client', rps: 150 });
   });
 
   it('a built system is compiled and offers its own scenarios at the client traffic', () => {
@@ -29,11 +29,9 @@ describe('system', () => {
     expect(d.scenario.id).toBe('custom-db-slow:n2');
     // An older save's id names the same failure.
     expect(systemDraft(system, 'custom-front-slow').scenario.id).toBe('custom-front-slow:n1');
-    expect(resolveScenarioId(system, 'custom-cache-restart')).toBe('custom-cache-restart:c');
-    expect(resolveScenarioId(system, 'nope')).toBe('custom-db-slow:n2');
+    expect(systemDraft(system, 'custom-cache-restart').scenario.id).toBe('custom-cache-restart:c');
     expect(d.scenario.rps).toBe(100);
     expect(d.topology).toEqual(compileGraph(graph));
-    expect(graphForCanvas(system, 999)).toBe(graph);
   });
 });
 
@@ -76,6 +74,17 @@ describe('carrying a failure over to a new built system', () => {
     // The scenario exactly as offered keeps its own words.
     const offered = systemDraft(example, 'custom-cache-restart');
     expect(carryOver(offered, 'custom-cache-restart', example).draft.scenario.title).toBe('Cache restarts empty');
+  });
+
+  it('names a changed failure after the part as it is now called (code review 4: a renamed part kept its old name)', () => {
+    const applied = updateFault(systemDraft(PRESET_SYSTEM, 'retry-storm'), { endMs: 36_000 }); // lasting 6 s: edited
+    const graph = exampleGraph();
+    const renamed = customSystem({ ...graph, nodes: graph.nodes.map((n) => (n.id === 'db' ? { ...n, label: 'Ledger' } : n)) }) as Custom;
+    const kept = carryOver(applied, 'retry-storm', renamed);
+    expect(kept.reset).toBeUndefined();
+    expect(kept.draft.scenario.title).toBe('Ledger slows down');
+    expect(kept.draft.scenario.faults).toEqual(applied.scenario.faults);
+    expect(kept.draft).toBe(withFailureDetails(kept.draft)); // nothing left to follow
   });
 
   it('resets it, saying why, when a part is gone or can no longer fail that way', () => {
@@ -151,7 +160,7 @@ describe('scenario ids name their part, so changed shares never swap the failure
     expect(faultsOn(kept.draft)).toEqual(['db1']);
     // "Reset to how you built it" gives the same failure, so the summary doesn't say "(edited)".
     expect(faultsOn(systemDraft(next, kept.scenarioId))).toEqual(['db1']);
-    expect(JSON.stringify(kept.draft)).toBe(JSON.stringify(systemDraft(next, kept.scenarioId))); // as App compares them
+    expect(sameData(kept.draft, systemDraft(next, kept.scenarioId))).toBe(true); // as App compares them
     // An older save's id ("the busiest database") still files the failure under its own part…
     expect(carryOver(applied, 'custom-db-slow', next).scenarioId).toBe('custom-db-slow:db1');
     // …and, when the failure was changed into one no scenario has, under what the old id names.

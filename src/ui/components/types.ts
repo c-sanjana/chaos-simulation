@@ -86,15 +86,6 @@ export interface ChartSpec {
   revealS?: number;
 }
 
-export interface TimelineEntryView {
-  tMs: number;
-  endMs?: number;
-  text: string;
-  kind: 'fault' | 'tip' | 'bad' | 'good' | 'info';
-  /** Known only once the run has ended: labelled "end of run" instead of a time. */
-  atEnd?: boolean;
-}
-
 export interface MapCellView {
   x: number;
   y: number;

@@ -15,13 +15,14 @@ import { StepPanel } from './components/StepPanel';
 import { StepTabs } from './components/StepTabs';
 import { Tour, TourButton } from './components/Tour';
 import { BuilderScreen } from './builder/BuilderScreen';
-import { draftProblems, type Draft } from './draft';
+import { draftProblems, faultKindOf, type Draft } from './draft';
 import { AnnouncerProvider, useAnnounce } from './components/Announcer';
 import { FailureEditor, ScenarioSummary } from './FailureEditor';
 import { FixStep } from './FixStep';
 import { RunPlayer } from './RunPlayer';
 import { SettingsForm } from './SettingsForm';
 import { focusField, useInvalidFields } from './components/useInvalidFields';
+import { sameData } from './same';
 import { loadSaved, saveState } from './savedSystem';
 import { carryOver, customSystem, PRESET_SYSTEM, systemDraft, withFailureDetails, withTrafficAxis, type System } from './system';
 import { ThemeToggle } from './themeMode';
@@ -44,7 +45,10 @@ const FOCUS = {
   help: '[data-tour="help"]',
 };
 
-/** Below this width the replay's story moves above its chart (the side column is below the fold or gone). */
+/**
+ * Below this width the replay's story moves above its chart (beside the player there is too little
+ * room for it), and step 1's side column is left out. theme.css lays that column out from 1201px.
+ */
 const STORY_ABOVE_QUERY = '(max-width: 1200px)';
 
 export interface AppProps {
@@ -79,10 +83,11 @@ export function App({ pool: injected }: AppProps) {
   const [notice, setNotice] = useState<{ text: string; action?: { label: string; run: () => void } } | null>(restored?.notice ? { text: restored.notice } : null);
   const [draft, setDraft] = useState<Draft>(applied);
   const [step, setStep] = useState(0);
-  /** On steps 2 and 3 the scenario card collapses to one line to leave room for side-by-side views. */
+  /** The failure editor ("Change failure") is open under the banner. */
   const [editingFailure, setEditingFailure] = useState(false);
+  /** Step 1's side column, where the replay tells its story (absent while the story is above the chart). */
+  const [storyEl, setStoryEl] = useState<HTMLElement | null>(null);
   /** Settings drawer: closed, one tier ('client' = traffic), or every setting (null). */
-  const [timelineEl, setTimelineEl] = useState<HTMLElement | null>(null);
   const [settings, setSettings] = useState<{ open: boolean; only: string | null }>({ open: false, only: null });
   const openSettings = (only: string | null) => setSettings({ open: true, only });
   const closeSettings = () => setSettings((s) => ({ ...s, open: false }));
@@ -105,8 +110,8 @@ export function App({ pool: injected }: AppProps) {
   useEffect(() => {
     if (main.status !== 'done') return;
     const last = lastRun.current;
-    // Comparable when the same thing fails the same way (its name says what and how); other edits are what the comparison is for.
-    if (last && last.result !== main.value) setPreviousRun(last.draft.scenario.id === applied.scenario.id && last.draft.scenario.title.split(' + ')[0] === applied.scenario.title.split(' + ')[0] ? last : null);
+    // Comparable when the same part fails the same way; other edits are what the comparison is for.
+    if (last && last.result !== main.value) setPreviousRun(sameFailure(last.draft, applied) ? last : null);
     lastRun.current = { draft: applied, config, result: main.value };
   }, [main]); // eslint-disable-line react-hooks/exhaustive-deps
   const comparison = useMemo(
@@ -129,12 +134,12 @@ export function App({ pool: injected }: AppProps) {
   const beforeDemo = useRef<{ system: System; scenarioId: string; applied: Draft; draft: Draft; canvas: BuilderGraph | null; editing: boolean } | null>(null);
   // Remember the built system, what runs on it and the drawing; never the tour's demo in their place.
   useEffect(() => {
-    if (!beforeDemo.current) saveState({ system, scenarioId, applied, canvas: canvas ?? keptCanvas, canvasOpen: canvas !== null });
-  }, [system, scenarioId, applied, canvas, keptCanvas]);
+    if (!beforeDemo.current) saveState({ system, applied, canvas: canvas ?? keptCanvas, canvasOpen: canvas !== null });
+  }, [system, applied, canvas, keptCanvas]);
   const startTour = () => {
     setTourFrom(step);
     const demo = systemDraft(PRESET_SYSTEM, DEFAULT_SCENARIO);
-    if (system.kind !== 'preset' || canvas !== null || JSON.stringify(applied) !== JSON.stringify(demo) || JSON.stringify(draft) !== JSON.stringify(demo)) {
+    if (system.kind !== 'preset' || canvas !== null || !sameData(applied, demo) || !sameData(draft, demo)) {
       beforeDemo.current = { system, scenarioId, applied, draft, canvas, editing: editingFailure };
       setSystem(PRESET_SYSTEM);
       setScenarioId(DEFAULT_SCENARIO);
@@ -172,25 +177,28 @@ export function App({ pool: injected }: AppProps) {
       setPreviousRun(null);
     }
   };
-  const dirty = JSON.stringify(draft) !== JSON.stringify(applied);
+  const dirty = !sameData(draft, applied);
   /** The settings simulated differ from the chosen preset's: its name is shown with "(edited)". */
-  const edited = useMemo(() => JSON.stringify(applied) !== JSON.stringify(systemDraft(system, scenarioId)), [applied, system, scenarioId]);
+  const edited = useMemo(() => !sameData(applied, systemDraft(system, scenarioId)), [applied, system, scenarioId]);
   const problems = draftProblems(draft);
 
   /** Bumped to replay the same run from the start ("Replay from the start" with nothing changed). */
   const [restartKey, setRestartKey] = useState(0);
   const run = () => {
     if (main.status === 'cancelled') retryMain(); // also when these are the stopped settings again
+    setReplayOpenAtMs(null);
     if (!dirty) {
+      // Nothing changed: the same run replays from the start, and steps 2 and 3 keep the cell and
+      // the fix chosen there (code review 4: a new copy of the same settings started them over).
       setRestartKey((k) => k + 1);
       setStep(0);
+    } else {
+      // On a built system the map's traffic range follows the traffic, so it stays on the map; the
+      // name and the map's failure lengths follow the failure as set in the editor.
+      const next = withTrafficAxis(withFailureDetails(structuredClone(draft)));
+      setApplied(next);
+      setDraft(next);
     }
-    setReplayOpenAtMs(null);
-    // On a built system the map's traffic range follows the traffic, so it stays on the map; the
-    // name and the map's failure lengths follow the failure as set in the editor.
-    const next = withTrafficAxis(withFailureDetails(structuredClone(draft)));
-    setApplied(next);
-    setDraft(next);
     setEditingFailure(false);
     setNotice(null);
     focusAfter(FOCUS.stepHeading, true); // the step's heading, once the new run is ready
@@ -246,7 +254,7 @@ export function App({ pool: injected }: AppProps) {
    * unchanged, replaces nothing (a drawing kept while it was open stays kept).
    */
   const cancelBuilder = () => {
-    if (JSON.stringify(canvas) !== JSON.stringify(runningGraph())) setKeptCanvas(canvas);
+    if (!sameData(canvas, runningGraph())) setKeptCanvas(canvas);
     setCanvas(null);
     setNotice(null);
     focusAfter(FOCUS.buildButton);
@@ -417,7 +425,7 @@ export function App({ pool: injected }: AppProps) {
                 onEdit={openSettings}
                 compact
                 chartHeight={232}
-                timelineTarget={timelineEl}
+                storyTarget={storyEl}
                 holdPlayback={tour.open}
                 demoAtMs={tour.open ? demoAtMs : null}
                 openAtMs={replayOpenAtMs}
@@ -433,9 +441,11 @@ export function App({ pool: injected }: AppProps) {
             {main.status === 'error' && <SimulationError message={main.message} onEdit={() => openSettings(null)} onReset={resetToPreset} built={built} />}
             {main.status === 'cancelled' && <SimulationError stopped onEdit={() => openSettings(null)} onReset={resetToPreset} onRetry={retryMain} built={built} />}
           </div>
-          <aside className="csl-split__col csl-split__side--narrow">
-            <div className="csl-split__slot" ref={setTimelineEl} />
-          </aside>
+          {!storyAbove && (
+            <aside className="csl-split__col csl-split__side--narrow">
+              <div className="csl-split__slot" ref={setStoryEl} />
+            </aside>
+          )}
         </div>
       </StepPanel>
       <StepPanel active={step === 1} keep={keptSteps.includes(1)}>
@@ -511,6 +521,15 @@ export function App({ pool: injected }: AppProps) {
     </div>
     </AnnouncerProvider>
   );
+}
+
+/**
+ * Whether two drafts test the same failure: the same scenario, its first failure on the same part
+ * and of the same kind, so a run of one can be compared with a run of the other.
+ */
+function sameFailure(a: Draft, b: Draft): boolean {
+  const [fa, fb] = [a.scenario.faults[0], b.scenario.faults[0]];
+  return a.scenario.id === b.scenario.id && fa !== undefined && fb !== undefined && fa.tier === fb.tier && faultKindOf(fa) === faultKindOf(fb);
 }
 
 /** Says "Simulating…" and "Simulation ready" in the page's live region as the main run starts and ends. */

@@ -1,12 +1,13 @@
 import { buildRunConfig } from '../data/buildConfig';
 import { executeJob } from '../worker/jobs';
 import { busyAfterFailure, compareRuns, peakLoad, retriesSent, retryTakeaway, settingsChanges, type ComparisonRow, type RunSnapshot } from './compare';
-import { addFault, presetDraft, updateFault, updateRetries, updateScenario, updateTier, type Draft } from './draft';
+import { addFault, setFault, updateFault, updateRetries, updateScenario, updateTier, type Draft } from './draft';
 import { chainGraph } from '../builder/testGraphs';
-import { customSystem } from './system';
+import { customSystem, PRESET_SYSTEM, systemDraft } from './system';
 import { labelsOf } from './viewModels';
 import { findScenario } from '../builder/scenarios';
 
+const presetDraft = (id: string) => systemDraft(PRESET_SYSTEM, id);
 const labels = labelsOf(presetDraft('retry-storm').topology);
 const snapshot = (draft: Draft): RunSnapshot => {
   const config = buildRunConfig(draft.topology, draft.scenario);
@@ -27,7 +28,7 @@ describe('compareRuns', { timeout: 60_000 }, () => {
     expect(c.rows[3]).toMatchObject({ before: expect.stringMatching(/%$/), tone: 'worse' });
     expect(c.rows[3].change).toMatch(/^\+\d+ pts$/);
     // Only retries changed: the takeaway says why, from the run.
-    expect(c.takeaway).toBe("The App server retried more, adding retries. It was stuck either way because users' apps (5×), the Load balancer (3×) and the App server (5×) multiply the load.");
+    expect(c.takeaway).toBe("The App server retried more. It was stuck either way because users' apps (5×), the Load balancer (3×) and the App server (5×) multiply the load.");
   });
 
   it('says why cutting users\' retries made things worse: the other layers still multiply the load', () => {
@@ -99,7 +100,9 @@ describe('retryTakeaway', () => {
     expect(retryTakeaway(d, gw, changes(gw), 'recovered', 'recovered', rows('worse'))).toBe('The Load balancer retried less, so more failures reached users directly. It recovered either way.');
     expect(retryTakeaway(d, gw, changes(gw), 'stuck', 'stuck', rows('same'))).toBe("The Load balancer retried less. It was still stuck because users' apps (5×), the Load balancer (1×) and the App server (1×) still multiply the load.");
     const users = updateRetries(d, 'client', 8);
-    expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('better'))).toBe('Users retried more, adding retries, yet fewer requests failed. It recovered either way.');
+    expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('better'))).toBe('Users retried more, yet fewer requests failed. It recovered either way.');
+    expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('worse'))).toBe('Users retried more, and more requests failed. It recovered either way.');
+    expect(retryTakeaway(d, users, changes(users), 'recovered', 'recovered', rows('same'))).toBe('Users retried more. It recovered either way.');
     const none = updateRetries(updateRetries(updateRetries(d, 'client', 0), 'lb', 0), 'api', 0);
     expect(retryTakeaway(d, none, changes(none), 'stuck', 'stuck', rows('worse'))).toBe("Users' apps, the Load balancer and the App server retried less, so more failures reached users directly. It was still stuck.");
     // Up at one layer and down at another, or another setting changed: no clear story.
@@ -155,5 +158,11 @@ describe('settingsChanges', () => {
     expect(settingsChanges(d, two)).toEqual(['Added: Load balancer slows 4× for 5 s at 30 s']);
     expect(settingsChanges(two, d)).toEqual(['Removed: Load balancer slows 4× for 5 s at 30 s']);
     expect(settingsChanges(d, d)).toEqual([]);
+  });
+
+  it('does not list a failure rebuilt with its keys in another order (code review 4: "slows 8× … → slows 8× …")', () => {
+    const rebuilt = setFault(d, { endMs: 35_000, startMs: 30_000, factor: 8, kind: 'slow', tier: 'db' }, 0);
+    expect(JSON.stringify(rebuilt.scenario.faults)).not.toBe(JSON.stringify(d.scenario.faults));
+    expect(settingsChanges(d, rebuilt)).toEqual([]);
   });
 });

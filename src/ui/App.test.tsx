@@ -112,7 +112,7 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.change(screen.getByLabelText('Playback position'), { target: { value: '120000' } });
     const panel = await screen.findByRole('region', { name: 'Compared with your last run' }, SLOW);
     expect(within(panel).getByText('App server → DB retries 1 → 5')).toBeTruthy();
-    expect(within(panel).getByText(/^The App server retried more, adding retries\. It was stuck either way because/)).toBeTruthy();
+    expect(within(panel).getByText(/^The App server retried more\. It was stuck either way because/)).toBeTruthy();
     fireEvent.click(within(panel).getByRole('button', { name: 'Dismiss the comparison' }));
     expect(screen.queryByRole('region', { name: 'Compared with your last run' })).toBeNull();
     // A different failure (another part, or failing another way) isn't comparable.
@@ -156,7 +156,7 @@ describe('App', { timeout: 60_000 }, () => {
     await screen.findByText('60 of 60 runs', undefined, SLOW);
     expect(pool.cells).toHaveLength(60);
     expect(screen.getByText(/With a 5 s failure, the system tips at 120 req\/s/)).toBeTruthy();
-    expect(screen.getByText(/Every layer retries when it gives up \(Client 5×, Load balancer 3×, App server 1×\)/)).toBeTruthy();
+    expect(screen.getByText(/Every layer retries when it gives up \(users' apps 5×, Load balancer 3×, App server 1×\)/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /80 requests per second, 1s failure length: recovers in 2 s/ })).toBeTruthy();
     await screen.findByRole('heading', { name: /Replaying 200 req\/s · 5s failure length/ }, SLOW);
     fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
@@ -164,7 +164,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByText('Recovers in 2 s')).toBeTruthy();
     // Side by side: map on the left; the replay on the right, with its story beside the chart.
     const story = screen.getByRole('region', { name: 'What is happening, in plain words' });
-    expect(story.closest('.csl-player__timeline--side')).not.toBeNull();
+    expect(story.closest('.csl-player__storycol--side')).not.toBeNull();
     expect(screen.getByRole('region', { name: 'Tipping point' }).contains(story)).toBe(false);
   });
 
@@ -473,6 +473,37 @@ describe('App', { timeout: 60_000 }, () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/DB slows down \+ 3 more failures \(edited\)/));
   });
 
+  it('a failure set back to how it was is unchanged: no "(edited)", nothing to re-run (code review 4: key order made it differ)', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    const part = within(screen.getByRole('group', { name: 'Failure 1' })).getByLabelText('Part');
+    fireEvent.change(part, { target: { value: 'cache' } });
+    expect(screen.getByRole('button', { name: 'Run simulation' })).toBeTruthy();
+    fireEvent.change(part, { target: { value: 'db' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replay from the start' }));
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).not.toMatch(/\(edited\)/);
+    await act(async () => {});
+    expect(pool.analyzed).toHaveLength(1);
+  });
+
+  it('puts the story beside the replay on wide screens, and above the chart with no empty side column on narrower ones (code review 4)', async () => {
+    const wide = render(<App pool={new FakePool()} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    expect(within(wide.container.querySelector('.csl-split__side--narrow') as HTMLElement).getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    wide.unmount();
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(max-width: 1200px)', addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      const narrow = render(<App pool={new FakePool()} />);
+      await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+      expect(narrow.container.querySelector('.csl-split__side--narrow')).toBeNull();
+      expect(within(narrow.container.querySelector('.csl-player__story') as HTMLElement).getByRole('heading', { name: "What's happening" })).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps a way out when a run cannot be simulated', async () => {
     const pool = new FakePool();
     const makeBatch = pool.batch.bind(pool);
@@ -698,6 +729,46 @@ describe('App: switching steps keeps finished work and state', { timeout: 120_00
     goTo(/Where's the tipping point/);
     goTo(/What happened/);
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('"Replay from the start" with nothing changed keeps the cell chosen on step 2 and the fix on step 3 (code review 4)', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    goTo(/Where's the tipping point/);
+    await screen.findByText('60 of 60 runs', undefined, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
+    await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
+    goTo(/Does a fix help/);
+    await screen.findByRole('heading', { name: /^Before vs after/ }, SLOW);
+    const tabs = screen.getAllByRole('tab');
+    fireEvent.click(tabs[1]);
+    await screen.findByText(`After: ${tabs[1].querySelector('.csl-fixtab__name')!.textContent}`, undefined, SLOW);
+    const work = [pool.cells.length, pool.analyzed.length];
+    goTo(/What happened/);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Replay from the start' }));
+    goTo(/Where's the tipping point/);
+    expect(screen.getByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ })).toBeTruthy();
+    goTo(/Does a fix help/);
+    expect(screen.getAllByRole('tab')[1].getAttribute('aria-selected')).toBe('true');
+    await act(async () => {});
+    expect([pool.cells.length, pool.analyzed.length]).toEqual(work); // nothing simulated again
+  });
+
+  it('a re-run from step 2 with another failure starts the map on its own cell (code review 4: the old cell was "Not on the map")', async () => {
+    const pool = new FakePool();
+    render(<App pool={pool} />);
+    await screen.findByRole('heading', { name: 'What happened' }, SLOW);
+    goTo(/Where's the tipping point/);
+    await screen.findByText('60 of 60 runs', undefined, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: /^80 requests per second, 12s failure length/ }));
+    await screen.findByRole('heading', { name: /Replaying 80 req\/s · 12s failure length/ }, SLOW);
+    fireEvent.click(screen.getByRole('button', { name: 'Change failure' }));
+    failOn('cache', 'restart-empty'); // its map's failure lengths are 20, 10, 5, 3 and 1 s: no 12 s row
+    expect(screen.getByRole('heading', { name: "Where's the tipping point?" })).toBeTruthy(); // still on step 2
+    await screen.findByRole('heading', { name: /Replaying 200 req\/s · 5s failure length/ }, SLOW);
+    expect(within(screen.getByLabelText('Selected cell')).queryByText('Not on the map')).toBeNull();
   });
 
   it('a re-run starts the other steps afresh', async () => {

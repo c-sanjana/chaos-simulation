@@ -73,7 +73,7 @@
   --csl-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
-/* Dark theme: set by the top-bar toggle (or the system setting) on <html data-theme>. */
+/* Dark theme: set by the top-bar toggle on <html data-theme> (the system setting is deliberately not followed, see themeMode.tsx). */
 :root[data-theme='dark'] {
   color-scheme: dark;
   --csl-ground: #0f1216;
@@ -312,11 +312,6 @@ body {
   color: var(--csl-muted);
   margin-top: 10px;
 }
-.csl-topology-key__item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 .csl-topology-key .csl-instance {
   width: 12px;
   height: 12px;
@@ -493,51 +488,6 @@ body {
   min-width: 0;
 }
 
-/* ---------- Timeline ---------- */
-.csl-timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-.csl-timeline__item {
-  display: grid;
-  grid-template-columns: 64px 12px minmax(0, 1fr);
-  gap: 8px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--csl-row-divider);
-  align-items: start;
-}
-.csl-timeline__time {
-  font-family: var(--csl-font-mono);
-  font-size: 12px;
-  color: var(--csl-muted);
-  padding-top: 1px;
-}
-.csl-timeline__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 5px;
-}
-.csl-timeline__text {
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--csl-ink);
-}
-.csl-timeline__text--strong {
-  font-weight: 600;
-}
-.csl-timeline__text--tip {
-  color: var(--csl-bad-text);
-}
-.csl-empty {
-  font-size: 13px;
-  color: var(--csl-muted);
-  margin: 0;
-}
-
 /* ---------- Tipping-point map ---------- */
 .csl-map-scroll {
   overflow-x: auto;
@@ -635,14 +585,6 @@ button.csl-map__cell {
   background: var(--csl-ink);
   display: inline-block;
 }
-.csl-map__captions {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--csl-muted);
-  padding-left: 40px;
-}
 .csl-map-legend {
   display: flex;
   flex-wrap: wrap;
@@ -670,162 +612,6 @@ button.csl-map__cell {
   box-sizing: border-box;
 }
 
-/* ---------- Fix list ---------- */
-.csl-fix-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.csl-fix-list__toggle {
-  align-self: flex-start;
-}
-.csl-fixes {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.csl-fix {
-  border: 1px solid var(--csl-border);
-  background: var(--csl-card);
-  border-radius: 10px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.csl-fix--applied {
-  border-color: var(--csl-primary);
-  background: var(--csl-selected-bg);
-}
-.csl-fix__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-.csl-fix__rank {
-  font-family: var(--csl-font-mono);
-  font-size: 13px;
-  color: var(--csl-muted);
-  width: 18px;
-}
-.csl-fix__main {
-  flex: 1 1 200px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.csl-fix__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-.csl-fix__why {
-  font-size: 13px;
-  color: var(--csl-muted);
-}
-.csl-fix__outcome {
-  flex: 0 1 260px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.csl-fix__result {
-  font-size: 14px;
-  font-weight: 500;
-}
-.csl-fix__meta {
-  font-size: 12px;
-  color: var(--csl-muted);
-  font-family: var(--csl-font-mono);
-}
-.csl-fix__caveat-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  border: 1px solid var(--csl-border-strong);
-  background: var(--csl-card);
-  color: var(--csl-ink);
-  cursor: pointer;
-  font-family: var(--csl-font-mono);
-  font-size: 14px;
-  padding: 0;
-}
-.csl-fix__caveat-btn[aria-expanded='true'] {
-  background: var(--csl-subtle-bg);
-}
-.csl-fix__apply {
-  border-color: var(--csl-ink);
-}
-.csl-fix__caveat {
-  font-size: 13px;
-  color: var(--csl-ink-2);
-  background: var(--csl-ground);
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-left: 30px;
-}
-.csl-failed {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.csl-failed__item {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  font-size: 14px;
-  padding: 8px 14px;
-  border: 1px dashed var(--csl-border-strong);
-  border-radius: 8px;
-}
-.csl-failed__title {
-  font-weight: 500;
-}
-.csl-failed__result {
-  color: var(--csl-muted);
-}
-
-/* ---------- Scenario picker and steps ---------- */
-.csl-scenarios {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.csl-scenario {
-  flex: 1 1 240px;
-  min-width: 0;
-  text-align: left;
-  font: inherit;
-  color: var(--csl-ink);
-  cursor: pointer;
-  border-radius: 10px;
-  padding: 12px 14px;
-  border: 1.5px solid var(--csl-border);
-  background: var(--csl-card);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.csl-scenario[aria-pressed='true'] {
-  border-color: var(--csl-ink);
-  background: var(--csl-subtle-bg);
-}
-.csl-scenario__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-.csl-scenario__blurb {
-  font-size: 13px;
-  color: var(--csl-ink-2);
-}
 .csl-steps {
   display: flex;
   flex-wrap: wrap;
@@ -1049,24 +835,6 @@ button.csl-map__cell {
   gap: 20px;
   min-width: 0;
 }
-.csl-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 16px;
-}
-.csl-header__title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.csl-header__tagline {
-  margin: 2px 0 0;
-  font-size: 14px;
-  color: var(--csl-muted);
-}
 .csl-card {
   background: var(--csl-card);
   border: 1px solid var(--csl-border);
@@ -1126,14 +894,14 @@ button.csl-map__cell {
   flex-direction: column;
   gap: 10px;
 }
-.csl-player__timeline {
+.csl-player__storycol {
   flex: 1 1 300px;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.csl-player__timeline h3 {
+.csl-player__storycol h3 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
@@ -1169,14 +937,6 @@ button.csl-map__cell {
   gap: 20px;
   align-items: flex-start;
 }
-.csl-row__main {
-  flex: 999 1 560px;
-  min-width: 0;
-}
-.csl-row__side {
-  flex: 1 1 260px;
-  min-width: 0;
-}
 .csl-panel {
   background: var(--csl-ground);
   border: 1px solid var(--csl-border);
@@ -1185,12 +945,6 @@ button.csl-map__cell {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.csl-panel__label {
-  font-size: 12px;
-  color: var(--csl-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 .csl-failure {
   display: flex;
@@ -1247,70 +1001,15 @@ button.csl-map__cell {
   font-size: 14px;
 }
 
-/* Live timeline: newest first, failures highlighted, inside a fixed scrollable window. */
-.csl-timeline__item {
-  border-radius: 6px;
-  padding-left: 6px;
-  padding-right: 6px;
-}
-.csl-timeline__item--alert {
-  background: var(--csl-alert-bg);
-  box-shadow: inset 3px 0 0 var(--csl-bad);
-}
-/* The newest entry: a tinted background and a "NOW" tag, not an outline (which read as keyboard focus). */
-.csl-timeline__item--latest {
-  background: var(--csl-selected-bg);
-  animation: csl-timeline-in 0.35s ease-out;
-}
-.csl-timeline__item--latest .csl-timeline__time::after {
-  content: 'now';
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--csl-primary);
-}
-@keyframes csl-timeline-in {
+@keyframes csl-step-in {
   from { transform: translateY(-6px); opacity: 0; }
   to { transform: none; opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .csl-timeline__item--latest { animation: none; }
-}
-.csl-timeline-window {
-  display: flex;
-  flex-direction: column;
-  min-height: 240px;
-  height: 340px;
-  border: 1px solid var(--csl-border);
-  border-radius: 10px;
-  background: var(--csl-card);
-}
-.csl-timeline-window > .csl-timeline-title {
-  padding: 10px 12px 6px;
-  margin: 0;
-  border-bottom: 1px solid var(--csl-divider);
-}
-.csl-timeline-window__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 6px 8px 8px;
-}
-.csl-timeline__ahead {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--csl-muted);
 }
 
 /* Settings from the topology */
 .csl-node__edit {
   font-size: 12px;
   color: var(--csl-muted);
-  margin-left: auto;
-}
-.csl-topology-key__actions {
   margin-left: auto;
 }
 .csl-btn--small {
@@ -1376,12 +1075,6 @@ button.csl-map__cell {
 .csl-card--compact .csl-card__title {
   font-size: 16px;
 }
-.csl-card--compact .csl-player__charts {
-  flex-basis: 380px;
-}
-.csl-card--compact .csl-player__timeline {
-  flex-basis: 240px;
-}
 .csl-card--compact .csl-topology-key {
   font-size: 12px;
 }
@@ -1408,9 +1101,6 @@ button.csl-map__cell {
   .csl-split__side {
     max-width: none;
   }
-}
-.csl-split__timeline:empty {
-  display: none;
 }
 /* The failure being tested: the banner under the title. The injected-failure purple (⚡, as on the
    diagram) marks it: a left border, the label and the failure's own chip. */
@@ -1527,54 +1217,15 @@ button.csl-map__cell {
     white-space: normal;
   }
 }
-.csl-map--small {
-  --csl-map-cell: 15px;
-}
-.csl-map--small .csl-map__xlabel,
-.csl-map--small .csl-map__ylabel {
-  font-size: 11px;
-}
 
-.csl-timeline-title {
-  margin: 0 0 6px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/* Compact player: chart full width, timeline underneath. */
+/* Compact player: chart full width, the story underneath (or beside the chart, see below). */
 .csl-card--compact .csl-player__body {
   flex-direction: column;
   align-items: stretch;
 }
 .csl-card--compact .csl-player__charts,
-.csl-card--compact .csl-player__timeline {
+.csl-card--compact .csl-player__storycol {
   flex-basis: auto;
-}
-/* Compact fix cards in the side column. */
-.csl-split__side .csl-fix {
-  padding: 8px 10px;
-  gap: 4px;
-}
-.csl-split__side .csl-fix__row {
-  gap: 8px;
-}
-.csl-split__side .csl-fix__title {
-  font-size: 14px;
-}
-.csl-split__side .csl-fix__why,
-.csl-split__side .csl-fix__meta {
-  font-size: 12px;
-}
-.csl-split__side .csl-fix__outcome {
-  flex: 1 1 100%;
-  padding-left: 26px;
-}
-.csl-split__side .csl-fix__apply,
-.csl-split__side .csl-fix__caveat-btn {
-  min-height: 34px;
-}
-.csl-split__side .csl-fix-list {
-  gap: 8px;
 }
 
 /* ---------- Compact top bar ----------
@@ -1641,9 +1292,6 @@ button.csl-map__cell {
   border: 1px solid var(--csl-border);
   border-radius: 8px;
 }
-.csl-map--medium {
-  --csl-map-cell: 19px;
-}
 .csl-map--medium .csl-map__xlabel,
 .csl-map--medium .csl-map__ylabel {
   font-size: 11px;
@@ -1651,26 +1299,13 @@ button.csl-map__cell {
 .csl-split__side .csl-map {
   --csl-map-cell: 28px;
 }
-.csl-split__side .csl-map--medium .csl-map {
-  --csl-map-cell: 19px;
-}
 
 .csl-split__side--wide {
   flex-basis: 660px;
   max-width: 680px;
 }
-.csl-split__side .csl-map--medium .csl-map {
-  --csl-map-cell: 18px;
-}
-.csl-map--medium .csl-map__captions {
-  font-size: 12px;
-}
 
-/* Compact player trims: the static colour key is hidden (the arrows and squares carry it; the
-   full player still shows it), and playback controls stay on one line. */
-.csl-card--compact .csl-topology-key__legend {
-  display: none;
-}
+/* Compact player trims: playback controls stay on one line. */
 .csl-card--compact .csl-playback {
   flex-wrap: nowrap;
   gap: 8px;
@@ -2046,10 +1681,6 @@ button.csl-map__cell {
 .csl-procon--bad .csl-procon__sign {
   color: var(--csl-bad-text);
 }
-.csl-fix-maps__hint {
-  font-size: 12px;
-  color: var(--csl-muted);
-}
 
 /* ---------- Stretch layout: a side column matching the main column's height ---------- */
 .csl-split--stretch {
@@ -2061,54 +1692,28 @@ button.csl-map__cell {
   gap: 12px;
   min-width: 0;
 }
-.csl-split__side--narrow {
-  flex: 0 1 380px;
-  max-width: 420px;
-}
-/* The timeline slot takes the rest of the side column's height; its window scrolls inside. */
-.csl-split__slot {
-  flex: 1 1 0;
-  min-height: 220px;
-  display: flex;
-  flex-direction: column;
-}
-.csl-split__slot > .csl-timeline-window {
-  flex: 1 1 auto;
-  height: auto;
-  min-height: 0;
-}
-@media (max-width: 1100px) {
-  .csl-split--stretch {
-    flex-wrap: wrap;
-  }
-  .csl-split__side--narrow {
-    flex-basis: 100%;
-    max-width: none;
-  }
-  .csl-split__slot {
-    flex: none;
-    height: 340px;
-  }
-}
 @media (min-width: 1101px) {
   .csl-split--stretch {
     flex-wrap: nowrap;
   }
-  /* The side column never makes the page taller than the main column: it scrolls inside instead. */
-  .csl-split__side--narrow {
-    position: relative;
-  }
-  .csl-split__side--narrow > .csl-split__slot {
-    position: absolute;
-    inset: 0;
-    min-height: 0;
-    overflow-y: auto;
-    gap: 12px;
-  }
-  .csl-split__side--narrow > .csl-split__slot > .csl-timeline-window {
-    flex: 1 0 auto;
-    min-height: 190px;
-  }
+}
+/*
+ * Step 1's side column, beside the replay: only on screens over 1200px (App.tsx STORY_ABOVE_QUERY;
+ * narrower, the story is above the chart and the column is left out). The story slot fills it and
+ * scrolls inside, so the column never makes the page taller than the replay.
+ */
+.csl-split__side--narrow {
+  flex: 0 1 380px;
+  max-width: 420px;
+  position: relative;
+}
+.csl-split__slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
 }
 
 /*
@@ -2116,13 +1721,14 @@ button.csl-map__cell {
  * as tall as the screen below the steps), and the selected fix's panel scrolls inside it. If even
  * that is too short for the maps and the tabs, the card itself scrolls: nothing ever spills out
  * of it (the panel used to, on screens under ~800 px tall).
- * ASSUMPTION: 194px is the top bar and step tabs above the card plus the page's bottom margin at
- * ≥ 1101px (measured: the card starts at 146px and the page ends 48px below it).
+ * ASSUMPTION: 190px is the top bar, banner and step tabs above the card plus the page's bottom
+ * padding at ≥ 1101px (measured at 1440 × 900: the card starts at 170px and the page ends 20px
+ * below it), so a card that is only as tall as the screen ends with the screen.
  */
 @media (min-width: 1101px) {
   .csl-split__side--wide {
     position: relative;
-    min-height: max(520px, calc(100vh - 194px));
+    min-height: max(520px, calc(100vh - 190px));
   }
   .csl-split__side--wide > .csl-card {
     position: absolute;
@@ -2204,10 +1810,6 @@ button.csl-map__cell {
 }
 .csl-fix-maps .csl-map__xaxis {
   margin-top: 0;
-}
-/* Step 3's side column also holds the fixes, so its timeline may be a little shorter. */
-.csl-split__side--wide .csl-split__slot {
-  min-height: 196px;
 }
 
 /* The page tools (build, glossary, theme, tour) as one quiet toolbar: same height, no borders of
@@ -2319,9 +1921,12 @@ button.csl-map__cell {
   color: var(--csl-primary);
 }
 
-/* Legend + chart; on step 3 the live timeline sits beside them (under the metric tabs). The
-   timeline column takes the chart's height and its window scrolls inside, so a long timeline
-   never makes the card taller. */
+/*
+ * Legend + chart; on steps 2 and 3 the story sits beside them (under the metric tabs). The story
+ * column takes the story's own height, so the row grows to fit it and it is never cut off (user
+ * report, 2026-10-25: with a built system's shorter chart, a story as tall as the chart was clipped
+ * mid-item); the earlier steps, once shown, scroll inside a capped height.
+ */
 .csl-player__chartrow,
 .csl-player__chart {
   display: flex;
@@ -2337,31 +1942,22 @@ button.csl-map__cell {
 .csl-player__chartrow--side .csl-player__chart {
   flex: 1 1 0;
 }
-.csl-player__chartrow--side .csl-player__timeline--side {
+.csl-player__chartrow--side .csl-player__storycol--side {
   flex: 0 0 300px;
-  position: relative;
-  min-height: 200px;
 }
-/* Beside the chart: the compact story on top, the details filling the rest, scrolling inside. */
+/* A branched system's taller diagram leaves less room, so the chart beside the story may be shorter. */
+.csl-player__chartrow--side.csl-player__chartrow--short .csl-player__storycol--side {
+  min-height: 140px;
+}
 .csl-player__sidestack {
-  position: absolute;
-  inset: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow-y: auto;
 }
-/* The details take whatever the story leaves (at least 45%, as the story is capped at 55%) and
-   scroll inside, so their box is never cut off at the bottom. */
-.csl-player__sidestack > .csl-timeline-window {
-  flex: 1 1 0;
-  height: auto;
-  min-height: 0;
-}
-/* The story is the side column's one panel: it takes the room and scrolls inside if it needs more. */
+/* The story is the side column's one panel. */
 .csl-player__sidestack > .csl-story {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: none;
+  max-height: 60vh;
   overflow-y: auto;
 }
 .csl-story--compact {
@@ -2377,8 +1973,8 @@ button.csl-map__cell {
 .csl-story__head .csl-story__more {
   align-self: baseline;
 }
-/* When the player is narrow (step 3 at ~1280 px, or stacked), the timeline goes under the chart
-   so the chart keeps a readable width. */
+/* When the player is narrow (step 3 at ~1280 px, a phone, or stacked), the story goes under the
+   chart so the chart keeps a readable width. */
 /* (The container is the player card, a block box: on the flex item holding the charts, inline-size
    containment made Chrome size its height as if it had no width.) */
 .csl-player {
@@ -2388,9 +1984,8 @@ button.csl-map__cell {
   .csl-player__chartrow--side {
     flex-direction: column;
   }
-  .csl-player__chartrow--side .csl-player__timeline--side {
+  .csl-player__chartrow--side .csl-player__storycol--side {
     flex: none;
-    height: 210px;
   }
 }
 /* On step 3 the ◆ marks the replayed cell, so the selection ring would only repeat it. */
@@ -2405,43 +2000,18 @@ button.csl-map__cell {
 
 /* ---------- A map that fills its container (TippingMap's `fill`) ---------- */
 /* 'width': the columns share the container's width, so cells grow wider; rows keep --csl-map-cell. */
-.csl-map-scroll--fill-width .csl-map-frame,
-.csl-map-scroll--fill-both .csl-map-frame {
+.csl-map-scroll--fill-width .csl-map-frame {
   display: flex;
   width: 100%;
 }
-.csl-map-scroll--fill-width .csl-map,
-.csl-map-scroll--fill-both .csl-map {
+.csl-map-scroll--fill-width .csl-map {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
   --csl-map-col: minmax(0, 1fr);
 }
-.csl-map-scroll--fill-width .csl-map__cell,
-.csl-map-scroll--fill-both .csl-map__cell {
+.csl-map-scroll--fill-width .csl-map__cell {
   width: 100%;
-}
-/* 'both': the rows also share the height the card gives the map (at least --csl-map-cell each). */
-.csl-map-scroll--fill-both {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.csl-map-scroll--fill-both .csl-map-frame {
-  flex: 1 1 auto;
-}
-.csl-map-scroll--fill-both .csl-map__row:not(.csl-map__row--xlabels) {
-  flex: 1 1 0;
-  min-height: var(--csl-map-cell);
-  align-items: stretch;
-}
-.csl-map-scroll--fill-both .csl-map__cell {
-  height: auto;
-  min-height: var(--csl-map-cell);
-}
-.csl-map-scroll--fill-both .csl-map__ylabel {
-  align-self: center;
 }
 
 /* ---------- Step 2: the map card is as tall as the replay beside it, and the map takes the room ---------- */
@@ -2657,7 +2227,7 @@ button.csl-map__cell {
   font-weight: 600;
 }
 
-/* ---------- Infographic side panels (step 1): incident flow, event track, dumbbells ---------- */
+/* ---------- The story panel and the comparison: incident flow, meters, dumbbells ---------- */
 .csl-flow {
   list-style: none;
   margin: 0;
@@ -2753,7 +2323,7 @@ button.csl-map__cell {
   color: var(--csl-ink-2);
 }
 .csl-flow__step--latest {
-  animation: csl-timeline-in 0.35s ease-out;
+  animation: csl-step-in 0.35s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
   .csl-flow__step--latest { animation: none; }
@@ -2821,172 +2391,6 @@ button.csl-map__cell {
 .csl-cascade__n {
   font-family: var(--csl-font-mono);
   text-align: right;
-}
-
-/* Event track: markers on a time strip, the failure shaded, the replay position as a line. */
-.csl-track {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.csl-track__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.csl-track__count {
-  font-size: 12px;
-  color: var(--csl-muted);
-}
-.csl-segmented--small button {
-  min-height: 28px;
-  padding: 0 10px;
-  font-size: 12.5px;
-}
-.csl-track__steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  row-gap: 6px;
-}
-.csl-track__step {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  width: 38px;
-  padding: 4px 0 2px;
-}
-/* The connector: events in order, left to right. */
-.csl-track__step:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 15px;
-  left: calc(50% + 12px);
-  right: calc(-50% + 12px);
-  height: 2px;
-  background: var(--csl-border-strong);
-}
-.csl-track__step--during {
-  background: var(--csl-failure-tint);
-}
-.csl-track__mark {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  background: var(--csl-subtle-bg);
-  color: var(--csl-ink-2);
-}
-.csl-track__time {
-  font-family: var(--csl-font-mono);
-  font-size: 11px;
-  color: var(--csl-muted);
-}
-.csl-track__key {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--csl-muted);
-}
-.csl-track__key-band {
-  width: 14px;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--csl-failure-tint);
-}
-.csl-track__mark--fault,
-.csl-track__mark--bad {
-  background: var(--csl-chip-bad-bg);
-  color: var(--csl-chip-bad-ink);
-}
-.csl-track__mark--tip {
-  background: var(--csl-selected-bg);
-  color: var(--csl-primary);
-}
-.csl-track__mark--good {
-  background: var(--csl-chip-good-bg);
-  color: var(--csl-chip-good-ink);
-}
-.csl-track__mark--focus {
-  box-shadow: 0 0 0 2px var(--csl-card), 0 0 0 4px var(--csl-ink);
-}
-.csl-track__detail {
-  margin: 0;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--csl-subtle-bg);
-  font-size: 13px;
-  line-height: 1.4;
-}
-.csl-track__detail--fault,
-.csl-track__detail--bad {
-  background: var(--csl-alert-bg);
-  box-shadow: inset 3px 0 0 var(--csl-bad);
-}
-.csl-track__detail-time {
-  font-family: var(--csl-font-mono);
-  font-size: 12px;
-  color: var(--csl-muted);
-  margin-right: 4px;
-}
-
-/* The one details panel: the selected step spelled out under the icons, as a card. */
-.csl-details__focus {
-  padding: 8px 10px 4px;
-  border-radius: 8px;
-  background: var(--csl-subtle-bg);
-}
-.csl-details__focus .csl-flow__step {
-  padding-bottom: 4px;
-}
-.csl-details__list .csl-flow__headline {
-  font-weight: 600;
-}
-/* What was measured in that stretch of the run: quieter than the explanation above it. */
-.csl-details__measured {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 2px;
-  padding-top: 4px;
-  border-top: 1px solid var(--csl-divider);
-}
-.csl-details__measured-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--csl-muted);
-}
-.csl-details__measured ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.csl-details__entry {
-  font-size: 12.5px;
-  line-height: 1.4;
-  color: var(--csl-ink-2);
-}
-.csl-details__entry--bad,
-.csl-details__entry--tip {
-  color: var(--csl-ink);
 }
 
 /* Comparison: change chips, outcome, one dumbbell per measure. */
@@ -3192,14 +2596,6 @@ button.csl-map__cell {
   .csl-playback__readout {
     margin-right: auto;
   }
-  /* Step 3: the legend and chart get the full width; the timeline goes under them. */
-  .csl-player__chartrow--side {
-    flex-direction: column;
-  }
-  .csl-player__chartrow--side .csl-player__timeline--side {
-    flex: none;
-    height: 300px;
-  }
   /* Fix tabs: one per line, names in full. */
   .csl-fixtabs__list {
     grid-template-columns: minmax(0, 1fr);
@@ -3228,55 +2624,11 @@ button.csl-map__cell {
   }
 }
 
-/* ---------- Build your own system (the canvas page) ---------- */
-.csl-builder-page__head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.csl-builder-page__note {
-  flex: 1 1 auto;
-  font-size: 12.5px;
-  color: var(--csl-muted);
-}
-
 /* Settings drawer: one call's fields, when a part makes several calls (branching). */
 .csl-call-group {
   grid-column: 1 / -1;
   padding-top: 8px;
   border-top: 1px dashed var(--csl-border-strong);
-}
-
-/* A branched system's taller diagram leaves less room: the column beside the chart may be shorter
-   (it scrolls inside), so the chart can shrink with it. */
-.csl-player__chartrow--side.csl-player__chartrow--short .csl-player__timeline--side {
-  min-height: 140px;
-}
-
-/*
- * Step 2 and 3 replays: the story beside the chart is never cut off (user report, 2026-10-25: with a
- * built system's shorter chart, the story was clipped mid-item and looked as if it ran out of its
- * panel). The side column takes the story's own height instead of the chart's, so the row grows
- * to fit it; the earlier steps, once shown, scroll inside a capped height.
- */
-.csl-player__chartrow--side .csl-player__timeline--side {
-  position: static;
-  min-height: 0;
-}
-.csl-player__chartrow--side .csl-player__sidestack {
-  position: static;
-  overflow: visible;
-}
-.csl-player__sidestack > .csl-story {
-  flex: none;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-@container csl-player (max-width: 672px) {
-  .csl-player__chartrow--side .csl-player__timeline--side {
-    height: auto;
-  }
 }
 
 /* Room to breathe (user request, 2026-10-25): legends sit apart from what they explain. Step 2's map
