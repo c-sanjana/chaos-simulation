@@ -544,6 +544,8 @@ export function formatSeconds(ms: number): string {
 export const percent = (x: number) => `${Math.round(x * 100)}%`;
 
 export const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The other way round: "The database …" → "the database …", to continue a sentence. */
+export const uncap = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** "a", "a and b", "a, b and c" (or "a or b"). */
 export const listed = (items: string[], and = 'and') => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} ${and} ${items[items.length - 1]}`);

@@ -10,7 +10,7 @@
  * fix look like it multiplied the load, REVIEW2 1.6). See analysis/helpers' peakLoad.
  */
 import type { Analysis } from '../analysis/analyze';
-import { capitalise, formatMs, incidentWindow, listed, peakLoad as peakLoadIn, spokenName, strugglingPart } from '../analysis/helpers';
+import { capitalise, formatMs, incidentWindow, listed, peakLoad as peakLoadIn, spokenName, strugglingPart, uncap } from '../analysis/helpers';
 import { callsOf, type CallPolicy, type RunConfig } from '../engine/config';
 import type { RunResult } from '../engine/result';
 import { formatRatio } from './candidates';
@@ -253,7 +253,6 @@ function changeText(kind: FixKind, pressure: string | null, before: { config: Ru
   return null;
 }
 
-const uncap = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** The call whose timeout the fix lengthened, with its new timeout and how many times it retries. */
 function changedTimeout(before: RunConfig, after: RunConfig): { owner: string; target: string; timeoutMs: number; retries: number } | null {

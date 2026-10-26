@@ -1,10 +1,9 @@
-import { listed } from '../analysis/helpers';
+import { listed, uncap } from '../analysis/helpers';
 import { MAX_RETRIES } from '../engine/config';
 import { connectRefusal } from './edit';
 import { aKind, displayName as nameOf, type BuilderEdge, type BuilderGraph, type BuilderNode } from './graph';
 
 /** "A database only answers…" → "a database only answers…", to follow a colon. */
-const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /**
  * Something that stops a drawing from being simulated: the message, how serious it is, and the
@@ -76,7 +75,7 @@ export function findProblems(graph: BuilderGraph): GraphProblem[] {
     else if (!from) problems.push(problem('wrong', `${nameOf(to)} has an arrow from a part that no longer exists. Remove ${nameOf(to)} and add it again.`, [to.id], [e.id]));
     else {
       const why = connectRefusal(from.settings.kind, to.settings.kind);
-      if (why) problems.push(problem('wrong', `${nameOf(from)} can't send requests to ${nameOf(to)}: ${lowerFirst(why)} Remove that arrow.`, [], [e.id]));
+      if (why) problems.push(problem('wrong', `${nameOf(from)} can't send requests to ${nameOf(to)}: ${uncap(why)} Remove that arrow.`, [], [e.id]));
       problems.push(...callProblems(e, nameOf(from), nameOf(to)));
     }
   }
