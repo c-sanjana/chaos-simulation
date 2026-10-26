@@ -200,7 +200,7 @@ export function retriesDetail(draft: Draft): string {
  * The experiment being run, as the banner under the page title: labelled "Failure being tested",
  * the preset's name in bold, then its failure (⚡, as the diagram marks it), traffic and retries
  * as chips, with the button that opens the editor at its end.
- * `edited`: the settings differ from the preset's, so its name gets "(edited)".
+ * `edited`: the system's own settings were changed (not the failure or traffic), so the name gets "(edited)".
  */
 export function ScenarioSummary({ draft, editing, onToggle, edited = false }: { draft: Draft; editing: boolean; onToggle: () => void; edited?: boolean }) {
   const s = draft.scenario;

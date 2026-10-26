@@ -178,8 +178,15 @@ export function App({ pool: injected }: AppProps) {
     }
   };
   const dirty = !sameData(draft, applied);
-  /** The settings simulated differ from the chosen preset's: its name is shown with "(edited)". */
-  const edited = useMemo(() => !sameData(applied, systemDraft(system, scenarioId)), [applied, system, scenarioId]);
+  /**
+   * The system's own settings (its parts and calls: copies, timeouts, retries…) differ from the
+   * system as set up, so the failure's name is shown with "(edited)". The failure and the traffic
+   * are not counted: they are chosen in the failure editor (user decision, 2026-10-26).
+   */
+  const edited = useMemo(() => {
+    const { topology } = systemDraft(system, scenarioId);
+    return !sameData(applied.topology.tiers, topology.tiers) || !sameData(applied.topology.clientCall, topology.clientCall);
+  }, [applied, system, scenarioId]);
   const problems = draftProblems(draft);
 
   /** Bumped to replay the same run from the start ("Replay from the start" with nothing changed). */

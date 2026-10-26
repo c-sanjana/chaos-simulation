@@ -279,6 +279,8 @@ describe('App', { timeout: 60_000 }, () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Re-run simulation' }));
     await waitFor(() => expect(pool.analyzed.some((c) => c.client.rps === 150)).toBe(true), SLOW);
     const c = pool.analyzed.find((x) => x.client.rps === 150)!;
+    // The system's own settings changed: the failure's name says so.
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/DB slows down \(edited\)/));
     const tier = (id: string) => c.tiers.find((t) => t.id === id)!;
     expect(tier('api')).toMatchObject({ instances: 8, dropExpired: true, queueLimit: 50 });
     expect(tier('api').downstream).toMatchObject({ jitter: true, retries: 1 });
@@ -449,7 +451,7 @@ describe('App', { timeout: 60_000 }, () => {
     expect(screen.getByText('Enter a whole number from 1 to 70')).toBeTruthy();
   });
 
-  it('replays the same run from the start when nothing changed, labels edited presets, and caps added failures', async () => {
+  it('replays the same run from the start when nothing changed, and caps added failures (not "(edited)": only system settings count)', async () => {
     const pool = new FakePool();
     render(<App pool={pool} />);
     await screen.findByRole('heading', { name: 'What happened' }, SLOW);
@@ -470,7 +472,8 @@ describe('App', { timeout: 60_000 }, () => {
     expect(add.disabled).toBe(true);
     expect(screen.getByText('Every part already has a failure.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Run simulation' }));
-    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/DB slows down \+ 3 more failures \(edited\)/));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Scenario' }).textContent).toMatch(/DB slows down \+ 3 more failures/));
+    expect(screen.getByRole('region', { name: 'Scenario' }).textContent).not.toMatch(/\(edited\)/);
   });
 
   it('a failure set back to how it was is unchanged: no "(edited)", nothing to re-run (code review 4: key order made it differ)', async () => {

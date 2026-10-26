@@ -93,8 +93,8 @@ failure length, so users see identical outcomes; the database's own queue and ou
 - **Speed:** the default tipping map takes the same time (14.3 s here, 15.3 s before: noise).
 - **Checked in the browser:** the crash reproduction, step 3 when no fix helps, and all three steps at 1440×900.
 
-### For you to decide
+### Decided
 
-- **"(edited)" on other failures.** Since the preset cards were removed, every failure other than the
-  example's default ("DB slows down") shows "(edited)", even one the app offers as is. Keep it
-  meaning "not the default failure", or show it only when the system's own settings were changed?
+- **"(edited)" appears only when the system's own settings were changed** (its parts and calls:
+  copies, timeouts, retries…), by your decision on 2026-10-26. Choosing another failure, adding
+  failures or changing the traffic no longer adds it.
