@@ -133,14 +133,3 @@ npm run coverage   # tests with the coverage report
 npm run bench      # engine throughput (events per second)
 npm run deploy     # build and publish to here.now (needs HERENOW_API_KEY and HERENOW_SLUG)
 ```
-
-## More detail
-
-- [PLAN.md](PLAN.md): requirements, scope, the full decision log (every design choice and the
-  measurement behind it) and the time log.
-- [REVIEW2.md](REVIEW2.md), [REVIEW3.md](REVIEW3.md), [REVIEW4.md](REVIEW4.md): the review rounds,
-  their findings and how each was resolved.
-
-Built with Claude (Claude Code) as a pair programmer: the author set the direction and made the
-product and design decisions; Claude proposed options, wrote the code and tests, and measured the
-results. Planning took about [to be confirmed]; the time spent building is in PLAN.md.
